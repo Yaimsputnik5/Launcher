@@ -71,7 +71,12 @@ enum ServerStatusClient {
             let host = String(trimmed[trimmed.index(after: trimmed.startIndex)..<close])
             let after = trimmed[trimmed.index(after: close)...]
             let portString = after.hasPrefix(":") ? String(after.dropFirst()) : ""
-            let port = UInt16(portString).map { $0 == 0 ? AppConstants.statusPort : $0 } ?? AppConstants.statusPort
+            let port: UInt16
+            if let parsed = UInt16(portString), parsed != 0 {
+                port = parsed
+            } else {
+                port = AppConstants.statusPort
+            }
             guard !host.isEmpty else { return nil }
             return (host, port)
         }
