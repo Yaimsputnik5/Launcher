@@ -78,12 +78,12 @@ repository, so no repository-dispatch credentials are needed:
 | File | Meaning |
 |---|---|
 | `ios/ci-config/embed-client.txt` | `1` embeds the 0.83 GiB original client payload; `0` builds without it |
+| `ios/ci-config/publish-release.txt` | `1` publishes the IPA to the `ios-ipa` release and skips the 500 MB artifact upload |
 
-`workflow_dispatch` inputs override those files. Publishing to the `ios-ipa`
-release is opt-in (`publish: true`) because the embedded client is third-party
-copyrighted content. Note that an embedded build produces an IPA larger than
-the 500 MB per-artifact limit on the free Actions plan; use release publishing
-for that build if you have redistribution rights.
+`workflow_dispatch` inputs override those files. Only enable publishing if you
+hold the rights to redistribute the embedded third-party game content. Every run
+also publishes its build log to the `ios-build-log` release, which is the
+quickest way to diagnose a failed macOS build.
 
 ## Where data lives
 
