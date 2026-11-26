@@ -140,12 +140,15 @@ enum GameLocale: String, Codable, CaseIterable, Identifiable {
         }
     }
 
-    /// The original C# enum contains the historical typo `fi_FL`. Accept the
-    /// correct `fi_FI` from manifests and map it to that legacy value.
+    /// `ClientManifest.Languages` uses C#'s `Enum.TryParse(..., ignoreCase: true)`.
+    /// The live OSFR manifest writes `en_us`, so matching must be
+    /// case-insensitive. The original C# enum contains the historical typo
+    /// `fi_FL`; accept the correct `fi_FI` from manifests and map it to that
+    /// legacy value.
     static func fromManifest(_ rawValue: String) -> GameLocale? {
         let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed == "fi_FI" { return .fi_FL }
-        return GameLocale(rawValue: trimmed)
+        if trimmed.caseInsensitiveCompare("fi_FI") == .orderedSame { return .fi_FL }
+        return allCases.first { $0.rawValue.caseInsensitiveCompare(trimmed) == .orderedSame }
     }
 }
 

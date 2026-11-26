@@ -95,10 +95,24 @@ final class CoreTests: XCTestCase {
         </ClientManifest>
         """
         let manifest = try ClientManifestParser().parse(Data(xml.utf8))
+        // The live OSFR manifest spells the locale `en_us`; C# parses manifest
+        // locales case-insensitively, so this must resolve to `.en_US`.
+        XCTAssertEqual(manifest.languages, [.en_US])
         XCTAssertEqual(manifest.rootFolder.name, "")
         XCTAssertEqual(manifest.rootFolder.folders.count, 1)
         XCTAssertEqual(manifest.rootFolder.folders[0].name, "data")
         XCTAssertEqual(manifest.rootFolder.folders[0].files[0].name, "a.bin")
+    }
+
+    func testClientManifestLanguagesAreCaseInsensitive() throws {
+        let xml = """
+        <?xml version="1.0"?><ClientManifest version="1" languages="EN_us, de_DE, fi_FI, unknown">
+          <Folder><File name="a.bin" size="3" hash="1"/></Folder>
+        </ClientManifest>
+        """
+        let manifest = try ClientManifestParser().parse(Data(xml.utf8))
+        // `fi_FI` is the corrected spelling of the C# enum's `fi_FL` typo.
+        XCTAssertEqual(manifest.languages, [.en_US, .de_DE, .fi_FL])
     }
 
     func testClientManifestRejectsTraversal() {

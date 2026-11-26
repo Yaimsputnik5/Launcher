@@ -1051,14 +1051,17 @@ final class GatewayUDPSession: @unchecked Sendable {
     }
 
     private func completeLogin() {
-        guard continuation != nil else { return }
-        isActive = true
+        // Capture the continuation before clearing it. Resuming through the
+        // optional property after setting it to nil silently drops the resume
+        // and leaves `connect()` waiting until its timeout fires.
+        guard let pendingContinuation = continuation else { return }
         self.continuation = nil
+        isActive = true
         connectRetry?.cancel()
         timeoutWork?.cancel()
         connectRetry = nil
         timeoutWork = nil
-        continuation?.resume(returning: ())
+        pendingContinuation.resume(returning: ())
     }
 
     /// Closes an authenticated gateway session. Pending reliable frames are
