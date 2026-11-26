@@ -83,7 +83,7 @@ jobs:
       - name: Sync Sanctuary resources into the app
         env:
           SANCTUARY_DIR: ${{ runner.temp }}/Sanctuary
-        run: ios/scripts/sync_sanctuary_resources.sh
+        run: bash ios/scripts/sync_sanctuary_resources.sh
 
       - name: Build IPA
         id: build
@@ -92,9 +92,8 @@ jobs:
           IOS_EMBED_CLIENT: ${{ steps.cfg.outputs.embed }}
         run: |
           cd ios
-          chmod +x build_ipa.sh scripts/*.sh
           set -o pipefail
-          ./build_ipa.sh 2>&1 | tee build.log
+          bash ./build_ipa.sh 2>&1 | tee build.log
 
       - name: Upload IPA and build log
         if: steps.build.outcome == 'success'
