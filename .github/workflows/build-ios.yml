@@ -42,13 +42,14 @@ jobs:
           set -e
           cd "$GITHUB_WORKSPACE"
           touch ios/build.log
+          gh release delete ios-ipa --yes --cleanup-tag >/dev/null 2>&1 || true
           notes="Unsigned iOS IPA built from the Launcher ios/ SwiftUI sources."
           if [ -f ios/Launcher.ipa ]; then
             gh release create ios-ipa ios/Launcher.ipa ios/build.log \
-              --repo "$GITHUB_REPOSITORY" --title "iOS IPA (unsigned)" --notes "$notes" --clobber
+              --repo "$GITHUB_REPOSITORY" --title "iOS IPA (unsigned)" --notes "$notes"
           else
             gh release create ios-ipa ios/build.log \
-              --repo "$GITHUB_REPOSITORY" --title "iOS build log (failed or cancelled)" --notes "$notes" --clobber
+              --repo "$GITHUB_REPOSITORY" --title "iOS build log (failed)" --notes "$notes"
           fi
       - name: Fail if xcodebuild failed
         if: steps.build.outcome != 'success'

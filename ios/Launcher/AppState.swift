@@ -108,7 +108,7 @@ final class AppState: ObservableObject {
 
 @MainActor
 final class ServerRuntime: ObservableObject, Identifiable {
-    var id: UUID { info.id }
+    let id: UUID
 
     @Published var info: ServerInfo
     @Published var status: ServerStatus?
@@ -122,6 +122,7 @@ final class ServerRuntime: ObservableObject, Identifiable {
     weak var state: AppState?
 
     init(info: ServerInfo) {
+        self.id = info.id
         self.info = info
     }
 

@@ -129,9 +129,7 @@ final class HTTPClient {
             if !succeeded { try? fm.removeItem(at: temp) }
         }
 
-        var request = URLRequest(url: url)
-        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
-        let (bytes, response) = try await session.bytes(from: request)
+        let (bytes, response) = try await session.bytes(from: url)
         guard let http = response as? HTTPURLResponse else {
             throw LauncherError.httpStatus(-1)
         }
@@ -166,12 +164,23 @@ final class HTTPClient {
                        progress: @escaping (Double) -> Void) async throws {
         defer { try? handle.close() }
         var received: UInt64 = 0
-        for try await chunk in bytes {
-            try handle.write(contentsOf: chunk)
-            received += UInt64(chunk.count)
+        var buffer = Data()
+        buffer.reserveCapacity(64 * 1024)
+
+        // URLSession.AsyncBytes yields individual UInt8 values, not Data chunks.
+        for try await byte in bytes {
+            buffer.append(byte)
+            received += 1
+            if buffer.count >= 64 * 1024 {
+                try handle.write(contentsOf: buffer)
+                buffer.removeAll(keepingCapacity: true)
+            }
             if let expectedBytes, expectedBytes > 0 {
                 progress(min(1, max(0, Double(received) / Double(expectedBytes))))
             }
+        }
+        if !buffer.isEmpty {
+            try handle.write(contentsOf: buffer)
         }
         try handle.synchronize()
     }

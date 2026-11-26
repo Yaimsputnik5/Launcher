@@ -88,7 +88,7 @@ private struct ServerRow: View {
             if !runtime.statusMessage.isEmpty {
                 Text(runtime.statusMessage)
                     .font(.caption2)
-                    .foregroundStyle(runtime.lastError == nil ? .secondary : .red)
+                    .foregroundStyle(runtime.lastError == nil ? Color.secondary : Color.red)
                     .lineLimit(1)
             }
         }
