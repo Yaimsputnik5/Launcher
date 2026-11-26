@@ -160,19 +160,19 @@ does not claim such a license.
 ## Current status
 
 - Launcher functionality and a real unsigned IPA already exist.
-- All five Sanctuary audits are complete under `sanctuary-audit/`.
+- Six Sanctuary audit/binary-verification reports are complete under `sanctuary-audit/`.
 - Foundation-only core tests run on Linux via `swift test --package-path ios`.
 - Sanctuary resources (101 files, 75,740,078 bytes) and the full original client
   payload (1,788 files, 893,405,496 bytes) are staged and XXH64-verified. Neither
   payload is committed; CI regenerates both.
 - The full unsigned IPA was built and verified at
-  <https://github.com/YaimSputnik5/Launcher/actions/runs/45849282209>; see
+  <https://github.com/YaimSputnik5/Launcher/actions/runs/45855116061>; see
   `ios/README.md` for its SHA-256 and embedded contents. Physical-device launch
   still needs to be done by the person side-loading it.
 - Packet primitives, login message framing, `.pack`/`.rcc` readers, resource
   catalog loaders, a world-map loader, a local account/character store, TGA/DDS
   decoders, AES-CCM gateway codecs and the source-backed zone/collection/quest
-  simulation are implemented as Foundation-only modules with 98 passing Linux
+  simulation are implemented as Foundation-only modules with 99 passing Linux
   tests.
 - Native Login UDP authentication, character select/login, gateway framing and
   UDP transport, a simulation-backed World tab and launcher-parity fixes are

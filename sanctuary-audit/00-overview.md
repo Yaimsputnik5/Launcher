@@ -77,6 +77,7 @@ rejection. SwiftUI/iOS builds still use the macOS GitHub Actions runner.
 - `02-resources-and-assets.md`
 - `03-protocol-and-servers.md`
 - `04-game-logic-and-scripts.md`
+- `05-compiled-binaries-and-rea.md`
 
 ## User decisions for the iOS port
 
