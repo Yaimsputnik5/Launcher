@@ -46,7 +46,21 @@ struct WorldSessionConfiguration: Codable, Equatable {
     var loginArguments: [String]
     var locale: GameLocale
 
+    /// Values from Sanctuary's `ClientCharacterData`. They are optional because
+    /// a WebAPI-only session predates character login and has no gateway ticket.
+    var characterName: String? = nil
+    var gatewayAddress: String? = nil
+    var gatewayGUID: UInt64? = nil
+    /// Sanctuary's gateway.json default; a server may require a different value.
+    var gatewayVersion: String? = nil
+    var serverID: Int32? = nil
+
     var isOffline: Bool { mode == .offline }
+
+    /// True only after the full Login UDP character/gateway exchange completed.
+    var canJoinGateway: Bool {
+        mode == .remote && ticket != nil && gatewayAddress != nil && gatewayGUID != nil
+    }
 }
 
 /// Compact state used by the UI before the engine is fully initialized.

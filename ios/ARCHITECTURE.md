@@ -131,6 +131,14 @@ The current launcher UI becomes one section of the app:
 Offline and remote modes share the renderer, resource catalog, and packet
 models. Only the transport and authority boundary differ.
 
+Sanctuary ignores several client-supplied fields, so their stock-client values
+cannot be recovered from its source. The iOS port uses documented choices
+rather than claiming exactness: fingerprint `OSFRLauncheriOS`, locale ID from
+the Windows LCID table, `serverID = 1`, and gateway version
+`1.910.1.530630` from Sanctuary's `gateway.json` default. A server that
+requires a different version can be supported by changing
+`WorldSessionConfiguration.gatewayVersion` before joining.
+
 ## Security fixes carried forward
 
 - Manifest path traversal rejected.
@@ -166,10 +174,11 @@ does not claim such a license.
   decoders, AES-CCM gateway codecs and the source-backed zone/collection/quest
   simulation are implemented as Foundation-only modules with 94 passing Linux
   tests.
-- Native Login UDP authentication, gateway framing/opcodes, a simulation-backed
-  World tab and launcher-parity fixes are integrated into the SwiftUI app. The
-  full 3D renderer, navmesh routines, Lua script runtime and complete remote
-  gameplay transport remain open; see the phase checklist below.
+- Native Login UDP authentication, character select/login, gateway framing and
+  UDP transport, a simulation-backed World tab and launcher-parity fixes are
+  integrated into the SwiftUI app. The full 3D renderer, navmesh routines, Lua
+  script runtime and continuous gameplay/world transport remain open; see the
+  phase checklist below.
 
 ## Phase checklist
 
@@ -187,7 +196,8 @@ does not claim such a license.
 - [x] Parse `.rcc` and `.pack` enough to load a usable asset subset.
 - [x] Decode TGA and DDS textures into RGBA8 buffers.
 - [ ] Build a full 3D Metal renderer for the FabledRealms zone; the current World tab is a data-driven 2D simulation view.
-- [ ] Implement complete remote Login/Gateway gameplay transport (session login and AES-CCM codecs are done; character/gateway handoff remains).
+- [x] Implement the source-backed Login UDP → character select → character login → gateway UDP handoff with AES-CCM transport and the documented client hello.
+- [ ] Implement continuous remote gameplay/world packets and state synchronization beyond the client hello.
 - [x] Build and verify a full all-in-one IPA with embedded client data.
 - [ ] Side-load that IPA on a physical iOS device (requires the user's device).
 
@@ -206,8 +216,9 @@ on iOS from the checked-in assets alone. The following remain explicit gaps:
 - Drop rolls use the first positive drop-table entry instead of the server's
   RNG. Dialogue trees, reward bundles, prerequisite/next-quest chains and
   quest exclusions are not simulated.
-- Login UDP session establishment and gateway AES-CCM codecs are implemented;
-  character/gateway handoff and continuous world-socket gameplay are still in
-  progress and are not represented as exact parity.
+- Login UDP session establishment, character/gateway handoff and the gateway UDP
+  hello are implemented against Sanctuary's source. Continuous world-socket
+  gameplay, movement replication and server-authoritative state are not
+  represented as exact parity.
 - Full manifest XSD-equivalent validation and complete `.rcc`/`.pack` PNG
   decompression are not implemented; embedded assets are verified by XXH64.

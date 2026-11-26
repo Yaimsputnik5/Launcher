@@ -9,6 +9,8 @@ final class AppState: ObservableObject {
     @Published private(set) var settings: AppSettings
     @Published private(set) var runtimes: [ServerRuntime] = []
     @Published private(set) var remoteSession: WorldSessionConfiguration?
+    @Published private(set) var gatewaySession: GatewayUDPSession?
+    @Published private(set) var gatewayStatus = "Not connected"
     @Published var notifications: [AppNotice] = []
 
     init() {
@@ -79,7 +81,10 @@ final class AppState: ObservableObject {
         }
         runtimes.remove(at: runtimeIndex)
         settings.servers.remove(at: settingsIndex)
-        if remoteSession?.host == info.loginServer { remoteSession = nil }
+        if remoteSession?.host == info.loginServer {
+            remoteSession = nil
+            disconnectGateway()
+        }
         persistSettings()
         notify("Deleted \(info.name).")
     }
@@ -104,6 +109,44 @@ final class AppState: ObservableObject {
     /// not to persist launch tickets passwords or tokens.
     func setRemoteSession(_ configuration: WorldSessionConfiguration) {
         remoteSession = configuration
+        gatewaySession = nil
+        gatewayStatus = "Not connected"
+    }
+
+    /// Opens the gateway UDP connection with the ticket returned by Sanctuary's
+    /// character login handler. This does not fabricate a world state: it
+    /// establishes the real transport and sends the documented client hello.
+    func joinRemoteWorld() async {
+        guard let session = remoteSession, session.canJoinGateway else {
+            notify("Sign in completely before joining the world.", isError: true)
+            return
+        }
+        guard let address = session.gatewayAddress,
+              let guid = session.gatewayGUID,
+              let ticket = session.ticket
+        else { return }
+
+        gatewayStatus = "Connecting…"
+        do {
+            let gateway = try await GatewayUDPSession.connect(
+                address: address,
+                ticket: ticket,
+                guid: guid,
+                version: session.gatewayVersion ?? GatewayUDPSession.defaultClientVersion
+            )
+            try gateway.sendInitialPackets(locale: session.locale)
+            gatewaySession = gateway
+            gatewayStatus = "Connected as \(session.characterName ?? "character")"
+            notify("Joined \(address).")
+        } catch {
+            gatewayStatus = "Failed: \(error.localizedDescription)"
+            notify("Gateway join failed: \(error.localizedDescription)", isError: true)
+        }
+    }
+
+    func disconnectGateway() {
+        gatewaySession = nil
+        gatewayStatus = "Not connected"
     }
 
     func setLocale(_ locale: GameLocale) {

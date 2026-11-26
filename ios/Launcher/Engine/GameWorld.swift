@@ -62,6 +62,7 @@ struct CollectionNodeSnapshot: Equatable, Identifiable {
     let heading: Double
     let available: Bool
     let respawnTicksRemaining: Int
+    let interactRange: Int
     let collectionID: Int
     let collectionEntryID: Int
     let collectedCount: Int
@@ -290,6 +291,7 @@ final class WorldSimulation {
                     heading: state.spawn.heading,
                     available: state.available,
                     respawnTicksRemaining: max(0, state.respawnTick - movementTicks),
+                    interactRange: state.spawn.interactRange,
                     collectionID: state.spawn.collectionID,
                     collectionEntryID: state.spawn.collectionEntryID,
                     collectedCount: state.collectedCount
@@ -636,7 +638,7 @@ final class WorldSimulation {
         // row as soon as a goal advances. Completion is committed separately
         // through completeQuest, which also clears the active quest pointer.
         for progress in player.quests where !progress.completed {
-            try? session?.updateQuestProgress(progress)
+            _ = try? session?.updateQuestProgress(progress)
         }
     }
 

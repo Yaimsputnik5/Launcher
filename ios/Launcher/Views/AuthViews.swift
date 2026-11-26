@@ -113,26 +113,35 @@ struct LoginView: View {
 
             // Sanctuary clients exchange the WebAPI ticket for a real game
             // session over the Login UDP listener. The desktop launcher only
-            // forwards it as a launch argument; iOS performs the handshake.
-            let gameSession = try await LoginUDPSession.authenticate(
+            // forwards the WebAPI ticket to FreeRealms.exe; iOS performs the
+            // full character-select/gateway-ticket handshake natively.
+            let gameSession = try await LoginUDPSession.authenticateCharacter(
                 address: runtime.info.loginServer,
                 sessionID: response.sessionId,
-                fingerprint: "OSFRLauncheriOS"
+                fingerprint: "OSFRLauncheriOS",
+                locale: state.settings.locale
             )
-            guard gameSession.reply.loggedIn else {
-                throw LauncherError.loginRejected(gameSession.reply.status)
+            guard gameSession.sessionReply.loggedIn else {
+                throw LauncherError.loginRejected(gameSession.sessionReply.status)
             }
 
+            let details = try? gameSession.character.details()
             let configuration = WorldSessionConfiguration(
                 mode: .remote,
                 host: runtime.info.loginServer,
                 username: username.trimmed,
                 sessionID: response.sessionId,
-                characterID: nil,
-                ticket: nil,
-                cryptoKey: nil,
+                characterID: GuidHelper.playerId(gameSession.entityKey),
+                ticket: gameSession.clientData.serverTicket,
+                cryptoKey: gameSession.clientData.cryptoKey,
                 loginArguments: parseLaunchArguments(response.launchArguments),
-                locale: state.settings.locale
+                locale: state.settings.locale,
+                characterName: details?.name,
+                gatewayAddress: gameSession.clientData.serverAddress,
+                gatewayGUID: gameSession.playerGUID,
+                gatewayVersion: GatewayUDPSession.defaultClientVersion,
+                serverID: gameSession.character.lastServerID > 0
+                    ? gameSession.character.lastServerID : 1
             )
             state.setRemoteSession(configuration)
 
@@ -151,7 +160,7 @@ struct LoginView: View {
                 CredentialStore.shared.delete(for: info.id)
             }
 
-            state.notify("Signed in. Game session established with \(runtime.info.name).")
+            state.notify("Signed in as \(details?.name ?? username.trimmed). Gateway ticket ready on \(runtime.info.name).")
             dismiss()
         } catch {
             errorMessage = error.localizedDescription

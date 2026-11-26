@@ -109,9 +109,27 @@ struct ServerDetailView: View {
                         .foregroundStyle(.secondary)
                 }
                 if let session = state.remoteSession, session.host == runtime.info.loginServer {
-                    LabeledContent("Game Session") {
-                        Text(session.mode == .remote ? "Ready" : "Local")
+                    LabeledContent("Character") {
+                        Text(session.characterName ?? session.username)
                     }
+                    LabeledContent("Game Session") {
+                        Text(session.canJoinGateway ? "Gateway ticket ready" : "Login only")
+                    }
+                    LabeledContent("Gateway") {
+                        Text(state.gatewayStatus)
+                    }
+                    Button("Join World") {
+                        Task { await state.joinRemoteWorld() }
+                    }
+                    .disabled(!session.canJoinGateway || state.gatewaySession != nil)
+                    if state.gatewaySession != nil {
+                        Button("Leave World", role: .destructive) {
+                            state.disconnectGateway()
+                        }
+                    }
+                    Text("Joining uses the server-supplied gateway address, ticket and GUID over native UDP.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
 

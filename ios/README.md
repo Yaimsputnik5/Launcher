@@ -22,7 +22,7 @@ In progress toward full parity:
 - The original client payload can be staged into `Launcher.app/ClientAssets` at build time and verified with XXH64.
 - The **World** tab is backed by Sanctuary zone, collection-spawn, quest and NPC data. It runs 10 Hz/1 Hz simulation ticks, gathers exact collection nodes, advances quest goals, persists per-goal progress, grants items and persists a local character. NPC coordinates are explicitly marked as inferred because `Npcs.json` ships no spawn positions.
 - Native TGA/DDS decoders read the original client textures from `.tga`, `.dds`, `.pack` and `.rcc` sources.
-- Sanctuary gateway framing and AES-CCM codecs, plus native Login UDP authentication, are implemented.
+- Native Login UDP authentication performs the complete WebAPI → session → character select → character login flow, and a native gateway UDP transport opens the real `CGAPI_527` connection with the server-supplied ticket, GUID and AES-CCM session. Continuous gameplay/world packets beyond the documented client hello are not yet simulated.
 - Foundation-only protocol, resource, container, image, gateway, world-simulation and local-session layers have Linux XCTest coverage (94 tests).
 
 Not supported on iOS:
@@ -116,8 +116,8 @@ Files are shared through the Files app because `UIFileSharingEnabled` is set.
 | `Downloader.DownloadService` | `HTTPClient.downloadFile` with `URLSession.AsyncBytes` |
 | `ServerStatusHelper` | `ServerStatusClient` (Network.framework UDP) |
 | `ViewModels/*` + `Views/*` | `AppState` / `ServerRuntime` + SwiftUI views |
-| Sanctuary `UdpLibrary` / `LoginUdp_6` | `ProtocolPrimitives`, `LoginProtocol` messages and `LoginUDPSession` |
-| Sanctuary gateway `CGAPI_527` | `GatewayProtocol` AES-CCM framing, opcodes and session codecs |
+| Sanctuary `UdpLibrary` / `LoginUdp_6` | `ProtocolPrimitives`, `LoginProtocol` and `LoginUDPSession` (session + character flow) |
+| Sanctuary gateway `CGAPI_527` | `GatewayProtocol` codecs and `GatewayUDPSession` UDP transport |
 | Sanctuary `Resources/*` | `ResourceCatalog` typed loaders |
 | Sanctuary `BaseZone` / `CollectionNode` / `QuestManager` | `WorldSimulation` and `CollectionSpawnCatalog` |
 | Sanctuary world database | `LocalSession` offline JSON store (first layer) |

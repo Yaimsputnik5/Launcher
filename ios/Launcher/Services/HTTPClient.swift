@@ -73,7 +73,7 @@ final class HTTPClient {
         var request = URLRequest(url: url)
         request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("*/*", forHTTPHeaderField: "Accept")
-        let (bytes, response) = try await session.bytes(from: request)
+        let (bytes, response) = try await session.bytes(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw LauncherError.httpStatus(-1)
         }
