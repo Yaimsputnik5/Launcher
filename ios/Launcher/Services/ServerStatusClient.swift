@@ -72,7 +72,8 @@ enum ServerStatusClient {
             let after = trimmed[trimmed.index(after: close)...]
             let portString = after.hasPrefix(":") ? String(after.dropFirst()) : ""
             let port = UInt16(portString).map { $0 == 0 ? AppConstants.statusPort : $0 } ?? AppConstants.statusPort
-            return host.isEmpty ? nil : (host, port)
+            guard !host.isEmpty else { return nil }
+            return (host, port)
         }
 
         let colonCount = trimmed.filter { $0 == ":" }.count
