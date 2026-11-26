@@ -23,7 +23,7 @@ In progress toward full parity:
 - The **World** tab is backed by Sanctuary zone, collection-spawn, quest and NPC data. It runs 10 Hz/1 Hz simulation ticks, gathers exact collection nodes, advances quest goals, persists per-goal progress, grants items and persists a local character. NPC coordinates are explicitly marked as inferred because `Npcs.json` ships no spawn positions.
 - Native TGA/DDS decoders read the original client textures from `.tga`, `.dds`, `.pack` and `.rcc` sources.
 - Native Login UDP authentication performs the complete WebAPI → session → character select → character login flow, and a native gateway UDP transport opens the real `CGAPI_527` connection with the server-supplied ticket, GUID and AES-CCM session. The documented client hello sends locale through `PacketTunneledClientWorldPacket` and initialization/finished/ready through `PacketTunneledClientPacket`, matching Sanctuary's handler routing. Continuous gameplay/world packets beyond that hello are not yet simulated.
-- Foundation-only protocol, resource, container, image, gateway, world-simulation and local-session layers have Linux XCTest coverage (97 tests).
+- Foundation-only protocol, resource, container, image, gateway, world-simulation and local-session layers have Linux XCTest coverage (98 tests).
 
 Not supported on iOS:
 
@@ -144,10 +144,10 @@ A real unsigned IPA with the full all-in-one UI, the embedded original client
 payload, and the Sanctuary server data was compiled on a free GitHub Actions
 macOS runner:
 
-- Workflow run: <https://github.com/YaimSputnik5/Launcher/actions/runs/45845033832>
+- Workflow run: <https://github.com/YaimSputnik5/Launcher/actions/runs/45849282209>
 - Release: <https://github.com/YaimSputnik5/Launcher/releases/tag/ios-ipa>
-- Local artifact: `ios/Launcher.ipa` (374,824,886 bytes)
-- SHA-256: `95f290fae8f5486777a304520b0af5bfcc4876266cd839ec7d41070f0c4296bd`
+- Local artifact: `ios/Launcher.ipa` (374,825,414 bytes)
+- SHA-256: `e5bfa0558d90bb1e4da5b9d1767307ba17881c4dce548e3c74678587e233f87c`
 
 The archive contains an arm64 `Mach-O` executable and an `Info.plist` with
 bundle ID `dev.opensourcefreerealms.launcher`, display name `OSFR Launcher`,
@@ -164,7 +164,8 @@ Foundation-only logic is verified locally:
 swift test --package-path ios
 ```
 
-The 97 tests cover XXH64, URL/path safety, manifest v1/v2, packet primitives,
+The 98 tests cover XXH64, URL/path safety, manifest v1/v2 and case-insensitive
+manifest locales, packet primitives,
 CRC32, RC4, GUID layout, WebAPI login response decoding, login framing/messages,
 gateway AES-CCM and opcode codecs, `.pack`/`.rcc` parsing, TGA/DDS decoding,
 Sanctuary resource schemas, zone/collection/quest simulation and offline

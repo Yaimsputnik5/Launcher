@@ -166,13 +166,13 @@ does not claim such a license.
   payload (1,788 files, 893,405,496 bytes) are staged and XXH64-verified. Neither
   payload is committed; CI regenerates both.
 - The full unsigned IPA was built and verified at
-  <https://github.com/YaimSputnik5/Launcher/actions/runs/45845033832>; see
+  <https://github.com/YaimSputnik5/Launcher/actions/runs/45849282209>; see
   `ios/README.md` for its SHA-256 and embedded contents. Physical-device launch
   still needs to be done by the person side-loading it.
 - Packet primitives, login message framing, `.pack`/`.rcc` readers, resource
   catalog loaders, a world-map loader, a local account/character store, TGA/DDS
   decoders, AES-CCM gateway codecs and the source-backed zone/collection/quest
-  simulation are implemented as Foundation-only modules with 94 passing Linux
+  simulation are implemented as Foundation-only modules with 98 passing Linux
   tests.
 - Native Login UDP authentication, character select/login, gateway framing and
   UDP transport, a simulation-backed World tab and launcher-parity fixes are
