@@ -153,9 +153,13 @@ does not claim such a license.
 - Launcher functionality and a real unsigned IPA already exist.
 - All five Sanctuary audits are complete under `sanctuary-audit/`.
 - Foundation-only core tests run on Linux via `swift test --package-path ios`.
-- Sanctuary resources (100 files, 72.2 MiB) and the full original client payload
-  (1,788 files, 893,405,496 bytes) are staged and XXH64-verified locally. Neither
+- Sanctuary resources (101 files, 75,740,078 bytes) and the full original client
+  payload (1,788 files, 893,405,496 bytes) are staged and XXH64-verified. Neither
   payload is committed; CI regenerates both.
+- The full unsigned IPA was built and verified at
+  <https://github.com/YaimSputnik5/Launcher/actions/runs/45827062087>; see
+  `ios/README.md` for its SHA-256 and embedded contents. Physical-device launch
+  still needs to be done by the person side-loading it.
 - Packet primitives, login message framing, `.pack`/`.rcc` readers, resource
   catalog loaders, and a local account/character store are implemented as
   Foundation-only modules with 55 passing Linux tests.
@@ -177,4 +181,5 @@ does not claim such a license.
 - [x] Parse `.rcc` and `.pack` enough to load a usable asset subset.
 - [ ] Build a playable native renderer for the FabledRealms zone.
 - [ ] Implement remote Login/Gateway compatibility (login messages done; gateway pending).
-- [ ] Rebuild and side-load a full all-in-one IPA.
+- [x] Build and verify a full all-in-one IPA with embedded client data.
+- [ ] Side-load that IPA on a physical iOS device (requires the user's device).

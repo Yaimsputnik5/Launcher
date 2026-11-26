@@ -133,21 +133,23 @@ Files are shared through the Files app because `UIFileSharingEnabled` is set.
 
 ## Verification status
 
-A real unsigned IPA was compiled on a free GitHub Actions macOS runner:
+A real unsigned IPA with the full all-in-one UI, the embedded original client
+payload, and the Sanctuary server data was compiled on a free GitHub Actions
+macOS runner:
 
-- Workflow run: <https://github.com/YaimSputnik5/Launcher/actions/runs/45813270060>
+- Workflow run: <https://github.com/YaimSputnik5/Launcher/actions/runs/45827062087>
 - Release: <https://github.com/YaimSputnik5/Launcher/releases/tag/ios-ipa>
-- Local artifact: `ios/Launcher.ipa`
-- SHA-256: `f3317d10afa51777053ca6a066c1909b82ccd7e5c60a42f5e8df67f4fd64288a`
+- Local artifact: `ios/Launcher.ipa` (374,293,953 bytes)
+- SHA-256: `c9bee49449b0b2f50031882ba13f351e883f5fb59b6c9349f199bc5d01046a7e`
 
 The archive contains an arm64 `Mach-O` executable and an `Info.plist` with
 bundle ID `dev.opensourcefreerealms.launcher`, display name `OSFR Launcher`,
-version `1.0.0` (`1`), and `MinimumOSVersion` `17.0`. It was built with
+version `1.0.0` (`1`), and `MinimumOSVersion` `17.0`. It embeds 1,788 client
+files (893,405,496 bytes) and 101 Sanctuary files (75,740,078 bytes from commit
+`f5240b7554f2a80d6b815cb7ead7ffee12499565`). It was built with
 `CODE_SIGNING_ALLOWED=NO`, so AltStore/SideStore must apply your signature.
-That artifact predates the all-in-one UI and embedded assets; the rebuilt IPA
-is pending a successful `Build iOS IPA` workflow run. The app has not been
-launched on a physical device from this Linux host; that final runtime check
-requires your iOS device and side-loading app.
+The app has not been launched on a physical device from this Linux host; that
+final runtime check requires your iOS device and side-loading app.
 
 Foundation-only logic is verified locally:
 
