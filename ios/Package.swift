@@ -17,6 +17,7 @@ let package = Package(
                 "Resources/ClientAssets",
                 "Resources/SanctuaryResources",
                 "Resources/Info.plist",
+                "Render",
                 "Services/CredentialStore.swift",
                 "Services/HTTPClient.swift",
                 "Services/LoginUDPSession.swift",
@@ -41,6 +42,7 @@ let package = Package(
                 "Services/WorldMapModel.swift",
                 "Engine/CollectionSpawns.swift",
                 "Engine/GameWorld.swift",
+                "Engine/OSFREngine.swift",
                 "Services/GatewayProtocol.swift",
                 "Services/ImageCodecs.swift"
             ]

@@ -1164,6 +1164,50 @@ struct CharacterCreateMappings: Equatable {
     }
 }
 
+// MARK: - Profiles and titles
+
+/// Minimal view of `Resources/Profiles.json`. The offline host's
+/// `unlockAllProfiles` flag controls how many of these are offered by the engine.
+struct ProfileSummary: Codable, Equatable, Identifiable {
+    let id: Int
+    let nameID: Int
+    let comment: String
+
+    enum CodingKeys: String, CodingKey {
+        case id = "Id"
+        case nameID = "NameId"
+        case comment = "Comment"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.osfrInt(.id)
+        nameID = try c.osfrInt(.nameID)
+        comment = try c.decodeIfPresent(String.self, forKey: .comment) ?? ""
+    }
+}
+
+/// Minimal view of `Resources/PlayerTitles.json` for the corresponding title
+/// unlock flag.
+struct PlayerTitleSummary: Codable, Equatable, Identifiable {
+    let id: Int
+    let type: Int
+    let nameID: Int
+
+    enum CodingKeys: String, CodingKey {
+        case id = "Id"
+        case type = "Type"
+        case nameID = "NameId"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.osfrInt(.id)
+        type = try c.osfrInt(.type)
+        nameID = try c.osfrInt(.nameID)
+    }
+}
+
 // MARK: - Catalog
 
 /// Reads Sanctuary's static game data from an explicit root directory.
@@ -1183,6 +1227,8 @@ struct ResourceCatalog: Equatable {
     let coinStoreItems: [Int: CoinStoreItem]
     let collectionCoins: [CollectionCoin]
     let characterCreate: CharacterCreateMappings
+    let profiles: [Int: ProfileSummary]
+    let playerTitles: [Int: PlayerTitleSummary]
     let loadedFiles: [String]
     let missingFiles: [String]
 
@@ -1238,6 +1284,8 @@ struct ResourceCatalog: Equatable {
         let itemEntries = try loadJSON("ClientItemDefinitions.json", [ClientItemDefinition].self) ?? []
         let coinStoreEntries = try loadJSON("CoinStoreItems.json", [CoinStoreItem].self) ?? []
         let coinEntries = try loadJSON("CollectionCoins.json", [CollectionCoin].self) ?? []
+        let profileEntries = try loadJSON("Profiles.json", [ProfileSummary].self) ?? []
+        let titleEntries = try loadJSON("PlayerTitles.json", [PlayerTitleSummary].self) ?? []
 
         var zones: [ZoneDefinition] = []
         var seenZoneIDs: Set<Int> = []
@@ -1290,6 +1338,8 @@ struct ResourceCatalog: Equatable {
         self.coinStoreItems = try Self.index(coinStoreEntries, by: \.id, file: "CoinStoreItems.json")
         self.collectionCoins = coinEntries
         self.characterCreate = characterCreate
+        self.profiles = try Self.index(profileEntries, by: \.id, file: "Profiles.json")
+        self.playerTitles = try Self.index(titleEntries, by: \.id, file: "PlayerTitles.json")
         self.loadedFiles = loadedFiles
         self.missingFiles = missingFiles
     }

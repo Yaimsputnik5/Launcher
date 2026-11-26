@@ -9,9 +9,25 @@ final class AppState: ObservableObject {
     @Published private(set) var settings: AppSettings
     @Published private(set) var runtimes: [ServerRuntime] = []
     @Published private(set) var remoteSession: WorldSessionConfiguration?
+    /// Only a joined server or an explicitly started offline game sets this.
+    /// A WebAPI login, cached manifest, or bundled asset payload never does.
+    @Published private(set) var activeSession: ActiveWorldSession?
+    @Published private(set) var localSession: LocalSession?
     @Published private(set) var gatewaySession: GatewayUDPSession?
     @Published private(set) var gatewayStatus = "Not connected"
     @Published var notifications: [AppNotice] = []
+
+    /// The World tab requires a real entered session. This gate prevents a
+    /// preloaded or fabricated world instance from being shown to the user.
+    var canOpenWorld: Bool {
+        guard let activeSession else { return false }
+        switch activeSession.mode {
+        case .offline:
+            return localSession != nil && activeSession.configuration.characterID != nil
+        case .remote:
+            return gatewaySession != nil && activeSession.configuration.canJoinGateway
+        }
+    }
 
     init() {
         let loaded = AppSettings.load()
@@ -84,6 +100,7 @@ final class AppState: ObservableObject {
         if remoteSession?.host == info.loginServer {
             remoteSession = nil
             disconnectGateway()
+            activeSession = nil
         }
         persistSettings()
         notify("Deleted \(info.name).")
@@ -111,6 +128,70 @@ final class AppState: ObservableObject {
         remoteSession = configuration
         gatewaySession = nil
         gatewayStatus = "Not connected"
+        if activeSession?.mode == .remote { activeSession = nil }
+    }
+
+    /// Persisted offline host settings are the single source of truth for both
+    /// the Play Offline form and the engine's initial world state.
+    func updateHostConfiguration(_ update: (inout LocalHostConfiguration) -> Void) {
+        var configuration = settings.hostConfiguration
+        update(&configuration)
+        settings.hostConfiguration = configuration
+        settings.locale = configuration.locale
+        persistSettings()
+    }
+
+    /// Returns a persisted binding so forms never keep a detached copy of the
+    /// host configuration that could silently diverge from the engine.
+    func hostBinding<Value>(
+        _ keyPath: WritableKeyPath<LocalHostConfiguration, Value>
+    ) -> Binding<Value> {
+        Binding(
+            get: { self.settings.hostConfiguration[keyPath: keyPath] },
+            set: { value in
+                self.updateHostConfiguration { configuration in
+                    configuration[keyPath: keyPath] = value
+                }
+            }
+        )
+    }
+
+    /// Called only after `LocalSession.bootstrapOffline` and `enterWorld` have
+    /// succeeded. Merely opening the Play Offline tab cannot activate World.
+    func startOfflineWorld(
+        session: LocalSession,
+        configuration: LocalHostConfiguration,
+        character: LocalCharacter
+    ) {
+        disconnectGateway()
+        localSession = session
+        var world = WorldSessionConfiguration(
+            mode: .offline,
+            host: nil,
+            username: configuration.accountName,
+            sessionID: nil,
+            characterID: character.id,
+            ticket: nil,
+            cryptoKey: nil,
+            loginArguments: [],
+            locale: configuration.locale,
+            characterName: character.name
+        )
+        world.profileName = configuration.accountName
+        world.localConfiguration = configuration
+        activeSession = ActiveWorldSession(
+            id: UUID(),
+            configuration: world,
+            hostConfiguration: configuration,
+            startedAt: Date()
+        )
+    }
+
+    /// Persists the leave transition instead of leaving a stale `isInWorld` row.
+    func leaveOfflineWorld() {
+        try? localSession?.leaveWorld()
+        localSession = nil
+        if activeSession?.mode == .offline { activeSession = nil }
     }
 
     /// Opens the gateway UDP connection with the ticket returned by Sanctuary's
@@ -137,6 +218,13 @@ final class AppState: ObservableObject {
             try gateway.sendInitialPackets(locale: session.locale)
             gatewaySession = gateway
             gatewayStatus = "Connected as \(session.characterName ?? "character")"
+            // The World tab activates only after the gateway handshake succeeds.
+            activeSession = ActiveWorldSession(
+                id: UUID(),
+                configuration: session,
+                hostConfiguration: nil,
+                startedAt: Date()
+            )
             notify("Joined \(address).")
         } catch {
             gatewayStatus = "Failed: \(error.localizedDescription)"
@@ -148,6 +236,7 @@ final class AppState: ObservableObject {
         gatewaySession?.close()
         gatewaySession = nil
         gatewayStatus = "Not connected"
+        if activeSession?.mode == .remote { activeSession = nil }
     }
 
     func setLocale(_ locale: GameLocale) {

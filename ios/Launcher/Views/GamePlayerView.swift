@@ -1,256 +1,233 @@
+import Foundation
 import SwiftUI
 
-/// Native in-process world player backed by Sanctuary data and simulation
-/// rules. It draws the zone tile grid, exact collection spawns, inferred NPC
-/// positions, destinations and the persisted local character. No desktop
-/// executable, Wine layer or external process is involved.
+/// UI-side owner of the native engine. It does not create sessions or fabricate
+/// characters: it can only attach to the `ActiveWorldSession` stored by AppState.
+@MainActor
+final class GameEngineController: ObservableObject {
+    @Published private(set) var simulation: WorldSimulation?
+    @Published private(set) var snapshot: WorldSnapshot?
+    @Published private(set) var frame: EngineFrame?
+    @Published private(set) var errorMessage: String?
+
+    private var engine: OSFREngine?
+
+    var isLoaded: Bool { engine != nil }
+
+    func attach(session: LocalSession, configuration: LocalHostConfiguration) {
+        guard !isLoaded else { return }
+        guard let root = AppPaths.bundledSanctuaryResources else {
+            errorMessage = "Sanctuary resources are not bundled in this build."
+            return
+        }
+        do {
+            let simulation = try WorldSimulation(
+                rootURL: root,
+                zoneID: configuration.startingZoneID,
+                character: session.selectedCharacter,
+                session: session,
+                hostConfiguration: configuration
+            )
+            let engine = OSFREngine(simulation: simulation)
+            self.simulation = simulation
+            self.snapshot = simulation.snapshot
+            self.frame = engine.frame
+            self.engine = engine
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func reset() {
+        engine = nil
+        simulation = nil
+        snapshot = nil
+        frame = nil
+        errorMessage = nil
+    }
+
+    func advance() {
+        guard let engine else { return }
+        engine.advance()
+        publish(engine)
+    }
+
+    func send(_ event: EngineInputEvent) {
+        guard let engine else { return }
+        engine.handle(event)
+        publish(engine)
+    }
+
+    private func publish(_ engine: OSFREngine) {
+        frame = engine.frame
+        snapshot = engine.simulation.snapshot
+    }
+}
+
+/// Native in-process world player backed by Sanctuary data and the OSFR engine.
+/// It never bootstraps a private offline session; World is only reachable after
+/// AppState has an actual offline or remote session.
 struct GamePlayerView: View {
     @EnvironmentObject private var state: AppState
-    @State private var simulation: WorldSimulation?
-    @State private var snapshot: WorldSnapshot?
-    @State private var destinationUnit: (x: Double, y: Double)?
+    @StateObject private var controller = GameEngineController()
     @State private var selectedEntityID: UInt64?
     @State private var selectedNodeID: Int?
     @State private var selectedDestination: WorldPointOfInterest?
-    @State private var errorMessage: String?
-    @State private var zoom: Double = 1
     @State private var showingQuests = false
     @State private var showingDestinations = false
     @State private var showingEntities = false
-    @State private var lastTick = Date()
-
-    private let mapSide: CGFloat = 1024
+    @State private var loadedSessionID: UUID?
 
     var body: some View {
         NavigationStack {
             Group {
-                if let simulation, let snapshot {
-                    GeometryReader { _ in
-                        ZStack(alignment: .topLeading) {
-                            worldCanvas(simulation: simulation, snapshot: snapshot)
-                            hud(simulation: simulation, snapshot: snapshot)
-                                .frame(maxWidth: .infinity, alignment: .topLeading)
-                            if let errorMessage {
-                                Text(errorMessage)
-                                    .font(.caption)
-                                    .foregroundStyle(.red)
-                                    .padding(8)
-                                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
-                                    .padding()
-                            }
-                        }
-                    }
-                } else if let errorMessage {
-                    ContentUnavailableView(
-                        "World Unavailable",
-                        systemImage: "map",
-                        description: Text(errorMessage)
-                    )
+                if let session = state.activeSession, session.mode == .offline {
+                    offlineWorld(session: session)
+                } else if let session = state.activeSession, session.mode == .remote {
+                    RemoteWorldView(session: session)
                 } else {
-                    ProgressView("Loading world…")
+                    ContentUnavailableView(
+                        "No Active World",
+                        systemImage: "map.fill",
+                        description: Text("Start an Offline game or join a server first. World data is not preloaded.")
+                    )
                 }
             }
             .navigationTitle("World")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button {
-                            showingEntities = true
-                        } label: {
-                            Label("Entities", systemImage: "figure.walk")
+        }
+    }
+
+    @ViewBuilder
+    private func offlineWorld(session: ActiveWorldSession) -> some View {
+        Group {
+            if let frame = controller.frame, let snapshot = controller.snapshot {
+                GeometryReader { geometry in
+                    ZStack(alignment: .topLeading) {
+                        MetalWorldView(frame: frame)
+                            .frame(width: geometry.size.width, height: geometry.size.height)
+                            .contentShape(Rectangle())
+                            .gesture(
+                                DragGesture(minimumDistance: 0)
+                                    .onEnded { value in
+                                        controller.send(.moveTo(
+                                            unitX: value.location.x / max(geometry.size.width, 1),
+                                            unitY: value.location.y / max(geometry.size.height, 1)
+                                        ))
+                                        selectedDestination = nil
+                                    }
+                            )
+
+                        hud(snapshot: snapshot)
+                            .frame(maxWidth: 320, alignment: .topLeading)
+
+                        if let errorMessage = controller.errorMessage {
+                            Text(errorMessage)
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                                .padding(8)
+                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+                                .padding()
                         }
-                        Button {
-                            showingDestinations = true
-                        } label: {
-                            Label("Destinations", systemImage: "mappin.and.ellipse")
-                        }
-                        Button {
-                            showingQuests = true
-                        } label: {
-                            Label("Journal", systemImage: "book")
-                        }
-                        Button {
-                            zoom = min(zoom + 0.25, 3)
-                        } label: {
-                            Label("Zoom In", systemImage: "plus.magnifyingglass")
-                        }
-                        Button {
-                            zoom = max(zoom - 0.25, 0.5)
-                        } label: {
-                            Label("Zoom Out", systemImage: "minus.magnifyingglass")
-                        }
-                        Button {
-                            recenter()
-                        } label: {
-                            Label("Return to Spawn", systemImage: "scope")
-                        }
+                    }
+                }
+            } else if let errorMessage = controller.errorMessage {
+                ContentUnavailableView(
+                    "World Unavailable",
+                    systemImage: "map",
+                    description: Text(errorMessage)
+                )
+            } else {
+                ProgressView("Loading world…")
+            }
+        }
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Button {
+                        showingEntities = true
                     } label: {
-                        Image(systemName: "ellipsis.circle")
+                        Label("Entities", systemImage: "figure.walk")
                     }
+                    Button {
+                        showingDestinations = true
+                    } label: {
+                        Label("Destinations", systemImage: "mappin.and.ellipse")
+                    }
+                    Button {
+                        showingQuests = true
+                    } label: {
+                        Label("Journal", systemImage: "book")
+                    }
+                    Button {
+                        controller.send(.zoom(1.25))
+                    } label: {
+                        Label("Zoom In", systemImage: "plus.magnifyingglass")
+                    }
+                    Button {
+                        controller.send(.zoom(0.8))
+                    } label: {
+                        Label("Zoom Out", systemImage: "minus.magnifyingglass")
+                    }
+                    Button {
+                        controller.send(.recenter())
+                    } label: {
+                        Label("Return to Spawn", systemImage: "scope")
+                    }
+                    Button(role: .destructive) {
+                        state.leaveOfflineWorld()
+                        controller.reset()
+                    } label: {
+                        Label("Leave World", systemImage: "rectangle.portrait.and.arrow.right")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
                 }
             }
-            .sheet(isPresented: $showingQuests) {
-                journalSheet
-            }
-            .sheet(isPresented: $showingDestinations) {
-                destinationsSheet
-            }
-            .sheet(isPresented: $showingEntities) {
-                entitiesSheet
-            }
-            .task {
-                load()
-            }
-            .onReceive(Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()) { _ in
-                advance()
-            }
+        }
+        .sheet(isPresented: $showingQuests) { journalSheet }
+        .sheet(isPresented: $showingDestinations) { destinationsSheet }
+        .sheet(isPresented: $showingEntities) { entitiesSheet }
+        .task {
+            guard loadedSessionID != session.id,
+                  let localSession = state.localSession,
+                  let configuration = session.hostConfiguration
+            else { return }
+            controller.attach(session: localSession, configuration: configuration)
+            loadedSessionID = session.id
+        }
+        .onReceive(Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()) { _ in
+            controller.advance()
         }
     }
 
-    // MARK: - World rendering
+    // MARK: - HUD
 
-    private func worldCanvas(simulation: WorldSimulation, snapshot: WorldSnapshot) -> some View {
-        let map = simulation.worldMap
-        return ScrollView([.horizontal, .vertical]) {
-            Canvas { context, size in
-                let cellWidth = size.width / CGFloat(max(map.latitudeCount, 1))
-                let cellHeight = size.height / CGFloat(max(map.longitudeCount, 1))
-
-                for longitudeIndex in 0..<map.longitudeCount {
-                    for latitudeIndex in 0..<map.latitudeCount {
-                        let rectangle = CGRect(
-                            x: CGFloat(latitudeIndex) * cellWidth,
-                            y: CGFloat(longitudeIndex) * cellHeight,
-                            width: cellWidth,
-                            height: cellHeight
-                        )
-                        let path = Path(rectangle)
-                        context.fill(path, with: .color(color(for: map.environmentID(longitude: longitudeIndex, latitude: latitudeIndex))))
-                        context.stroke(path, with: .color(.black.opacity(0.18)), lineWidth: 0.5)
-                    }
-                }
-
-                func point(_ position: ZoneVector) -> CGPoint? {
-                    guard let unit = map.unitPosition(for: position) else { return nil }
-                    return CGPoint(x: unit.x * size.width, y: unit.y * size.height)
-                }
-
-                for poi in map.pointsOfInterest {
-                    guard let center = point(poi.position) else { continue }
-                    let marker = CGRect(x: center.x - 6, y: center.y - 6, width: 12, height: 12)
-                    context.fill(Path(ellipseIn: marker), with: .color(.yellow))
-                    context.stroke(Path(ellipseIn: marker), with: .color(.black), lineWidth: 1)
-                    if zoom > 1.25 {
-                        context.draw(
-                            Text(poi.name).font(.caption2).foregroundStyle(.white),
-                            at: CGPoint(x: center.x + 8, y: center.y - 8),
-                            anchor: .bottomLeading
-                        )
-                    }
-                }
-
-                for node in snapshot.collectionNodes {
-                    guard let center = point(node.position) else { continue }
-                    let radius: CGFloat = node.id == selectedNodeID ? 11 : 7
-                    let marker = CGRect(x: center.x - radius, y: center.y - radius,
-                                        width: radius * 2, height: radius * 2)
-                    context.fill(
-                        Path(ellipseIn: marker),
-                        with: .color(node.available ? .green : .gray.opacity(0.55))
-                    )
-                    context.stroke(Path(ellipseIn: marker), with: .color(.white), lineWidth: 1)
-                }
-
-                for entity in snapshot.visibleEntities where entity.kind == .npc {
-                    guard let center = point(entity.position) else { continue }
-                    let radius: CGFloat = entity.id == selectedEntityID ? 12 : 8
-                    let marker = CGRect(x: center.x - radius, y: center.y - radius,
-                                        width: radius * 2, height: radius * 2)
-                    context.fill(Path(ellipseIn: marker), with: .color(.purple.opacity(0.85)))
-                    // Dashed outline marks inferred NPC placement; collection
-                    // spawns use exact server data and get a solid outline.
-                    context.stroke(
-                        Path(ellipseIn: marker),
-                        with: .color(entity.isInferredPosition ? .yellow : .white),
-                        style: StrokeStyle(lineWidth: 1.5, dash: entity.isInferredPosition ? [3, 2] : [])
-                    )
-                }
-
-                if let playerPosition = point(ZoneVector(
-                    x: Double(snapshot.player.x),
-                    y: Double(snapshot.player.y),
-                    z: Double(snapshot.player.z),
-                    w: 0
-                )) {
-                    let halo = CGRect(x: playerPosition.x - 13, y: playerPosition.y - 13, width: 26, height: 26)
-                    context.fill(Path(ellipseIn: halo), with: .color(.white.opacity(0.25)))
-                    let body = CGRect(x: playerPosition.x - 6, y: playerPosition.y - 6, width: 12, height: 12)
-                    context.fill(Path(ellipseIn: body), with: .color(.blue))
-                    context.stroke(Path(ellipseIn: body), with: .color(.white), lineWidth: 1.5)
-                }
-
-                if let destinationUnit,
-                   let target = point(map.worldPosition(unitX: destinationUnit.x, unitY: destinationUnit.y)) {
-                    let ring = CGRect(x: target.x - 16, y: target.y - 16, width: 32, height: 32)
-                    context.stroke(
-                        Path(ellipseIn: ring),
-                        with: .color(.cyan),
-                        style: StrokeStyle(lineWidth: 2, dash: [4, 3])
-                    )
-                }
-            }
-            .frame(width: mapSide * CGFloat(zoom), height: mapSide * CGFloat(zoom))
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onEnded { value in
-                        let scaledSide = mapSide * CGFloat(zoom)
-                        let unitX = Double(value.location.x / scaledSide)
-                        let unitY = Double(value.location.y / scaledSide)
-                        guard let walkable = map.walkableUnit(near: unitX, unitY: unitY) else {
-                            errorMessage = "That tile is outside the walkable grid."
-                            return
-                        }
-                        destinationUnit = walkable
-                        selectedDestination = nil
-                        errorMessage = nil
-                    }
-            )
-        }
-        .background(Color.black.opacity(0.75))
-    }
-
-    private func hud(simulation: WorldSimulation, snapshot: WorldSnapshot) -> some View {
-        let map = simulation.worldMap
-        let playerTile = map.tile(for: ZoneVector(
-            x: Double(snapshot.player.x),
-            y: Double(snapshot.player.y),
-            z: Double(snapshot.player.z),
-            w: 0
-        ))
-        let environment = map.environmentName(id: map.environmentID(
-            longitude: playerTile.longitude,
-            latitude: playerTile.latitude
-        ))
-
-        return VStack(alignment: .leading, spacing: 8) {
+    private func hud(snapshot: WorldSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(snapshot.playerName)
                     .font(.headline)
                     .foregroundStyle(.white)
-                Text("\(snapshot.zoneName) · \(environment)")
+                Text("Profile: \(snapshot.profileName) · \(snapshot.locale.displayName)")
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.75))
+                Text("\(snapshot.zoneName) · zone \(snapshot.zoneID)")
                     .font(.caption)
                     .foregroundStyle(.white.opacity(0.8))
-                Text("Tile (\(playerTile.longitude), \(playerTile.latitude)) · \(snapshot.movementTicks) ticks/s · \(snapshot.secondTicks)s")
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(0.65))
-                Text("\(simulation.player.coins) coins · \(simulation.player.inventory.count) items")
+                Text("\(snapshot.coins) coins · \(snapshot.stationCash) station cash · \(controller.simulation?.player.inventory.count ?? 0) items")
                     .font(.caption2)
                     .foregroundStyle(.white.opacity(0.7))
+                Text("Profiles \(snapshot.availableProfileIDs.count) · Titles \(snapshot.availableTitleIDs.count) · Tiles \(snapshot.options.unlockAllTiles ? "unlocked" : "server grid")")
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.7))
+                Text("\(snapshot.movementTicks) movement ticks · \(snapshot.secondTicks)s · \(snapshot.options.unlockAllProfiles ? "all profiles" : "starter profile") · \(snapshot.options.unlockAllTitles ? "all titles" : "starter title")")
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.65))
             }
             .padding(10)
-            .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 10))
+            .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 10))
 
             if let node = snapshot.collectionNodes.first(where: { $0.id == selectedNodeID }) {
                 interactionCard(
@@ -260,8 +237,7 @@ struct GamePlayerView: View {
                         : "Respawning in \(node.respawnTicksRemaining) ticks",
                     buttonTitle: node.available ? "Gather" : nil
                 ) {
-                    simulation.interactWithCollectionNode(id: node.id)
-                    refresh(simulation: simulation)
+                    controller.send(.interactCollection(id: node.id))
                 }
             }
 
@@ -273,8 +249,7 @@ struct GamePlayerView: View {
                         : "Exact non-player spawn · model \(entity.modelID)",
                     buttonTitle: "Talk"
                 ) {
-                    simulation.talkToNPC(definitionID: entity.definitionID)
-                    refresh(simulation: simulation)
+                    controller.send(.talkToNPC(definitionID: entity.definitionID))
                 }
             }
 
@@ -300,11 +275,10 @@ struct GamePlayerView: View {
                     }
                 }
                 .padding(8)
-                .background(.black.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+                .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 8))
             }
         }
         .padding(12)
-        .frame(maxWidth: 300, alignment: .leading)
     }
 
     private func interactionCard(
@@ -328,19 +302,20 @@ struct GamePlayerView: View {
         }
         .padding(10)
         .frame(maxWidth: 280, alignment: .leading)
-        .background(.black.opacity(0.65), in: RoundedRectangle(cornerRadius: 10))
+        .background(.black.opacity(0.7), in: RoundedRectangle(cornerRadius: 10))
     }
+
+    // MARK: - Sheets
 
     private var destinationsSheet: some View {
         NavigationStack {
             List {
-                ForEach(simulation?.worldMap.pointsOfInterest ?? []) { point in
+                ForEach(controller.simulation?.worldMap.pointsOfInterest ?? []) { point in
                     Button {
                         travel(to: point)
                     } label: {
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(point.name)
-                                .font(.headline)
+                            Text(point.name).font(.headline)
                             Text(point.atlasName.isEmpty ? "Atlas destination" : "Atlas: \(point.atlasName)")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -350,9 +325,7 @@ struct GamePlayerView: View {
             }
             .navigationTitle("Destinations")
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") { showingDestinations = false }
-                }
+                Button("Done") { showingDestinations = false }
             }
         }
         .presentationDetents([.medium, .large])
@@ -361,7 +334,7 @@ struct GamePlayerView: View {
     private var entitiesSheet: some View {
         NavigationStack {
             List {
-                if let snapshot {
+                if let snapshot = controller.snapshot {
                     Section("Visible NPCs") {
                         ForEach(snapshot.visibleEntities.filter { $0.kind == .npc }) { entity in
                             Button {
@@ -402,9 +375,7 @@ struct GamePlayerView: View {
             }
             .navigationTitle("Entities")
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") { showingEntities = false }
-                }
+                Button("Done") { showingEntities = false }
             }
         }
         .presentationDetents([.medium, .large])
@@ -413,12 +384,11 @@ struct GamePlayerView: View {
     private var journalSheet: some View {
         NavigationStack {
             List {
-                if let snapshot {
+                if let snapshot = controller.snapshot {
                     Section("Active") {
                         ForEach(snapshot.quests.filter { !$0.progress.completed }, id: \.questID) { quest in
                             VStack(alignment: .leading) {
-                                Text(quest.name)
-                                    .font(.headline)
+                                Text(quest.name).font(.headline)
                                 Text("\(quest.completedGoalCount)/\(quest.totalGoalCount) goals")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
@@ -431,125 +401,57 @@ struct GamePlayerView: View {
                         }
                     }
                 } else {
-                    Text("No quest data loaded.")
-                        .foregroundStyle(.secondary)
+                    Text("No quest data loaded.").foregroundStyle(.secondary)
                 }
             }
             .navigationTitle("Journal")
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") { showingQuests = false }
-                }
+                Button("Done") { showingQuests = false }
             }
         }
         .presentationDetents([.medium])
     }
 
-    // MARK: - Game state
-
-    private func load() {
-        guard let root = AppPaths.bundledSanctuaryResources else {
-            errorMessage = "Sanctuary resources are not bundled in this build."
-            return
-        }
-        do {
-            let loadedSession = try LocalSession(
-                directory: AppPaths.root.appendingPathComponent("Offline", isDirectory: true)
-            )
-            var configuration = LocalHostConfiguration()
-            configuration.locale = state.settings.locale
-            let bootstrapped = try loadedSession.bootstrapOffline(
-                configuration: configuration,
-                password: "offline"
-            )
-            let inWorld = bootstrapped.isInWorld ? bootstrapped : try loadedSession.enterWorld()
-            let loadedSimulation = try WorldSimulation(
-                rootURL: root,
-                zoneName: nil,
-                character: inWorld,
-                session: loadedSession
-            )
-            simulation = loadedSimulation
-            snapshot = loadedSimulation.snapshot
-            lastTick = Date()
-            errorMessage = nil
-            state.notify("Entered \(loadedSimulation.snapshot.zoneName) as \(inWorld.name).")
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    private func advance() {
-        guard let simulation else { return }
-        let now = Date()
-        let delta = min(max(now.timeIntervalSince(lastTick), 0), 1)
-        lastTick = now
-
-        if let destinationUnit {
-            let target = simulation.worldMap.worldPosition(
-                unitX: destinationUnit.x,
-                unitY: destinationUnit.y
-            )
-            let player = ZoneVector(
-                x: Double(simulation.snapshot.player.x),
-                y: Double(simulation.snapshot.player.y),
-                z: Double(simulation.snapshot.player.z),
-                w: 0
-            )
-            let remaining = hypot(target.x - player.x, target.z - player.z)
-            simulation.stepPlayer(toward: target, deltaTime: delta)
-            if remaining <= 0.5 || remaining <= WorldSimulation.onFootMovementSpeed * delta {
-                self.destinationUnit = nil
-            }
-        }
-
-        simulation.update(deltaTime: delta)
-        snapshot = simulation.snapshot
-    }
-
-    private func refresh(simulation: WorldSimulation) {
-        snapshot = simulation.snapshot
-    }
-
     private func travel(to point: WorldPointOfInterest) {
-        guard let simulation else { return }
-        let preferred = simulation.worldMap.unitPosition(for: point.spawnPosition)
-            ?? simulation.worldMap.unitPosition(for: point.position)
-        guard let preferred,
-              let walkable = simulation.worldMap.walkableUnit(near: preferred.x, unitY: preferred.y)
-        else {
-            errorMessage = "\(point.name) is outside this zone's walkable grid."
-            showingDestinations = false
-            return
-        }
-        destinationUnit = walkable
+        controller.send(.travelToPOI(id: point.id))
         selectedDestination = point
         selectedEntityID = nil
         selectedNodeID = nil
-        errorMessage = nil
         showingDestinations = false
     }
+}
 
-    private func recenter() {
-        guard let simulation else { return }
-        let spawn = simulation.worldMap.zone.spawnPosition
-        guard let unit = simulation.worldMap.unitPosition(for: spawn) else { return }
-        if simulation.movePlayer(to: spawn) {
-            destinationUnit = nil
-            selectedDestination = nil
-            snapshot = simulation.snapshot
-        } else if let walkable = simulation.worldMap.walkableUnit(near: unit.x, unitY: unit.y) {
-            destinationUnit = walkable
-            snapshot = simulation.snapshot
+/// Remote worlds are real gateway connections, not local simulations. Show only
+/// server-supplied session facts so no fake character or zone can be injected.
+private struct RemoteWorldView: View {
+    @EnvironmentObject private var state: AppState
+    let session: ActiveWorldSession
+
+    var body: some View {
+        VStack(spacing: 18) {
+            Image(systemName: "network")
+                .font(.system(size: 54))
+                .foregroundStyle(.blue)
+            Text("Connected Server World")
+                .font(.title2.weight(.semibold))
+            VStack(alignment: .leading, spacing: 8) {
+                LabeledContent("Character", value: session.displayName)
+                LabeledContent("Server", value: session.configuration.host ?? "unknown")
+                LabeledContent("Gateway", value: session.configuration.gatewayAddress ?? "unknown")
+                LabeledContent("Status", value: state.gatewayStatus)
+                LabeledContent("Locale", value: session.configuration.locale.displayName)
+            }
+            .padding()
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
+            Text("This session uses the live Sanctuary gateway. Local simulation data is deliberately not shown.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            Button("Leave World", role: .destructive) {
+                state.disconnectGateway()
+            }
+            .buttonStyle(.borderedProminent)
         }
-    }
-
-    private func color(for environmentID: Int) -> Color {
-        if environmentID == -1 { return .black }
-        let palette: [Color] = [
-            .brown, .green, .blue, .purple, .orange, .teal,
-            .mint, .indigo, .yellow, .pink, .cyan, .red
-        ]
-        return palette[abs(environmentID) % palette.count].opacity(0.55)
+        .padding()
     }
 }

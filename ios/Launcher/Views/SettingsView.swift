@@ -52,6 +52,32 @@ struct SettingsView: View {
                     }
                 }
 
+                Section("Offline Host") {
+                    TextField("Profile name", text: state.hostBinding(\.profileName))
+                    TextField("Player name", text: state.hostBinding(\.playerName))
+                    Stepper(
+                        "Starting zone: \(state.settings.hostConfiguration.startingZoneID)",
+                        value: state.hostBinding(\.startingZoneID),
+                        in: 1...9999
+                    )
+                    Toggle("Unlock all profiles", isOn: state.hostBinding(\.unlockAllProfiles))
+                    Toggle("Unlock all titles", isOn: state.hostBinding(\.unlockAllTitles))
+                    Toggle("Unlock all map tiles", isOn: state.hostBinding(\.unlockAllTiles))
+                    Stepper(
+                        "Starting coins: \(state.settings.hostConfiguration.startingCoins)",
+                        value: state.hostBinding(\.startingCoins),
+                        in: 0...Int64.max
+                    )
+                    Stepper(
+                        "Starting station cash: \(state.settings.hostConfiguration.startingStationCash)",
+                        value: state.hostBinding(\.startingStationCash),
+                        in: 0...Int64.max
+                    )
+                    Text("Applied to the next Offline game and to the selected offline character.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
                 Section("Embedded Content") {
                     LabeledContent("Client payload") {
                         if clientReadiness.hasClientManifest {

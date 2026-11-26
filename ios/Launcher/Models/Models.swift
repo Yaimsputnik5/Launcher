@@ -18,7 +18,35 @@ struct AppSettings: Codable {
     var downloadThreads: Int = max(2, ProcessInfo.processInfo.activeProcessorCount / 2)
     var parallelDownloads: Bool = true
     var locale: GameLocale = .en_US
+    /// Persisted offline host settings. Older settings files predate this field,
+    /// so decoding below supplies the historical defaults explicitly.
+    var hostConfiguration: LocalHostConfiguration = LocalHostConfiguration()
     var didSeedDefaultServers = false
+
+    private enum CodingKeys: String, CodingKey {
+        case servers
+        case downloadThreads
+        case parallelDownloads
+        case locale
+        case hostConfiguration
+        case didSeedDefaultServers
+    }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        servers = try container.decodeIfPresent([ServerInfo].self, forKey: .servers) ?? []
+        downloadThreads = try container.decodeIfPresent(Int.self, forKey: .downloadThreads)
+            ?? max(2, ProcessInfo.processInfo.activeProcessorCount / 2)
+        parallelDownloads = try container.decodeIfPresent(Bool.self, forKey: .parallelDownloads) ?? true
+        locale = try container.decodeIfPresent(GameLocale.self, forKey: .locale) ?? .en_US
+        hostConfiguration = try container.decodeIfPresent(
+            LocalHostConfiguration.self,
+            forKey: .hostConfiguration
+        ) ?? LocalHostConfiguration()
+        didSeedDefaultServers = try container.decodeIfPresent(Bool.self, forKey: .didSeedDefaultServers) ?? false
+    }
 
     static func load() -> AppSettings {
         let url = AppPaths.settingsFile

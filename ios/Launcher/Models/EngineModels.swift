@@ -23,6 +23,12 @@ enum PlayMode: String, Codable, CaseIterable, Identifiable {
 }
 
 /// Configuration for the in-process server used by offline play.
+///
+/// Every field is consumed by `PlayOfflineView`/`SettingsView` and applied by
+/// `LocalSession.bootstrapOffline` plus `WorldSimulation`: the profile name is
+/// the offline account, the player name is the character, the zone is resolved
+/// through `ResourceCatalog.zone(id:)`, and the unlock/currency values seed the
+/// persisted character and HUD.
 struct LocalHostConfiguration: Codable, Equatable {
     var accountName: String = "local"
     var characterName: String = "Player"
@@ -30,8 +36,20 @@ struct LocalHostConfiguration: Codable, Equatable {
     var startingZoneID: Int = 1
     var unlockAllProfiles: Bool = true
     var unlockAllTitles: Bool = true
+    var unlockAllTiles: Bool = false
     var startingCoins: Int64 = 999_999_999
     var startingStationCash: Int64 = 999_999_999
+
+    /// UI-facing aliases matching the terminology used by the launcher fields.
+    var profileName: String {
+        get { accountName }
+        set { accountName = newValue }
+    }
+
+    var playerName: String {
+        get { characterName }
+        set { characterName = newValue }
+    }
 }
 
 /// Everything needed to enter a world after login/character select.
@@ -55,11 +73,31 @@ struct WorldSessionConfiguration: Codable, Equatable {
     var gatewayVersion: String? = nil
     var serverID: Int32? = nil
 
+    /// Offline profile name (the local account) and the exact host settings used
+    /// to enter this world. Remote sessions leave both nil.
+    var profileName: String? = nil
+    var localConfiguration: LocalHostConfiguration? = nil
+
     var isOffline: Bool { mode == .offline }
 
     /// True only after the full Login UDP character/gateway exchange completed.
     var canJoinGateway: Bool {
         mode == .remote && ticket != nil && gatewayAddress != nil && gatewayGUID != nil
+    }
+}
+
+/// A world session that has actually been entered. It is deliberately separate
+/// from `remoteSession`: signing in to a WebAPI session is not the same as being
+/// in a server, and never by itself unlocks the World tab.
+struct ActiveWorldSession: Equatable {
+    let id: UUID
+    let configuration: WorldSessionConfiguration
+    let hostConfiguration: LocalHostConfiguration?
+    let startedAt: Date
+
+    var mode: PlayMode { configuration.mode }
+    var displayName: String {
+        configuration.characterName ?? configuration.username
     }
 }
 

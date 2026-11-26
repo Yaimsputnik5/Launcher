@@ -68,6 +68,15 @@ struct CollectionNodeSnapshot: Equatable, Identifiable {
     let collectedCount: Int
 }
 
+/// Host flags surfaced by the engine HUD. `unlockAllTiles` also changes
+/// `WorldSimulation.isWalkable`; the other two gate the offered profile/title
+/// lists derived from Sanctuary's static JSON.
+struct WorldPlayOptions: Equatable {
+    let unlockAllProfiles: Bool
+    let unlockAllTitles: Bool
+    let unlockAllTiles: Bool
+}
+
 /// Immutable frame handed to SwiftUI. `movementTicks`/`secondTicks` expose the
 /// fixed-step cadence so a UI timer can drive `update(deltaTime:)` deterministically.
 struct WorldSnapshot: Equatable {
@@ -75,6 +84,13 @@ struct WorldSnapshot: Equatable {
     let zoneName: String
     let player: LocalWorldPosition
     let playerName: String
+    let profileName: String
+    let locale: GameLocale
+    let coins: Int64
+    let stationCash: Int64
+    let options: WorldPlayOptions
+    let availableProfileIDs: [Int]
+    let availableTitleIDs: [Int]
     let movementTicks: Int
     let secondTicks: Int
     let visibleEntities: [WorldEntity]
@@ -138,6 +154,8 @@ final class WorldSimulation {
     let zone: ZoneDefinition
 
     private(set) var player: LocalCharacter
+    private(set) var profileName: String
+    private(set) var hostOptions: WorldPlayOptions
     private(set) var movementTicks = 0
     private(set) var secondTicks = 0
     private(set) var questProgress: [Int: LocalQuestProgress]
@@ -156,8 +174,10 @@ final class WorldSimulation {
     init(
         rootURL: URL,
         zoneName: String? = nil,
+        zoneID: Int? = nil,
         character: LocalCharacter? = nil,
-        session: LocalSession? = nil
+        session: LocalSession? = nil,
+        hostConfiguration: LocalHostConfiguration? = nil
     ) throws {
         // Bundled Sanctuary resources live under `SanctuaryResources/Resources`,
         // while lightweight fixtures may point directly at a resource folder.
@@ -181,10 +201,20 @@ final class WorldSimulation {
             }
             zone = match
         } else {
-            guard let match = catalog.zones.first(where: { $0.name == "FabledRealms" }) ?? catalog.zones.first else {
+            // The persisted startingZoneID setting takes precedence over a
+            // character's stale zone. Both resolve through the real catalog so
+            // a fabricated zone cannot enter the engine.
+            let requestedID = zoneID ?? hostConfiguration?.startingZoneID ?? character?.zoneID
+            if let requestedID {
+                guard let match = catalog.zone(id: requestedID) else {
+                    throw WorldSimulationError.missingZone("zone ID \(requestedID)")
+                }
+                zone = match
+            } else if let match = catalog.zones.first(where: { $0.name == "FabledRealms" }) ?? catalog.zones.first {
+                zone = match
+            } else {
                 throw WorldSimulationError.missingZone("FabledRealms")
             }
-            zone = match
         }
         guard let environment = catalog.zoneEnvironments[zone.name] else {
             throw WorldSimulationError.missingEnvironment(zone.name)
@@ -228,12 +258,41 @@ final class WorldSimulation {
         self.quests = catalog.quests
         self.session = session
 
-        let resolvedCharacter = character ?? session?.selectedCharacter ?? LocalCharacter.makeDefault(
+        var resolvedCharacter = character ?? session?.selectedCharacter ?? LocalCharacter.makeDefault(
             id: 1,
             name: "Local",
-            configuration: LocalHostConfiguration()
+            configuration: hostConfiguration ?? LocalHostConfiguration()
         )
+        if resolvedCharacter.zoneID != zone.id {
+            resolvedCharacter.position = LocalWorldPosition(
+                x: Float(zone.spawnPosition.x),
+                y: Float(zone.spawnPosition.y),
+                z: Float(zone.spawnPosition.z),
+                rotationX: Float(zone.spawnRotation.x),
+                rotationZ: Float(zone.spawnRotation.z)
+            )
+        }
+        if let hostConfiguration {
+            resolvedCharacter.name = hostConfiguration.characterName
+            resolvedCharacter.zoneID = zone.id
+            resolvedCharacter.coins = hostConfiguration.startingCoins
+            resolvedCharacter.stationCash = hostConfiguration.startingStationCash
+            resolvedCharacter.locale = hostConfiguration.locale
+            resolvedCharacter.unlockAllProfiles = hostConfiguration.unlockAllProfiles
+            resolvedCharacter.unlockAllTitles = hostConfiguration.unlockAllTitles
+            resolvedCharacter.unlockAllTiles = hostConfiguration.unlockAllTiles
+        } else {
+            resolvedCharacter.zoneID = zone.id
+        }
         self.player = resolvedCharacter
+        self.profileName = hostConfiguration?.accountName
+            ?? session?.activeAccount?.username
+            ?? "local"
+        self.hostOptions = WorldPlayOptions(
+            unlockAllProfiles: resolvedCharacter.unlockAllProfiles,
+            unlockAllTitles: resolvedCharacter.unlockAllTitles,
+            unlockAllTiles: resolvedCharacter.unlockAllTiles
+        )
         self.questProgress = Self.normalizedProgress(
             resolvedCharacter.quests,
             quests: catalog.quests
@@ -320,11 +379,23 @@ final class WorldSimulation {
             )
         }
 
+        let allProfiles = catalog.profiles.keys.sorted()
+        let allTitles = catalog.playerTitles.keys.sorted()
+        let offeredProfiles = player.unlockAllProfiles ? allProfiles : Array(allProfiles.prefix(1))
+        let offeredTitles = player.unlockAllTitles ? allTitles : Array(allTitles.prefix(1))
+
         return WorldSnapshot(
             zoneID: zone.id,
             zoneName: zone.name,
             player: player.position,
             playerName: player.name,
+            profileName: profileName,
+            locale: player.locale,
+            coins: player.coins,
+            stationCash: player.stationCash,
+            options: hostOptions,
+            availableProfileIDs: offeredProfiles,
+            availableTitleIDs: offeredTitles,
             movementTicks: movementTicks,
             secondTicks: secondTicks,
             visibleEntities: visible,
@@ -348,6 +419,9 @@ final class WorldSimulation {
               absoluteLatitude >= zone.startLatitude,
               absoluteLatitude < zone.endLatitude
         else { return false }
+        // Offline host option: reveal the whole loaded zone, including tiles
+        // whose server environment id is -1 (normally outside the playable map).
+        if hostOptions.unlockAllTiles { return true }
         return worldMap.environmentID(longitude: tile.longitude, latitude: tile.latitude) != -1
     }
 

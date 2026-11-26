@@ -73,6 +73,60 @@ struct LocalCharacter: Codable, Equatable, Identifiable {
     var locale: GameLocale
     var unlockAllProfiles: Bool
     var unlockAllTitles: Bool
+    /// Offline-only host flag revealed by the native engine: every map tile in
+    /// the loaded zone is walkable instead of only the server environment grid.
+    var unlockAllTiles: Bool
+
+    init(
+        id: UInt64,
+        name: String,
+        zoneID: Int,
+        position: LocalWorldPosition,
+        coins: Int64,
+        stationCash: Int64,
+        inventory: [LocalInventoryItem],
+        quests: [LocalQuestProgress],
+        activeQuestID: Int?,
+        isInWorld: Bool,
+        locale: GameLocale,
+        unlockAllProfiles: Bool,
+        unlockAllTitles: Bool,
+        unlockAllTiles: Bool = false
+    ) {
+        self.id = id
+        self.name = name
+        self.zoneID = zoneID
+        self.position = position
+        self.coins = coins
+        self.stationCash = stationCash
+        self.inventory = inventory
+        self.quests = quests
+        self.activeQuestID = activeQuestID
+        self.isInWorld = isInWorld
+        self.locale = locale
+        self.unlockAllProfiles = unlockAllProfiles
+        self.unlockAllTitles = unlockAllTitles
+        self.unlockAllTiles = unlockAllTiles
+    }
+
+    /// Existing iOS stores predate `unlockAllTiles`; decode it as disabled.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UInt64.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        zoneID = try container.decode(Int.self, forKey: .zoneID)
+        position = try container.decode(LocalWorldPosition.self, forKey: .position)
+        coins = try container.decode(Int64.self, forKey: .coins)
+        stationCash = try container.decode(Int64.self, forKey: .stationCash)
+        inventory = try container.decode([LocalInventoryItem].self, forKey: .inventory)
+        quests = try container.decode([LocalQuestProgress].self, forKey: .quests)
+        activeQuestID = try container.decodeIfPresent(Int.self, forKey: .activeQuestID)
+        isInWorld = try container.decode(Bool.self, forKey: .isInWorld)
+        locale = try container.decode(GameLocale.self, forKey: .locale)
+        unlockAllProfiles = try container.decode(Bool.self, forKey: .unlockAllProfiles)
+        unlockAllTitles = try container.decode(Bool.self, forKey: .unlockAllTitles)
+        unlockAllTiles = try container.decodeIfPresent(Bool.self, forKey: .unlockAllTiles) ?? false
+    }
 
     /// Builds the first-run character from host configuration. The starter kit
     /// uses the Adventurer/Wizard default items and tints from Sanctuary's
@@ -107,7 +161,8 @@ struct LocalCharacter: Codable, Equatable, Identifiable {
             isInWorld: false,
             locale: configuration.locale,
             unlockAllProfiles: configuration.unlockAllProfiles,
-            unlockAllTitles: configuration.unlockAllTitles
+            unlockAllTitles: configuration.unlockAllTitles,
+            unlockAllTiles: configuration.unlockAllTiles
         )
     }
 }
@@ -500,10 +555,28 @@ final class LocalSession {
         let name = try Self.validatedCharacterName(configuration.characterName)
         let accountIndex = try requireAccountIndex()
         let character: LocalCharacter
-        if let existing = file.accounts[accountIndex].characters.first(where: {
+        if let characterIndex = file.accounts[accountIndex].characters.firstIndex(where: {
             $0.name.caseInsensitiveCompare(name) == .orderedSame
         }) {
-            character = existing
+            // Host settings are authoritative for this offline character. Apply
+            // them to an existing save so changing zone/currency/unlocks in
+            // Settings is visible immediately instead of only on a new game.
+            let existing = file.accounts[accountIndex].characters[characterIndex]
+            var updated = existing
+            updated.zoneID = configuration.startingZoneID
+            updated.coins = configuration.startingCoins
+            updated.stationCash = configuration.startingStationCash
+            updated.locale = configuration.locale
+            updated.unlockAllProfiles = configuration.unlockAllProfiles
+            updated.unlockAllTitles = configuration.unlockAllTitles
+            updated.unlockAllTiles = configuration.unlockAllTiles
+            if updated.zoneID != existing.zoneID {
+                updated.position = .fabledRealmsSpawn
+            }
+            if updated != existing {
+                file.accounts[accountIndex].characters[characterIndex] = updated
+            }
+            character = updated
         } else {
             character = try createCharacter(named: name, configuration: configuration)
         }

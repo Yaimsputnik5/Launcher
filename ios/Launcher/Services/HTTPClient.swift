@@ -137,9 +137,9 @@ final class HTTPClient {
         var buffer = Data()
         buffer.reserveCapacity(chunkSize)
 
-        // URLSession.AsyncBytes yields individual UInt8 values, not Data
-        // chunks. The old implementation also fired progress once per byte;
-        // the caller wraps each callback in a MainActor Task, so a full
+        // `URLSession.AsyncBytes` yields individual UInt8 values, not Data
+        // chunks. The old implementation also fired `progress` once per byte;
+        // the caller wraps each callback in a `@MainActor` Task, so a full
         // 0.83 GiB download created hundreds of millions of tasks and iOS
         // killed the app. Accumulate the bytes and report only when a block is
         // flushed to disk.
