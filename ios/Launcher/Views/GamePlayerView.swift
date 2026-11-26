@@ -143,14 +143,15 @@ struct GamePlayerView: View {
                 context.fill(Path(ellipseIn: body), with: .color(.blue))
                 context.stroke(Path(ellipseIn: body), with: .color(.white), lineWidth: 1.5)
             }
-            .frame(width: mapSide * zoom, height: mapSide * zoom)
+            .frame(width: mapSide * CGFloat(zoom), height: mapSide * CGFloat(zoom))
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onEnded { value in
                         guard let map else { return }
-                        let unitX = Double(value.location.x / (mapSide * zoom))
-                        let unitY = Double(value.location.y / (mapSide * zoom))
+                        let scaledSide = mapSide * CGFloat(zoom)
+                        let unitX = Double(value.location.x / scaledSide)
+                        let unitY = Double(value.location.y / scaledSide)
                         if let walkable = map.walkableUnit(near: unitX, unitY: unitY) {
                             destination = walkable
                             selectedDestination = nil
