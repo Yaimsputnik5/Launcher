@@ -151,14 +151,17 @@ A real unsigned IPA with the full all-in-one UI, the embedded original client
 payload, and the Sanctuary server data was compiled on a free GitHub Actions
 macOS runner:
 
-- Workflow run: <https://github.com/YaimSputnik5/Launcher/actions/runs/45861859429>
+- Workflow run: <https://github.com/YaimSputnik5/Launcher/actions/runs/45873638348>
+- Built commit: `9883ac8d44f0d9f3f372b2430f0fe53709846906`
 - Release: <https://github.com/YaimSputnik5/Launcher/releases/tag/ios-ipa>
-- Local artifact: `ios/Launcher.ipa` (374,827,810 bytes)
-- SHA-256: `af9e96c8068ab97e209adb25df58fb79ef3aaa0a177afda79316e5a1b070e874`
+- Local artifact: `ios/Launcher.ipa` (374,906,714 bytes)
+- SHA-256: `db6c3e5bba5dfed11efdd6cf921b81fb8915dea321fb251417d1608a9f8bd06d`
 
 Both the IPA build and the release-publishing steps succeeded. An earlier run
 built the IPA successfully but failed while deleting/recreating the release;
 publishing now uploads assets idempotently with `gh release upload --clobber`.
+The checksum above was read from the GitHub release asset digest and was verified
+against a fully downloaded copy before being recorded here.
 
 The archive contains an arm64 `Mach-O` executable and an `Info.plist` with
 bundle ID `dev.opensourcefreerealms.launcher`, display name `OSFR Launcher`,

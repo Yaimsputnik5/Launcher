@@ -179,13 +179,14 @@ does not claim such a license.
 ## Current status
 
 - Launcher functionality and a real unsigned IPA already exist.
-- Six Sanctuary audit/binary-verification reports are complete under `sanctuary-audit/`.
+- Seven Sanctuary audit/binary-verification reports are complete under `sanctuary-audit/`.
 - Foundation-only core tests run on Linux via `swift test --package-path ios`.
 - Sanctuary resources (101 files, 75,740,078 bytes) and the full original client
   payload (1,788 files, 893,405,496 bytes) are staged and XXH64-verified. Neither
   payload is committed; CI regenerates both.
-- The full unsigned IPA was built and verified at
-  <https://github.com/YaimSputnik5/Launcher/actions/runs/45861859429>; see
+- The full unsigned IPA with world gating, persisted host settings and the native
+  engine/Metal renderer was built and verified at
+  <https://github.com/YaimSputnik5/Launcher/actions/runs/45873638348>; see
   `ios/README.md` for its SHA-256 and embedded contents. Physical-device launch
   still needs to be done by the person side-loading it.
 - Release publishing is idempotent: the workflow uploads `Launcher.ipa` and
