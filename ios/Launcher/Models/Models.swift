@@ -174,7 +174,7 @@ struct ClientFolder {
     var folders: [ClientFolder]
 }
 
-struct ClientFile {
+struct ClientFile: Sendable {
     var name: String
     var size: UInt64
     var hash: UInt64

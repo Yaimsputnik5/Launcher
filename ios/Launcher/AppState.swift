@@ -311,16 +311,23 @@ final class ServerRuntime: ObservableObject, Identifiable {
                 return false
             }
 
-            let fm = FileManager.default
-            var planned: [DownloadItem] = []
-            for item in items {
-                if fileIsCurrent(item, using: fm) { continue }
-                planned.append(item)
-            }
+            // The app ships the complete verified client payload. Treat an
+            // embedded file whose size and XXH64 match the live manifest as
+            // already downloaded so this button does not re-fetch 0.83 GiB.
+            // Hashing any remaining local files runs off the main actor.
+            let embeddedIndex = ClientAssetStore.shared.index()
+            let planned = await Task.detached(priority: .utility) {
+                let fm = FileManager.default
+                let embedded = Dictionary(
+                    (embeddedIndex?.files ?? []).map { ($0.path, $0) },
+                    uniquingKeysWith: { first, _ in first }
+                )
+                return items.filter { !Self.fileIsCurrent($0, using: fm, embedded: embedded) }
+            }.value
 
             if planned.isEmpty {
                 downloadProgress = 1
-                taskStatusMessage = "All \(items.count) client files are up to date."
+                taskStatusMessage = "All \(items.count) client files are ready (embedded payload)."
                 return true
             }
 
@@ -441,13 +448,14 @@ final class ServerRuntime: ObservableObject, Identifiable {
         return lastError ?? "Unknown download error"
     }
 
-    private struct DownloadItem {
+    private struct DownloadItem: Sendable {
         let file: ClientFile
+        let relativePath: String
         let localURL: URL
         let remoteURL: URL
     }
 
-    private struct DownloadResult {
+    private struct DownloadResult: Sendable {
         let index: Int
         let name: String
         let error: String?
@@ -475,6 +483,7 @@ final class ServerRuntime: ObservableObject, Identifiable {
             )
             items.append(DownloadItem(
                 file: file,
+                relativePath: fullComponents.joined(separator: "/"),
                 localURL: local,
                 remoteURL: remote
             ))
@@ -487,7 +496,18 @@ final class ServerRuntime: ObservableObject, Identifiable {
         _ = localFolder
     }
 
-    private func fileIsCurrent(_ item: DownloadItem, using fm: FileManager) -> Bool {
+    nonisolated private static func fileIsCurrent(
+        _ item: DownloadItem,
+        using fm: FileManager,
+        embedded: [String: ClientAssetIndexEntry]
+    ) -> Bool {
+        // The bundle index was generated and XXH64-verified at build time.
+        // A matching entry means this exact file is already inside the IPA.
+        if let bundled = embedded[item.relativePath],
+           ClientAssetStore.embeddedEntryMatches(bundled, file: item.file),
+           ClientAssetStore.shared.location(for: item.relativePath) != nil {
+            return true
+        }
         guard fm.fileExists(atPath: item.localURL.path),
               let attributes = try? fm.attributesOfItem(atPath: item.localURL.path),
               let size = (attributes[.size] as? NSNumber)?.uint64Value,

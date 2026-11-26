@@ -1,12 +1,12 @@
 import Foundation
 
-struct ClientAssetIndexEntry: Codable, Equatable {
+struct ClientAssetIndexEntry: Codable, Equatable, Sendable {
     let path: String
     let size: Int64
     let hash: UInt64
 }
 
-struct ClientAssetIndex: Codable, Equatable {
+struct ClientAssetIndex: Codable, Equatable, Sendable {
     let manifestURL: String
     let baseURL: String
     let fileCount: Int
@@ -49,6 +49,14 @@ final class ClientAssetStore: @unchecked Sendable {
 
     private let decoder = JSONDecoder()
     private let fileManager = FileManager.default
+
+    /// True when a build-time embedded entry describes the exact bytes named
+    /// by a live client-manifest file. Used to avoid re-downloading the payload
+    /// already inside the IPA.
+    static func embeddedEntryMatches(_ entry: ClientAssetIndexEntry, file: ClientFile) -> Bool {
+        guard entry.size >= 0 else { return false }
+        return UInt64(entry.size) == file.size && entry.hash == file.hash
+    }
 
     func index() -> ClientAssetIndex? {
         guard let root = AppPaths.bundledClientAssets else { return nil }

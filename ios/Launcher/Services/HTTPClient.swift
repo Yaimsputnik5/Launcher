@@ -133,24 +133,33 @@ final class HTTPClient {
                        progress: @escaping (Double) -> Void) async throws {
         defer { try? handle.close() }
         var received: UInt64 = 0
+        let chunkSize = 64 * 1024
         var buffer = Data()
-        buffer.reserveCapacity(64 * 1024)
+        buffer.reserveCapacity(chunkSize)
 
-        // URLSession.AsyncBytes yields individual UInt8 values, not Data chunks.
-        for try await byte in bytes {
-            buffer.append(byte)
-            received += 1
-            if buffer.count >= 64 * 1024 {
-                try handle.write(contentsOf: buffer)
-                buffer.removeAll(keepingCapacity: true)
-            }
+        // URLSession.AsyncBytes yields individual UInt8 values, not Data
+        // chunks. The old implementation also fired progress once per byte;
+        // the caller wraps each callback in a MainActor Task, so a full
+        // 0.83 GiB download created hundreds of millions of tasks and iOS
+        // killed the app. Accumulate the bytes and report only when a block is
+        // flushed to disk.
+        func flush() throws {
+            guard !buffer.isEmpty else { return }
+            try handle.write(contentsOf: buffer)
+            received += UInt64(buffer.count)
+            buffer.removeAll(keepingCapacity: true)
             if let expectedBytes, expectedBytes > 0 {
                 progress(min(1, max(0, Double(received) / Double(expectedBytes))))
             }
         }
-        if !buffer.isEmpty {
-            try handle.write(contentsOf: buffer)
+
+        for try await byte in bytes {
+            buffer.append(byte)
+            if buffer.count >= chunkSize {
+                try flush()
+            }
         }
+        try flush()
         try handle.synchronize()
     }
 

@@ -8,6 +8,26 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(XXHash64.hash(Data("abc".utf8)), 0x44BC2CF5AD770999)
     }
 
+    func testEmbeddedClientEntryMatchesManifestFile() {
+        let file = ClientFile(name: "a.bin", size: 3, hash: 0x2A)
+        XCTAssertTrue(ClientAssetStore.embeddedEntryMatches(
+            ClientAssetIndexEntry(path: "a.bin", size: 3, hash: 0x2A),
+            file: file
+        ))
+        XCTAssertFalse(ClientAssetStore.embeddedEntryMatches(
+            ClientAssetIndexEntry(path: "a.bin", size: 4, hash: 0x2A),
+            file: file
+        ))
+        XCTAssertFalse(ClientAssetStore.embeddedEntryMatches(
+            ClientAssetIndexEntry(path: "a.bin", size: 3, hash: 0x2B),
+            file: file
+        ))
+        XCTAssertFalse(ClientAssetStore.embeddedEntryMatches(
+            ClientAssetIndexEntry(path: "a.bin", size: -1, hash: 0x2A),
+            file: file
+        ))
+    }
+
     func testBaseURLRejectsEmbeddedCredentials() throws {
         XCTAssertThrowsError(try URLHelper.baseURL("https://user:pass@example.com"))
     }
