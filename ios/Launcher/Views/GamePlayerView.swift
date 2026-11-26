@@ -148,7 +148,6 @@ struct GamePlayerView: View {
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onEnded { value in
-                        guard let map else { return }
                         let scaledSide = mapSide * CGFloat(zoom)
                         let unitX = Double(value.location.x / scaledSide)
                         let unitY = Double(value.location.y / scaledSide)
@@ -236,7 +235,7 @@ struct GamePlayerView: View {
             List {
                 if let character {
                     Section("Active Quest") {
-                        ForEach(character.quests.filter { !$0.completed }) { quest in
+                        ForEach(character.quests.filter { !$0.completed }, id: \.questID) { quest in
                             VStack(alignment: .leading) {
                                 Text("Quest \(quest.questID)")
                                     .font(.headline)
@@ -280,7 +279,8 @@ struct GamePlayerView: View {
             let loadedSession = try LocalSession(
                 directory: AppPaths.root.appendingPathComponent("Offline", isDirectory: true)
             )
-            let configuration = LocalHostConfiguration()
+            var configuration = LocalHostConfiguration()
+            configuration.locale = state.settings.locale
             let bootstrapped = try loadedSession.bootstrapOffline(
                 configuration: configuration,
                 password: "offline"
