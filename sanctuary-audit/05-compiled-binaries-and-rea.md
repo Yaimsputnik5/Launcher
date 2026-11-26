@@ -123,7 +123,10 @@ the Launcher; `MinimumSizeOfChunking` is 512 bytes; `BlockTimeout` is 1000 ms.
 
 REA `inspect_managed_artifact` classified the published `.exe` files as native
 PE32+ apphosts with no CLI directory; the application logic is in the sibling
-`.dll` files. Apphost evidence IDs:
+`.dll` files. The eight managed assemblies were also inspected statically;
+their SHA-256s, MVIDs, member counts, exact packet fields, CIL anchors, native
+boundaries and explicit inference labels are recorded in
+`06-managed-dll-evidence.md`. Apphost evidence IDs:
 
 | Apphost | Evidence ID |
 |---|---|
@@ -137,6 +140,25 @@ The published `Launcher.dll` is `managed` / `modern-dotnet` /
 `Launcher`, version `1.0.0.0`, 39 references, 4 resources and 1149 attributes;
 REA coverage was complete. Static inspection did not load the assembly, resolve
 dependencies through a CLR, decompile C#, or execute native ReadyToRun code.
+
+The compiled managed assemblies confirm the launcher's launch and client flow:
+`Server=`, `SessionId=` and `Internationalization:Locale=` are user strings in
+`Launcher.dll`; `Process.Start` is called from `<LaunchClientAsync>d__18.MoveNext`;
+`clientmanifest.xml`, `ServerManifestV1.xsd` and `ServerManifest.xsd` are present
+in bootstrap methods. `Sanctuary.WebAPI.dll` exposes `/login`, `/register` and
+`/image`, with BCrypt verification and EF Core calls in the async login body.
+`Sanctuary.Packet.dll` field metadata confirms `PacketLogin` contains `Ticket`,
+`Guid`, `Version` and `Unknown`; both tunnel types contain `OpCode`, `Reliable`
+and `Payload`; `PacketSetLocale.TryDeserialize` has the CIL constant `88`.
+`Sanctuary.Core.dll` shows AES-CCM (`AesCcm`, constants `13` and `16`) and RC4
+(code) plumbing, plus `StartingCoins`, `StartingStationCash`, `UnlockAllTitles`
+and `UnlockAllProfiles` fields in `LoginServerOptions`. `Sanctuary.Gateway.dll`
+confirms `OnHandlePacket` dispatches to `PacketLoginHandler`,
+`PacketTunneledClientPacketHandler` and
+`PacketTunneledClientWorldPacketHandler`. These are compiled-artifact
+observations, not decompiled control-flow proof. Fields named `Unknown*` and
+the `PacketLogin.OpCode` literal remain explicitly inferred/source-only; see
+`06-managed-dll-evidence.md`.
 
 ### Client file verification and download order
 
