@@ -47,9 +47,9 @@ struct MetalWorldView: UIViewRepresentable {
             uint vertexID [[vertex_id]],
             constant float2 &viewport [[buffer(1)]]
         ) {
-            // Each quad is six vertices and each vertex is six floats
-            // (x, y, r, g, b, a), so one quad occupies 36 floats.
-            uint base = vertexID * 36u;
+            // Each vertex is six floats: x, y, r, g, b, a.
+            // vertexID indexes vertices, not quads.
+            uint base = vertexID * 6u;
             float2 point = float2(vertices[base], vertices[base + 1u]);
             float4 color = float4(vertices[base + 2u], vertices[base + 3u],
                                   vertices[base + 4u], vertices[base + 5u]);
