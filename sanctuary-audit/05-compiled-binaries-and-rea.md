@@ -227,7 +227,33 @@ run is not treated as proof.
 | `TileLngLat` | `0x018084a8` |
 
 Script: `/tmp/opencode/rea-build/ghidra-scripts/DumpFreeRealmsEvidence.java`.
-Log: `/tmp/opencode/rea-build/ghidra-freerealms-6g.log`.
+Logs: `/tmp/opencode/rea-build/ghidra-freerealms-6g.log` (10-minute run,
+terminated before its post-script), `/tmp/opencode/rea-build/ghidra-freerealms-8g.log`
+(project-directory failure), `/tmp/opencode/rea-build/ghidra-freerealms-5m.log`
+(300-second analysis timeout) and
+`/tmp/opencode/rea-build/ghidra-freerealms-evidence.log` (post-script output).
+
+The completed Ghidra post-script emitted real program facts:
+
+| Property | Ghidra observation |
+|---|---|
+| Program | `FreeRealms.exe` |
+| Language / compiler | x86 32-bit PE / `windows` |
+| Image base | `0x00400000` |
+| Discovered functions | 134,650 |
+| `.text` | `0x00401000`–`0x0174ffff`, R-X |
+| `.rdata` | `0x01751000`–`0x01af1fff`, R-- |
+| `.data` | `0x01af2000`–`0x01cc0fff`, RW- |
+
+The first evidence-script compile failed on `MemoryBlock.getPermissions()`, which
+does not exist in Ghidra 12.2; it was corrected to explicit read/write/execute
+checks. The rerun emitted all target addresses but `TARGET_REF_COUNT` was `0`
+for every string because auto-analysis timed out at 300 seconds before reference
+creation finished. These runs therefore establish binary layout, function
+discovery and string addresses, but they are **not** proof of xref semantics or
+decompiled behavior. The `StartingZone`, `ProfileName`, `PlayerName`, `Coins`,
+`StationCash`, `Locale`, `SessionId` and `Server` identifiers remain observed
+strings; their exact use in the shipped client remains unresolved.
 
 ## Ghidra observations: Launcher apphost
 
