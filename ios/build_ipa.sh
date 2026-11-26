@@ -23,7 +23,7 @@ case "${IOS_EMBED_CLIENT:-0}" in
   1|true|TRUE|yes|YES)
   echo "Staging the original client payload for embedding..."
   IOS_CLIENT_DEST="$SCRIPT_DIR/Launcher/Resources/ClientAssets" \
-    "$SCRIPT_DIR/scripts/fetch_client_payload.sh"
+    bash "$SCRIPT_DIR/scripts/fetch_client_payload.sh"
     ;;
   *)
     ;;
@@ -31,7 +31,7 @@ esac
 
 if [ -n "${SANCTUARY_DIR:-}" ] && [ -d "$SANCTUARY_DIR/src/Resources" ]; then
   echo "Syncing Sanctuary resources from $SANCTUARY_DIR..."
-  SANCTUARY_DIR="$SANCTUARY_DIR" "$SCRIPT_DIR/scripts/sync_sanctuary_resources.sh"
+  SANCTUARY_DIR="$SANCTUARY_DIR" bash "$SCRIPT_DIR/scripts/sync_sanctuary_resources.sh"
 fi
 
 CLIENT_INDEX="$SCRIPT_DIR/Launcher/Resources/ClientAssets/client-assets-index.json"

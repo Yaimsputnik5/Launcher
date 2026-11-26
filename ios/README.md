@@ -69,6 +69,22 @@ Not supported on iOS:
 If you prefer signing directly from Xcode, set your own Team in the target
 signing settings and use **Product → Archive** instead of the script.
 
+### CI build settings
+
+`.github/workflows/ios-build.yml` runs on `workflow_dispatch` and on every push
+to `ios-build`. For push-triggered runs the settings come from files in the
+repository, so no repository-dispatch credentials are needed:
+
+| File | Meaning |
+|---|---|
+| `ios/ci-config/embed-client.txt` | `1` embeds the 0.83 GiB original client payload; `0` builds without it |
+
+`workflow_dispatch` inputs override those files. Publishing to the `ios-ipa`
+release is opt-in (`publish: true`) because the embedded client is third-party
+copyrighted content. Note that an embedded build produces an IPA larger than
+the 500 MB per-artifact limit on the free Actions plan; use release publishing
+for that build if you have redistribution rights.
+
 ## Where data lives
 
 | Data | Location |
