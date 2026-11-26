@@ -21,10 +21,13 @@ In progress toward full parity:
 - Sanctuary server data is staged into `Launcher.app/SanctuaryResources` at build time.
 - The original client payload can be staged into `Launcher.app/ClientAssets` at build time and verified with XXH64.
 - The original Launcher and Sanctuary C# projects were compiled on Linux and their managed assemblies inspected with REA; see `sanctuary-audit/05-compiled-binaries-and-rea.md`.
-- The **World** tab is backed by Sanctuary zone, collection-spawn, quest and NPC data. It runs 10 Hz/1 Hz simulation ticks, gathers exact collection nodes, advances quest goals, persists per-goal progress, grants items and persists a local character. NPC coordinates are explicitly marked as inferred because `Npcs.json` ships no spawn positions.
-- Native TGA/DDS decoders read the original client textures from `.tga`, `.dds`, `.pack` and `.rcc` sources.
+- The **World** tab is gated on a real active session: it does nothing until an Offline game is started or a gateway join succeeds. A WebAPI login, cached manifest, or embedded client payload never unlocks it. This prevents a fake or preloaded world instance.
+- Offline host settings are persisted and actually consumed by the simulation: starting zone, profile name, player name, unlock-all-profiles, unlock-all-titles, unlock-all-tiles, coins, station cash and locale. `unlockAllTiles` changes walkability, not just a HUD label. Profile/title unlock lists are derived from bundled Sanctuary data. NPC coordinates are explicitly marked as inferred because `Npcs.json` ships no spawn positions.
+- The **World** tab is backed by Sanctuary zone, collection-spawn, quest and NPC data. It runs 10 Hz/1 Hz simulation ticks, gathers exact collection nodes, advances quest goals, persists per-goal progress, grants items and persists a local character.
+- A native in-process engine (`OSFREngine`) owns fixed-step advancement, input, an entity registry, an orthographic camera and a layered scene graph. `MetalWorldView` renders engine frames with a Metal pipeline; no Windows executable, Wine, DirectX, or process execution is used.
+- Native TGA/DDS decoders read the original client textures from `.tga`, `.dds`, `.pack` and `.rcc` sources, and the engine asset pipeline caches decoded textures by manifest-relative path.
 - Native Login UDP authentication performs the complete WebAPI → session → character select → character login flow, and a native gateway UDP transport opens the real `CGAPI_527` connection with the server-supplied ticket, GUID and AES-CCM session. Gateway reliable IDs start at zero, matching `UdpReliableChannel.ReliableIncomingId`; earlier builds acknowledged but never delivered `PacketLogin` and timed out during Join World. The documented client hello sends locale through `PacketTunneledClientWorldPacket` and initialization/finished/ready through `PacketTunneledClientPacket`, matching Sanctuary's handler routing. Continuous gameplay/world packets beyond that hello are not yet simulated.
-- Foundation-only protocol, resource, container, image, gateway, world-simulation and local-session layers have Linux XCTest coverage (100 tests).
+- Foundation-only protocol, resource, container, image, gateway, world-simulation, local-session and engine layers have Linux XCTest coverage (105 tests).
 
 Not supported on iOS:
 
@@ -121,7 +124,10 @@ Files are shared through the Files app because `UIFileSharingEnabled` is set.
 | Sanctuary gateway `CGAPI_527` | `GatewayProtocol` codecs and `GatewayUDPSession` UDP transport |
 | Sanctuary `Resources/*` | `ResourceCatalog` typed loaders |
 | Sanctuary `BaseZone` / `CollectionNode` / `QuestManager` | `WorldSimulation` and `CollectionSpawnCatalog` |
+| Sanctuary starting zone / profile and title unlock data | `LocalHostConfiguration` + `ResourceCatalog` + `WorldPlayOptions` |
 | Sanctuary world database | `LocalSession` offline JSON store (first layer) |
+| Native game loop / scene / input / texture cache | `OSFREngine`, `EngineSceneGraph`, `EngineAssetPipeline` |
+| Client render surface | `MetalWorldView` (MetalKit, no desktop executable) |
 | Free Realms `.pack` / `.rcc` | `AssetContainers` verified readers |
 | Free Realms `.tga` / `.dds` textures | `ImageCodecs` RGBA8 decoders |
 | `DiscordService`, `WineHelper`, `Dx9Helper` | Intentionally omitted; no iOS equivalent in this repo |
@@ -169,10 +175,12 @@ Foundation-only logic is verified locally:
 swift test --package-path ios
 ```
 
-The 100 tests cover XXH64, URL/path safety, manifest v1/v2 and case-insensitive
+The 105 tests cover XXH64, URL/path safety, manifest v1/v2 and case-insensitive
 manifest locales, embedded-payload manifest matching, packet primitives,
 CRC32, RC4, GUID layout, WebAPI login response decoding, login framing/messages,
 gateway AES-CCM, opcode codecs and reliable-ID sequencing, `.pack`/`.rcc`
 parsing, TGA/DDS decoding, Sanctuary resource schemas, zone/collection/quest
-simulation and offline account/character persistence.
+simulation, offline account/character persistence, host setting application,
+world gating, fixed-step engine advancement, input events, camera projection,
+entity registration and scene layering.
 SwiftUI and iOS framework code can only be compiled by the macOS workflow.

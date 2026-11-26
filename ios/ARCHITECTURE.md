@@ -69,7 +69,19 @@ Already present or planned:
 
 ### 2. OSFREngine — in-process server/game simulation
 
-Planned modules:
+Implemented layers:
+
+- `WorldSimulation`: source-backed 10 Hz/1 Hz ticks, tile visibility, exact
+  collection spawns, quest goals and persisted offline character state.
+- `LocalHostConfiguration`: persisted starting zone, profile/player names,
+  unlock flags, currency and locale; applied by `LocalSession`,
+  `ResourceCatalog` and `WorldSimulation`.
+- `ActiveWorldSession`: the only way to unlock World. It is created by a real
+  offline start or a successful gateway join, never by cached data.
+- `OSFREngine`: fixed-step ownership, input events, entity registry, camera,
+  layered scene graph and asset/texture cache.
+
+Still planned for full server parity:
 
 - `LocalDatabase`: SQLite-compatible store matching the final 15-table schema.
 - `AccountService`: registration, bcrypt-compatible password handling, sessions.
@@ -87,7 +99,14 @@ Planned modules:
 
 ### 3. OSFRRender — native client
 
-Planned modules:
+Implemented:
+
+- `ClientAssetStore`, `PackReader`, `RccReader` and `TextureLoader` resolve and
+  decode a staged subset of the original client payload.
+- `MetalWorldView` renders `EngineFrame` primitives through a Metal pipeline.
+  The current renderer is an atlas-style 2D scene, not the desktop 3D client.
+
+Still planned for full visual parity:
 
 - `ClientAssetStore`: resolves manifest-relative paths from `ClientAssets` or the
   app sandbox with containment checks.
@@ -104,7 +123,7 @@ The current launcher UI becomes one section of the app:
 
 - **Launcher**: server list, manifests, downloads, account settings.
 - **Play Offline**: local host session, character select, in-process world.
-- **World**: native world player over the bundled FabledRealms grid with exact collection spawns, explicitly inferred NPC positions, 10 Hz/1 Hz deterministic ticks, quest goals, item grants and a persisted character.
+- **World**: gated on an actual Offline or gateway session; native world player over the bundled FabledRealms grid with exact collection spawns, explicitly inferred NPC positions, 10 Hz/1 Hz deterministic ticks, quest goals, item grants and a persisted character.
 - **Join Server**: remote host, WebAPI sign-in, real `LoginUdp_6` session handshake, character login ticket and gateway transport.
 - **Downloads**: embedded payload status and optional repair download.
 - **Diagnostics**: engine logs, packet traces, asset verification.
@@ -174,14 +193,15 @@ does not claim such a license.
   recreating the `ios-ipa` release.
 - Packet primitives, login message framing, `.pack`/`.rcc` readers, resource
   catalog loaders, a world-map loader, a local account/character store, TGA/DDS
-  decoders, AES-CCM gateway codecs, reliable-ID sequencing and the source-backed
-  zone/collection/quest simulation are implemented as Foundation-only modules
-  with 100 passing Linux tests.
+  decoders, AES-CCM gateway codecs, reliable-ID sequencing, source-backed
+  zone/collection/quest simulation, host-setting application, world gating and
+  the native engine core are implemented as Foundation-only modules with 105
+  passing Linux tests.
 - Native Login UDP authentication, character select/login, gateway framing and
-  UDP transport, a simulation-backed World tab and launcher-parity fixes are
-  integrated into the SwiftUI app. The full 3D renderer, navmesh routines, Lua
-  script runtime and continuous gameplay/world transport remain open; see the
-  phase checklist below.
+  UDP transport, a gated simulation-backed World tab, persisted offline host
+  settings, a Metal scene renderer and launcher-parity fixes are integrated into
+  the SwiftUI app. The full 3D renderer, navmesh routines, Lua script runtime and
+  continuous gameplay/world transport remain open; see the phase checklist below.
 
 ## Phase checklist
 
@@ -195,10 +215,11 @@ does not claim such a license.
 - [x] Implement in-process local account/character/session flow.
 - [x] Add default OSFR public server preset with manifest refresh.
 - [x] Add native simulation-backed world player with exact collection spawns, inferred NPC placement, quest goals and the zone grid.
+- [x] Gate World on a real offline/gateway session and make every persisted host setting affect simulation/render state.
 - [x] Implement source-backed zone/entity/quest/collection simulation core (NPC positions are explicitly inferred where Sanctuary ships no spawn data).
 - [x] Parse `.rcc` and `.pack` enough to load a usable asset subset.
 - [x] Decode TGA and DDS textures into RGBA8 buffers.
-- [ ] Build a full 3D Metal renderer for the FabledRealms zone; the current World tab is a data-driven 2D simulation view.
+- [x] Add a native Metal renderer driven by engine frames (2D atlas-style scene; full 3D parity remains open).
 - [x] Implement the source-backed Login UDP → character select → character login → gateway UDP handoff with AES-CCM transport and the documented client hello (locale via tunneled-world, initialization/finished/ready via tunneled packets).
 - [ ] Implement continuous remote gameplay/world packets and state synchronization beyond the client hello.
 - [x] Build and verify a full all-in-one IPA with embedded client data.

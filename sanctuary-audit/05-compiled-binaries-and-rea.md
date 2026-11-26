@@ -1,8 +1,9 @@
 # Compiled binaries and REA/Ghidra verification
 
 This report records the requested binary-side verification of the two upstream
-C# projects. It supplements the source audits in `00-overview.md` through
-`04-game-logic-and-scripts.md`; it does not replace them.
+C# projects and the stock client. It supplements the source audits in
+`00-overview.md` through `04-game-logic-and-scripts.md`; it does not replace
+them.
 
 Sources:
 
@@ -11,6 +12,8 @@ Sources:
   `f5240b7554f2a80d6b815cb7ead7ffee12499565`
 - Local Launcher source: `src/` in this repository
 - Local Sanctuary source: `/tmp/opencode/sanctuary`
+- Stock client: `ios/Launcher/Resources/ClientAssets/FreeRealms.exe` (build-time
+  staged payload, not committed)
 
 All build and analysis output was kept in `/tmp/opencode/rea-build`; no upstream
 source, repository file, or credential was modified.
@@ -81,7 +84,7 @@ contains `Docker.dcproj` and is effectively a no-op.
 The README confirms the four ports used by the iOS launcher:
 
 | Program | Port | Protocol | Role |
-|---|---:|---|---|
+|---:|---|---|---|
 | `Sanctuary.WebAPI` | 20040 | HTTP | Accounts, login sessions, character portraits |
 | `Sanctuary.Login` | 20042 | UDP | Character select / creation, public client login |
 | `Sanctuary.Login` | 20041 | UDP | Internal Gateway connection |
@@ -94,12 +97,13 @@ asset URL and portrait URL. This matches the native WebAPI → Login UDP flow
 already implemented in `ios/Launcher/Services/HTTPClient.swift` and
 `ios/Launcher/Services/LoginUDPSession.swift`.
 
-## REA observations
+## REA observations: managed assemblies
 
 REA inspected the managed PE/CIL assemblies statically. Evidence IDs:
 
 - Launcher.dll: `ev_17c8a0cdc45641ad08a2be7306dabed33cb7058e27aec2b041b68db23600c028`
 - Published Launcher.dll: `ev_50271e3c511e3b53603a55cfd6db4d00968ff7d5209d1e23ee535ba4725ae5b2`
+- Published Launcher.dll, second inspection: `ev_7473e05b0f7b02899619b164ba5c272f241601d08796449f28fc74a5de53b6fa`
 - Downloader.dll: `ev_9903045d8fb5606648c3e81e7eb1d4ce6509fa6465308911d5250dd33730b27f`
 - Published Downloader.dll: `ev_fe769fb5ed478396c0ed938734b7790727daf337c7a66d010f1e43f64abc83b9`
 - Downloader type inventory: `ev_f2f1de4c221339ab352afe8a51cd30912fbe5181bb610c689ffc315715976a87`
@@ -107,12 +111,32 @@ REA inspected the managed PE/CIL assemblies statically. Evidence IDs:
 - Retry/progress IL: `ev_874e44f3adda7ec614d9083bfdfaeae4af06e0243665a2281eb04e8cb3dcb812`
 - Progress plumbing: `ev_f6524af91bd5986ca58627cc77b492ff181e5339b6834fefbeb0ff5071796ae1`
 - Configuration defaults: `ev_bf4859c1263103e489947ad1f7c6805d4de487266f062407986a1fc85b84281a`
+- Sanctuary.Packet member inventory: `ev_087cc06c4c73501acae15d1273d5e66d18d26b9a18cd318bb17755f1a8a64958`
 
 The compiled constants match the source: `MaxTryAgainOnFailure = 5`,
 `ChunkCount = 1`, `ParallelDownload = false`, and a custom HTTP client factory.
 Downloader's `BufferBlockSize` default is 1024 bytes and is not overridden by
 the Launcher; `MinimumSizeOfChunking` is 512 bytes; `BlockTimeout` is 1000 ms.
 `MaxTryAgainOnFailure = 5` permits the first attempt plus five retries.
+
+### Apphost vs managed payload
+
+REA `inspect_managed_artifact` classified the published `.exe` files as native
+PE32+ apphosts with no CLI directory; the application logic is in the sibling
+`.dll` files. Apphost evidence IDs:
+
+| Apphost | Evidence ID |
+|---|---|
+| `launcher/Launcher.exe` | `ev_72d3474b6a145e7dfe4e514a3236bfe10313e4d1e448e08880a6d23364384af1` |
+| `sanctuary-gateway/Sanctuary.Gateway.exe` | `ev_7b0ae928f7aa58cae1c77826e3967ffb0a5f97f87f829907857e9f643b91c6d6` |
+| `sanctuary-webapi/Sanctuary.WebAPI.exe` | `ev_de9a80a4d77d260ba891ad280ea93902ff4cf79477539a01b9435d05aa8f59b9` |
+| `sanctuary-login/Sanctuary.Login.exe` | `ev_9193fa63b6cca5107546a2440e9a931ba8dd880097dfac0ebafa4d46fd61756a` |
+
+The published `Launcher.dll` is `managed` / `modern-dotnet` /
+`cil-and-ready-to-run` with managed architecture `x86_64`, assembly name
+`Launcher`, version `1.0.0.0`, 39 references, 4 resources and 1149 attributes;
+REA coverage was complete. Static inspection did not load the assembly, resolve
+dependencies through a CLR, decompile C#, or execute native ReadyToRun code.
 
 ### Client file verification and download order
 
@@ -131,7 +155,59 @@ Launcher, and `File.Create` truncates an existing file before copying, so an
 interrupted copy can leave a partial file. Downloads use one chunk per file and
 `Parallel.ForEachAsync` with `Math.Max(2, DownloadThreads)` workers.
 
-## Ghidra observations
+## REA observations: stock client
+
+`FreeRealms.exe` was staged with the original client payload and opened in REA:
+
+| Property | Observation |
+|---|---|
+| SHA-256 | `26cc1c522a45e71fb57882da515f65bac45c8c8b8c7e740c0cea81c52a733351` |
+| Size | 25,067,520 bytes |
+| REA format / architecture | `pe` / `x86` |
+| Rizin evidence ID | `ev_c88548799601ca0f845a19c935b41fce1aec0ebb5f14f608c3c13f22914703df` |
+| PE timestamp | `Thu Mar 13 10:09:18 2014 UTC-8` |
+| PDB path | `C:\Dev\FreeRealms\Live\Code\Output\Win32\Release\PlayClient\FreeRealms.pdb` |
+
+Rizin strings observed relevant launch/session and settings names include
+`StartingZone` (file offset `0x1404d68`),
+`HUD:SetIsInStartingZone` (`0x14046f0`),
+`%sStartingZoneLoad.txt` (`0x1410194`),
+`ClientStartingZoneLoader` (`0x1748430`),
+`Internationalization` (`0x14053d8`), `ProfileName` (`0x1411604`),
+`ProfileId` (`0x14115f8`), `PlayerName` (`0x140b584`), `Coins`
+(`0x1409994`), `StationCash` (`0x14211d0`), `Locale` (`0x14067ac`),
+`SessionId` (`0x135b32c`) and `Server` (`0x135b35c`). For this PE the
+Ghidra virtual addresses are the listed file offsets plus `0x400000`. These
+observations confirm the identifiers exist in the shipped client. They do
+**not** by themselves prove exact semantics; the iOS port uses source-backed
+Sanctuary behavior for semantics and labels inferred fields explicitly.
+
+A manual Ghidra 12.2 headless analysis was launched over the same binary with
+`DumpFreeRealmsEvidence.java`; its target addresses are recorded below. Results
+are incorporated only if the run completes and emits evidence; an incomplete
+run is not treated as proof.
+
+| Target | Address |
+|---|---:|
+| `StartingZone` | `0x01804d68` |
+| `HUD:SetIsInStartingZone` | `0x018046f0` |
+| `ProfileName` | `0x01811604` |
+| `ProfileId` | `0x018115f8` |
+| `PlayerName` | `0x0180b584` |
+| `Coins` | `0x01809994` |
+| `StationCash` | `0x018211d0` |
+| `Locale` | `0x018067ac` |
+| `SessionId` | `0x0175b32c` |
+| `Server` | `0x0175b35c` |
+| `IndirectServerAddress` | `0x01806740` |
+| `ClientStartingZoneLoader` | `0x01b48430` |
+| `ZoneIdLocation` | `0x0187eac8` |
+| `TileLngLat` | `0x018084a8` |
+
+Script: `/tmp/opencode/rea-build/ghidra-scripts/DumpFreeRealmsEvidence.java`.
+Log: `/tmp/opencode/rea-build/ghidra-freerealms-6g.log`.
+
+## Ghidra observations: Launcher apphost
 
 The Windows `Launcher.exe` is a standard .NET apphost, not the application
 logic. Ghidra headless with `-noanalysis` reported x86-64, image base
@@ -161,18 +237,31 @@ claims that the original has the same bug on Windows:
   timeout and a bounded task group.
 - URL/local paths in C# are `client`/`Client` and rely partly on Windows path
   behavior. Swift validates every relative path component through `SafePath`.
+- Native REA evidence for the apphosts confirms that inspecting the `.exe`
+  alone cannot explain launcher or Sanctuary behavior; the managed `.dll`
+  members and the C# source are the authority for those layers.
+- Stock-client string/xref evidence for `StartingZone`, `ProfileName`,
+  `PlayerName`, `Coins`, `StationCash`, `Locale`, `SessionId` and `Server`
+  supports the settings consumed by `LocalHostConfiguration` and
+  `WorldSimulation`; inferred positions and unknown packet fields remain
+  labeled as such.
 
 ## Limitations
 
 - Static analysis only. No Windows assembly or server was executed, and no
   native crash was reproduced on this host.
-- Sanctuary's `.exe`/`.dll` outputs were built and hashed but not deeply
-  REA-inspected; the existing `03-protocol-and-servers.md` remains the protocol
-  authority.
-- Ghidra ran with `-noanalysis`; the apphost was not decompiled beyond basic
-  imports and strings.
+- REA managed inspection inventories metadata, signatures and CIL anchors. It
+  does not load assemblies through a CLR, resolve dependencies, decompile C#,
+  or execute ReadyToRun native code.
+- REA's Ghidra provider is unavailable with the installed Ghidra `12.2`
+  (accepted line: `12.1.x`, verified `12.1.4`), and the Hopper provider timed
+  out during binary readiness. The stock-client Ghidra evidence, if any, comes
+  from a separate manual headless run, not the REA provider.
+- Ghidra's Launcher apphost run used `-noanalysis`; the apphost was not
+  decompiled beyond basic imports and strings.
 - Exact jitter bounds in Downloader's exponential backoff were not resolved.
 - A complete 1:1 visual game port still requires the proprietary client asset
-  formats (`.pack`, `.rcc`, FXO, Granny, DXT variants), Lua behavior and a
-  native renderer. The current app embeds and parses client data but does not
-  implement those renderers.
+  formats (`.pack`, `.rcc`, FXO, Granny, DXT variants), Lua behavior, navmesh
+  routines and a full native 3D renderer. The current app embeds and parses
+  client data and renders an engine-frame 2D scene; it does not implement the
+  desktop 3D renderer.
