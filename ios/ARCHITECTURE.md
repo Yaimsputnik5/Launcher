@@ -166,14 +166,17 @@ does not claim such a license.
   payload (1,788 files, 893,405,496 bytes) are staged and XXH64-verified. Neither
   payload is committed; CI regenerates both.
 - The full unsigned IPA was built and verified at
-  <https://github.com/YaimSputnik5/Launcher/actions/runs/45855116061>; see
+  <https://github.com/YaimSputnik5/Launcher/actions/runs/45861859429>; see
   `ios/README.md` for its SHA-256 and embedded contents. Physical-device launch
   still needs to be done by the person side-loading it.
+- Release publishing is idempotent: the workflow uploads `Launcher.ipa` and
+  `build.log` with `gh release upload --clobber` instead of deleting and
+  recreating the `ios-ipa` release.
 - Packet primitives, login message framing, `.pack`/`.rcc` readers, resource
   catalog loaders, a world-map loader, a local account/character store, TGA/DDS
-  decoders, AES-CCM gateway codecs and the source-backed zone/collection/quest
-  simulation are implemented as Foundation-only modules with 99 passing Linux
-  tests.
+  decoders, AES-CCM gateway codecs, reliable-ID sequencing and the source-backed
+  zone/collection/quest simulation are implemented as Foundation-only modules
+  with 100 passing Linux tests.
 - Native Login UDP authentication, character select/login, gateway framing and
   UDP transport, a simulation-backed World tab and launcher-parity fixes are
   integrated into the SwiftUI app. The full 3D renderer, navmesh routines, Lua

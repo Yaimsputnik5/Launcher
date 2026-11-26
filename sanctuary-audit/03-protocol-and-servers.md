@@ -183,6 +183,17 @@ Login requires exact client version, parses the ticket as GUID, initializes AES-
 
 `GuidHelper`: player GUID = `(characterId << 4) | 1`; low nibble types Player=1, Npc=2, LocationTarget=3.
 
+## Reliable-channel sequence number (Join World timeout)
+
+`Sanctuary.UdpLibrary/Internal/UdpReliableChannel.cs` sets `ReliableIncomingId = 0` and `ReliableOutgoingId = 0` in its initializer. `ReliablePacket()` computes `GetReliableIncomingId(reliableStamp)`, then calls `ProcessPacket()` only when `ReliableIncomingId == reliableId`. A datagram carrying a later id is ACKed and buffered, but is not delivered to `GatewayConnection.OnRoutePacket()` until every earlier id arrives.
+
+That makes the first application frame on a new gateway connection require reliable id **0**, not 1. An earlier Swift port incremented its counter before constructing the frame and sent `PacketLogin` with id 1. A live UDP probe against `play.opensourcefreerealms.com:20260` reproduced the resulting split:
+
+- id 1: the server returned only `00 11 00 01 …` (Ack1). `PacketLogin` was never routed, so no `PacketLoginReply` was produced and the client timed out waiting for a login reply.
+- id 0: the server returned a reliable application frame containing the login-handler response instead of only an ACK.
+
+Fix: emit the current counter as the frame's reliable id, then increment it (`post-increment`), matching `UdpReliableChannel.Send()`. A regression test in `ios/Tests/OSFRCoreTests/GatewayProtocolTests.swift` asserts ids 0, 1, 2 for the first three frames.
+
 ## Limits
 
 Most gameplay packet files were accounted for by opcode and serializer signature, not line-by-line review. Full gameplay fidelity depends on the Game/Scripting audits and on a real client for dynamic verification. No seed data exists; an offline app must create initial account/character data.

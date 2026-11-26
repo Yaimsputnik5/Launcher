@@ -23,8 +23,8 @@ In progress toward full parity:
 - The original Launcher and Sanctuary C# projects were compiled on Linux and their managed assemblies inspected with REA; see `sanctuary-audit/05-compiled-binaries-and-rea.md`.
 - The **World** tab is backed by Sanctuary zone, collection-spawn, quest and NPC data. It runs 10 Hz/1 Hz simulation ticks, gathers exact collection nodes, advances quest goals, persists per-goal progress, grants items and persists a local character. NPC coordinates are explicitly marked as inferred because `Npcs.json` ships no spawn positions.
 - Native TGA/DDS decoders read the original client textures from `.tga`, `.dds`, `.pack` and `.rcc` sources.
-- Native Login UDP authentication performs the complete WebAPI → session → character select → character login flow, and a native gateway UDP transport opens the real `CGAPI_527` connection with the server-supplied ticket, GUID and AES-CCM session. The documented client hello sends locale through `PacketTunneledClientWorldPacket` and initialization/finished/ready through `PacketTunneledClientPacket`, matching Sanctuary's handler routing. Continuous gameplay/world packets beyond that hello are not yet simulated.
-- Foundation-only protocol, resource, container, image, gateway, world-simulation and local-session layers have Linux XCTest coverage (99 tests).
+- Native Login UDP authentication performs the complete WebAPI → session → character select → character login flow, and a native gateway UDP transport opens the real `CGAPI_527` connection with the server-supplied ticket, GUID and AES-CCM session. Gateway reliable IDs start at zero, matching `UdpReliableChannel.ReliableIncomingId`; earlier builds acknowledged but never delivered `PacketLogin` and timed out during Join World. The documented client hello sends locale through `PacketTunneledClientWorldPacket` and initialization/finished/ready through `PacketTunneledClientPacket`, matching Sanctuary's handler routing. Continuous gameplay/world packets beyond that hello are not yet simulated.
+- Foundation-only protocol, resource, container, image, gateway, world-simulation and local-session layers have Linux XCTest coverage (100 tests).
 
 Not supported on iOS:
 
@@ -145,10 +145,14 @@ A real unsigned IPA with the full all-in-one UI, the embedded original client
 payload, and the Sanctuary server data was compiled on a free GitHub Actions
 macOS runner:
 
-- Workflow run: <https://github.com/YaimSputnik5/Launcher/actions/runs/45855116061>
+- Workflow run: <https://github.com/YaimSputnik5/Launcher/actions/runs/45861859429>
 - Release: <https://github.com/YaimSputnik5/Launcher/releases/tag/ios-ipa>
-- Local artifact: `ios/Launcher.ipa` (374,827,811 bytes)
-- SHA-256: `7545cc7fd3427638905fcff65528592a243b01138a61ed5dc3a3f97fade5b4ca`
+- Local artifact: `ios/Launcher.ipa` (374,827,810 bytes)
+- SHA-256: `af9e96c8068ab97e209adb25df58fb79ef3aaa0a177afda79316e5a1b070e874`
+
+Both the IPA build and the release-publishing steps succeeded. An earlier run
+built the IPA successfully but failed while deleting/recreating the release;
+publishing now uploads assets idempotently with `gh release upload --clobber`.
 
 The archive contains an arm64 `Mach-O` executable and an `Info.plist` with
 bundle ID `dev.opensourcefreerealms.launcher`, display name `OSFR Launcher`,
@@ -165,10 +169,10 @@ Foundation-only logic is verified locally:
 swift test --package-path ios
 ```
 
-The 99 tests cover XXH64, URL/path safety, manifest v1/v2 and case-insensitive
+The 100 tests cover XXH64, URL/path safety, manifest v1/v2 and case-insensitive
 manifest locales, embedded-payload manifest matching, packet primitives,
 CRC32, RC4, GUID layout, WebAPI login response decoding, login framing/messages,
-gateway AES-CCM and opcode codecs, `.pack`/`.rcc` parsing, TGA/DDS decoding,
-Sanctuary resource schemas, zone/collection/quest simulation and offline
-account/character persistence.
+gateway AES-CCM, opcode codecs and reliable-ID sequencing, `.pack`/`.rcc`
+parsing, TGA/DDS decoding, Sanctuary resource schemas, zone/collection/quest
+simulation and offline account/character persistence.
 SwiftUI and iOS framework code can only be compiled by the macOS workflow.
