@@ -172,6 +172,7 @@ final class LoginUDPSession: @unchecked Sendable {
             sessionID: sessionID,
             fingerprint: fingerprint,
             locale: .en_US,
+            serverID: 1,
             fullFlow: false,
             timeout: timeout
         )
@@ -195,6 +196,7 @@ final class LoginUDPSession: @unchecked Sendable {
             sessionID: sessionID,
             fingerprint: fingerprint,
             locale: .en_US,
+            serverID: 1,
             fullFlow: false,
             timeout: timeout
         )
@@ -219,6 +221,7 @@ final class LoginUDPSession: @unchecked Sendable {
             sessionID: sessionID,
             fingerprint: fingerprint,
             locale: locale,
+            serverID: serverID,
             fullFlow: true,
             timeout: timeout
         )
@@ -241,6 +244,7 @@ final class LoginUDPSession: @unchecked Sendable {
             sessionID: sessionID,
             fingerprint: fingerprint,
             locale: locale,
+            serverID: serverID,
             fullFlow: true,
             timeout: timeout
         )
@@ -272,6 +276,7 @@ final class LoginUDPSession: @unchecked Sendable {
         sessionID: String,
         fingerprint: String,
         locale: GameLocale,
+        serverID: Int32,
         fullFlow: Bool,
         timeout: TimeInterval
     ) async throws -> LoginFlowResult {
@@ -284,6 +289,7 @@ final class LoginUDPSession: @unchecked Sendable {
             sessionID: sessionID,
             fingerprint: fingerprint,
             locale: locale,
+            serverID: serverID,
             fullFlow: fullFlow,
             timeout: timeout
         )
@@ -295,6 +301,7 @@ final class LoginUDPSession: @unchecked Sendable {
         sessionID: String,
         fingerprint: String,
         locale: GameLocale,
+        serverID: Int32,
         fullFlow: Bool,
         timeout: TimeInterval
     ) async throws -> LoginFlowResult {
@@ -309,7 +316,7 @@ final class LoginUDPSession: @unchecked Sendable {
             sessionID: sessionID,
             fingerprint: fingerprint,
             locale: locale,
-            serverID: 1,
+            serverID: serverID,
             fullFlow: fullFlow,
             timeout: timeout
         )
@@ -723,6 +730,7 @@ final class GatewayUDPSession: @unchecked Sendable {
     private var stage: Stage = .negotiating
     private var encryptCode: UInt32 = 0
     private var gateway: GatewaySession
+    private var isActive = false
     private var continuation: CheckedContinuation<Void, Error>?
     private var pendingFrames: [UInt16: Data] = [:]
     private var connectRetry: DispatchWorkItem?
@@ -786,7 +794,7 @@ final class GatewayUDPSession: @unchecked Sendable {
             sendConnectPacket()
             receiveLoop()
         case .failed(let error):
-            if continuation != nil {
+            if continuation != nil || isActive {
                 fail(GatewayUDPError.transport(error.localizedDescription))
             } else {
                 queue.async { self.connection.cancel() }
@@ -806,7 +814,7 @@ final class GatewayUDPSession: @unchecked Sendable {
             guard let self else { return }
             self.queue.async {
                 if let error {
-                    if self.continuation != nil {
+                    if self.continuation != nil || self.isActive {
                         self.fail(GatewayUDPError.transport(error.localizedDescription))
                     }
                     return
@@ -869,7 +877,7 @@ final class GatewayUDPSession: @unchecked Sendable {
     }
 
     private func handleAck(_ data: Data) {
-        guard data.count >= 6, stage == .login || continuation == nil else { return }
+        guard data.count >= 6, (stage == .login || isActive) else { return }
         let crc = UInt16(truncatingIfNeeded: CRC32.checksum(Data(data.prefix(4)), encryptCode: encryptCode))
         guard readBE16(data, offset: 4) == crc else { return }
         pendingFrames.removeValue(forKey: readBE16(data, offset: 2))
@@ -950,7 +958,7 @@ final class GatewayUDPSession: @unchecked Sendable {
             guard let self else { return }
             self.queue.async {
                 self.retryTimer = nil
-                guard self.continuation != nil, !self.pendingFrames.isEmpty else { return }
+                guard (self.continuation != nil || self.isActive), !self.pendingFrames.isEmpty else { return }
                 for frame in self.pendingFrames.values { self.rawSend(frame) }
                 self.scheduleRetryIfNeeded()
             }
@@ -966,7 +974,7 @@ final class GatewayUDPSession: @unchecked Sendable {
         connection.send(content: packet, completion: .contentProcessed { [weak self] error in
             guard let self, let error else { return }
             self.queue.async {
-                if self.continuation != nil {
+                if self.continuation != nil || self.isActive {
                     self.fail(GatewayUDPError.transport(error.localizedDescription))
                 }
             }
@@ -984,27 +992,39 @@ final class GatewayUDPSession: @unchecked Sendable {
                 throw GatewayUDPError.protocolError("Gateway is not authenticated")
             }
 
+            // Sanctuary routes opcode 88 through PacketTunneledClientWorldPacket
+            // and opcodes 169/10/13 through PacketTunneledClientPacket. Sending
+            // them unwrapped would not reach any gateway handler.
             var setLocale = PacketWriter()
             GatewayWire.appendInt16(88, to: &setLocale.data)
             setLocale.writeString(locale.rawValue)
-            enqueue(try gateway.send(packet: setLocale.data))
+            let wrappedLocale = GatewayPacketCodec.encode(
+                GatewayTunneledWorldPacket(reliable: true, payload: setLocale.data)
+            )
+            enqueue(try gateway.send(packet: wrappedLocale))
 
             var initialization = PacketWriter()
             GatewayWire.appendInt16(169, to: &initialization.data)
             let minutes = Int32(TimeZone.current.secondsFromGMT() / 60)
             initialization.writeInt32(minutes)
-            let wrapped = GatewayPacketCodec.encode(
+            let wrappedInitialization = GatewayPacketCodec.encode(
                 GatewayTunneledPacket(reliable: true, payload: initialization.data)
             )
-            enqueue(try gateway.send(packet: wrapped))
+            enqueue(try gateway.send(packet: wrappedInitialization))
 
             var finished = PacketWriter()
             GatewayWire.appendInt16(10, to: &finished.data)
-            enqueue(try gateway.send(packet: finished.data))
+            let wrappedFinished = GatewayPacketCodec.encode(
+                GatewayTunneledPacket(reliable: true, payload: finished.data)
+            )
+            enqueue(try gateway.send(packet: wrappedFinished))
 
             var ready = PacketWriter()
             GatewayWire.appendInt16(13, to: &ready.data)
-            enqueue(try gateway.send(packet: ready.data))
+            let wrappedReady = GatewayPacketCodec.encode(
+                GatewayTunneledPacket(reliable: true, payload: ready.data)
+            )
+            enqueue(try gateway.send(packet: wrappedReady))
         }
     }
 
@@ -1031,18 +1051,38 @@ final class GatewayUDPSession: @unchecked Sendable {
     }
 
     private func completeLogin() {
-        guard let continuation else { return }
+        guard continuation != nil else { return }
+        isActive = true
         self.continuation = nil
         connectRetry?.cancel()
         timeoutWork?.cancel()
         connectRetry = nil
         timeoutWork = nil
-        continuation.resume(returning: ())
+        continuation?.resume(returning: ())
+    }
+
+    /// Closes an authenticated gateway session. Pending reliable frames are
+    /// dropped because the server will reject them after the player leaves.
+    func close() {
+        queue.async {
+            self.isActive = false
+            self.cancelTimersAndPendingFrames()
+            self.connection.stateUpdateHandler = nil
+            self.connection.cancel()
+        }
     }
 
     private func fail(_ error: GatewayUDPError) {
-        guard let continuation else { return }
-        self.continuation = nil
+        let pendingContinuation = continuation
+        continuation = nil
+        isActive = false
+        cancelTimersAndPendingFrames()
+        connection.stateUpdateHandler = nil
+        connection.cancel()
+        pendingContinuation?.resume(throwing: error)
+    }
+
+    private func cancelTimersAndPendingFrames() {
         connectRetry?.cancel()
         retryTimer?.cancel()
         timeoutWork?.cancel()
@@ -1050,15 +1090,10 @@ final class GatewayUDPSession: @unchecked Sendable {
         retryTimer = nil
         timeoutWork = nil
         pendingFrames.removeAll()
-        connection.stateUpdateHandler = nil
-        connection.cancel()
-        continuation.resume(throwing: error)
     }
 
     deinit {
-        connectRetry?.cancel()
-        retryTimer?.cancel()
-        timeoutWork?.cancel()
+        cancelTimersAndPendingFrames()
         connection.cancel()
     }
 }

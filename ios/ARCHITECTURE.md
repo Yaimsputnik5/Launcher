@@ -196,7 +196,7 @@ does not claim such a license.
 - [x] Parse `.rcc` and `.pack` enough to load a usable asset subset.
 - [x] Decode TGA and DDS textures into RGBA8 buffers.
 - [ ] Build a full 3D Metal renderer for the FabledRealms zone; the current World tab is a data-driven 2D simulation view.
-- [x] Implement the source-backed Login UDP → character select → character login → gateway UDP handoff with AES-CCM transport and the documented client hello.
+- [x] Implement the source-backed Login UDP → character select → character login → gateway UDP handoff with AES-CCM transport and the documented client hello (locale via tunneled-world, initialization/finished/ready via tunneled packets).
 - [ ] Implement continuous remote gameplay/world packets and state synchronization beyond the client hello.
 - [x] Build and verify a full all-in-one IPA with embedded client data.
 - [ ] Side-load that IPA on a physical iOS device (requires the user's device).

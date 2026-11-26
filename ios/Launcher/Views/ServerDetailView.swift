@@ -17,13 +17,11 @@ struct ServerDetailView: View {
             options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
         )) ?? AttributedString(runtime.info.descriptionText)
         for run in rich.runs {
-            if let link = run.link {
-                guard let components = URLComponents(url: link, resolvingAgainstBaseURL: false),
-                      let scheme = components.scheme?.lowercased(),
-                      scheme == "https" || scheme == "http"
-                else {
-                    rich[run.range].link = nil
-                }
+            guard let link = run.link else { continue }
+            let components = URLComponents(url: link, resolvingAgainstBaseURL: false)
+            let scheme = components?.scheme?.lowercased()
+            if scheme != "https" && scheme != "http" {
+                rich[run.range].link = nil
             }
         }
         return rich

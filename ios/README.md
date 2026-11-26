@@ -22,7 +22,7 @@ In progress toward full parity:
 - The original client payload can be staged into `Launcher.app/ClientAssets` at build time and verified with XXH64.
 - The **World** tab is backed by Sanctuary zone, collection-spawn, quest and NPC data. It runs 10 Hz/1 Hz simulation ticks, gathers exact collection nodes, advances quest goals, persists per-goal progress, grants items and persists a local character. NPC coordinates are explicitly marked as inferred because `Npcs.json` ships no spawn positions.
 - Native TGA/DDS decoders read the original client textures from `.tga`, `.dds`, `.pack` and `.rcc` sources.
-- Native Login UDP authentication performs the complete WebAPI → session → character select → character login flow, and a native gateway UDP transport opens the real `CGAPI_527` connection with the server-supplied ticket, GUID and AES-CCM session. Continuous gameplay/world packets beyond the documented client hello are not yet simulated.
+- Native Login UDP authentication performs the complete WebAPI → session → character select → character login flow, and a native gateway UDP transport opens the real `CGAPI_527` connection with the server-supplied ticket, GUID and AES-CCM session. The documented client hello sends locale through `PacketTunneledClientWorldPacket` and initialization/finished/ready through `PacketTunneledClientPacket`, matching Sanctuary's handler routing. Continuous gameplay/world packets beyond that hello are not yet simulated.
 - Foundation-only protocol, resource, container, image, gateway, world-simulation and local-session layers have Linux XCTest coverage (94 tests).
 
 Not supported on iOS:

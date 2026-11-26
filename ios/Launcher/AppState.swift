@@ -145,6 +145,7 @@ final class AppState: ObservableObject {
     }
 
     func disconnectGateway() {
+        gatewaySession?.close()
         gatewaySession = nil
         gatewayStatus = "Not connected"
     }
