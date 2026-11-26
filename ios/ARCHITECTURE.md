@@ -166,7 +166,7 @@ does not claim such a license.
   payload (1,788 files, 893,405,496 bytes) are staged and XXH64-verified. Neither
   payload is committed; CI regenerates both.
 - The full unsigned IPA was built and verified at
-  <https://github.com/YaimSputnik5/Launcher/actions/runs/45827062087>; see
+  <https://github.com/YaimSputnik5/Launcher/actions/runs/45842183134>; see
   `ios/README.md` for its SHA-256 and embedded contents. Physical-device launch
   still needs to be done by the person side-loading it.
 - Packet primitives, login message framing, `.pack`/`.rcc` readers, resource
