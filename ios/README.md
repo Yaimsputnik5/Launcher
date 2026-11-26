@@ -14,9 +14,16 @@ Supported:
 - Persist settings and server metadata as JSON in the app sandbox.
 - Allow custom HTTP servers via App Transport Security (HTTPS is still recommended).
 
+In progress toward full parity:
+
+- The app shell now has **Launcher**, **Play Offline**, **Join Server**, **Downloads**, and **Diagnostics** sections.
+- Sanctuary server data is staged into `Launcher.app/SanctuaryResources` at build time.
+- The original client payload can be staged into `Launcher.app/ClientAssets` at build time and verified with XXH64.
+- Foundation-only protocol, resource, container, and local-session layers are being added with Linux XCTest coverage.
+
 Not supported on iOS:
 
-- Launching `FreeRealms.exe`, Wine, or DirectX 9. iOS cannot execute the desktop client, so **Play** becomes **Download / Verify Client** followed by a desktop-only notice.
+- Launching `FreeRealms.exe`, Wine, or DirectX 9. The game logic and rendering must be native/in-process; no Windows executable is ever run.
 - Discord Rich Presence (the vendored Discord Game SDK has no iOS binary in this repository).
 - Velopack self-updates, Windows/macOS/Linux installers, and desktop setting migration.
 
@@ -34,7 +41,19 @@ Not supported on iOS:
    - Change it before first install if you want a different identity. The iOS
      Keychain is scoped to this bundle ID, so changing it later loses remembered
      passwords.
-2. Build an unsigned IPA:
+2. Stage server data and optionally embed the original client payload:
+
+   ```bash
+   # Sanctuary server data (AGPL-3.0 code/data); set SANCTUARY_DIR if it is elsewhere.
+   SANCTUARY_DIR=/path/to/Sanctuary ios/scripts/sync_sanctuary_resources.sh
+
+   # Original client payload; only do this if you have the right to redistribute it.
+   IOS_EMBED_CLIENT=1 ios/build_ipa.sh
+   ```
+
+   The iOS GitHub Actions workflow (`Build iOS IPA`) performs both staging steps
+   on a free macOS runner and can publish the result to the `ios-ipa` release.
+3. Build an unsigned IPA:
 
    ```bash
    cd ios
@@ -43,9 +62,9 @@ Not supported on iOS:
 
    The script uses `CODE_SIGNING_ALLOWED=NO`, builds `Launcher.ipa`, and leaves
    signing to AltStore/SideStore.
-3. Open AltStore or SideStore, choose **Install IPA**, and select
+4. Open AltStore or SideStore, choose **Install IPA**, and select
    `ios/Launcher.ipa`. The store app applies your Apple ID signature.
-4. Trust the developer certificate on the device if prompted.
+5. Trust the developer certificate on the device if prompted.
 
 If you prefer signing directly from Xcode, set your own Team in the target
 signing settings and use **Product → Archive** instead of the script.
@@ -56,6 +75,8 @@ signing settings and use **Product → Archive** instead of the script.
 |---|---|
 | Settings/server list | `Application Support/OSFRLauncher/settings.json` |
 | Downloaded client files | `Application Support/OSFRLauncher/Servers/<server>/Client/...` |
+| Embedded client payload | `Launcher.app/ClientAssets/...` (build-time only, ignored by git) |
+| Embedded Sanctuary data | `Launcher.app/SanctuaryResources/...` (build-time only, ignored by git) |
 | Remembered passwords | iOS Keychain, service `<bundle-id>.passwords`, account = server UUID |
 | Logs | No file logging yet; use Xcode console/Console.app |
 
@@ -75,6 +96,10 @@ Files are shared through the Files app because `UIFileSharingEnabled` is set.
 | `Downloader.DownloadService` | `HTTPClient.downloadFile` with `URLSession.AsyncBytes` |
 | `ServerStatusHelper` | `ServerStatusClient` (Network.framework UDP) |
 | `ViewModels/*` + `Views/*` | `AppState` / `ServerRuntime` + SwiftUI views |
+| Sanctuary `UdpLibrary` / `LoginUdp_6` | `ProtocolPrimitives` + `LoginProtocol` messages |
+| Sanctuary `Resources/*` | `ResourceCatalog` typed loaders |
+| Sanctuary world database | `LocalSession` offline JSON store (first layer) |
+| Free Realms `.pack` / `.rcc` | `AssetContainers` verified readers |
 | `DiscordService`, `WineHelper`, `Dx9Helper` | Intentionally omitted; no iOS equivalent in this repo |
 
 ## Deliberate safety fixes in the port
@@ -92,6 +117,29 @@ Files are shared through the Files app because `UIFileSharingEnabled` is set.
 
 ## Verification status
 
-The Swift sources were written to compile with the iOS 17 SDK, but this Linux
-working environment has no Swift compiler or Xcode, so the IPA was **not**
-built or run here. `ios/build_ipa.sh` is the macOS verification step.
+A real unsigned IPA was compiled on a free GitHub Actions macOS runner:
+
+- Workflow run: <https://github.com/YaimSputnik5/Launcher/actions/runs/45813270060>
+- Release: <https://github.com/YaimSputnik5/Launcher/releases/tag/ios-ipa>
+- Local artifact: `ios/Launcher.ipa`
+- SHA-256: `f3317d10afa51777053ca6a066c1909b82ccd7e5c60a42f5e8df67f4fd64288a`
+
+The archive contains an arm64 `Mach-O` executable and an `Info.plist` with
+bundle ID `dev.opensourcefreerealms.launcher`, display name `OSFR Launcher`,
+version `1.0.0` (`1`), and `MinimumOSVersion` `17.0`. It was built with
+`CODE_SIGNING_ALLOWED=NO`, so AltStore/SideStore must apply your signature.
+That artifact predates the all-in-one UI and embedded assets; the rebuilt IPA
+is pending a successful `Build iOS IPA` workflow run. The app has not been
+launched on a physical device from this Linux host; that final runtime check
+requires your iOS device and side-loading app.
+
+Foundation-only logic is verified locally:
+
+```bash
+swift test --package-path ios
+```
+
+The 55 tests cover XXH64, URL/path safety, manifest v1/v2, packet primitives,
+CRC32, RC4, GUID layout, login framing/messages, `.pack`/`.rcc` parsing,
+Sanctuary resource schemas, and offline account/character persistence. SwiftUI
+and iOS framework code can only be compiled by the macOS workflow.

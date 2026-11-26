@@ -18,6 +18,23 @@ enum AppPaths {
         root.appendingPathComponent("logs", isDirectory: true)
     }
 
+    /// Original client payload copied into the app bundle by
+    /// `scripts/fetch_client_payload.sh`.
+    static var bundledClientAssets: URL? {
+        Bundle.main.url(forResource: "ClientAssets", withExtension: nil)
+    }
+
+    /// Server-side Sanctuary data copied into the app bundle by
+    /// `scripts/sync_sanctuary_resources.sh`.
+    static var bundledSanctuaryResources: URL? {
+        Bundle.main.url(forResource: "SanctuaryResources", withExtension: nil)
+    }
+
+    /// Writable copy of the client payload, useful after a repair download.
+    static var sandboxClientAssets: URL {
+        root.appendingPathComponent("ClientAssets", isDirectory: true)
+    }
+
     static func serverDirectory(_ info: ServerInfo) throws -> URL {
         let leaf = try SafePath.validatedLeaf(info.savePath)
         return try SafePath.contained(base: serversRoot, components: [leaf])

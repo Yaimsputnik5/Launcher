@@ -23,6 +23,21 @@
 		0000000000000000000000D5 = {isa = PBXBuildFile; fileRef = 000000000000000000000071; };
 		0000000000000000000000D6 = {isa = PBXBuildFile; fileRef = 000000000000000000000072; };
 		0000000000000000000000DC = {isa = PBXBuildFile; fileRef = 000000000000000000000079; };
+		0000000000000000000000DD = {isa = PBXBuildFile; fileRef = 00000000000000000000007A; };
+		0000000000000000000000DE = {isa = PBXBuildFile; fileRef = 00000000000000000000007B; };
+		0000000000000000000000DF = {isa = PBXBuildFile; fileRef = 00000000000000000000007C; };
+		0000000000000000000000E0 = {isa = PBXBuildFile; fileRef = 00000000000000000000007D; };
+		0000000000000000000000E1 = {isa = PBXBuildFile; fileRef = 00000000000000000000007E; };
+		0000000000000000000000E2 = {isa = PBXBuildFile; fileRef = 00000000000000000000007F; };
+		0000000000000000000000E3 = {isa = PBXBuildFile; fileRef = 000000000000000000000080; };
+		0000000000000000000000E4 = {isa = PBXBuildFile; fileRef = 000000000000000000000081; };
+		0000000000000000000000E5 = {isa = PBXBuildFile; fileRef = 000000000000000000000082; };
+		0000000000000000000000E6 = {isa = PBXBuildFile; fileRef = 000000000000000000000083; };
+		0000000000000000000000E7 = {isa = PBXBuildFile; fileRef = 000000000000000000000084; };
+		0000000000000000000000E8 = {isa = PBXBuildFile; fileRef = 000000000000000000000085; };
+		0000000000000000000000E9 = {isa = PBXBuildFile; fileRef = 000000000000000000000086; };
+		0000000000000000000000EA = {isa = PBXBuildFile; fileRef = 000000000000000000000087; };
+		0000000000000000000000EB = {isa = PBXBuildFile; fileRef = 000000000000000000000088; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -41,6 +56,21 @@
 		000000000000000000000070 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Views/ServerDetailView.swift"; sourceTree = "<group>"; };
 		000000000000000000000071 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Views/AuthViews.swift"; sourceTree = "<group>"; };
 		000000000000000000000072 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Views/SettingsView.swift"; sourceTree = "<group>"; };
+		00000000000000000000007A = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Services/URLHelper.swift"; sourceTree = "<group>"; };
+		00000000000000000000007B = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Models/EngineModels.swift"; sourceTree = "<group>"; };
+		00000000000000000000007C = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Services/ClientAssetStore.swift"; sourceTree = "<group>"; };
+		00000000000000000000007D = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Services/SanctuaryResourceStore.swift"; sourceTree = "<group>"; };
+		00000000000000000000007E = {isa = PBXFileReference; lastKnownFileType = folder; path = ClientAssets; sourceTree = "<group>"; };
+		00000000000000000000007F = {isa = PBXFileReference; lastKnownFileType = folder; path = SanctuaryResources; sourceTree = "<group>"; };
+		000000000000000000000080 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Services/ProtocolPrimitives.swift"; sourceTree = "<group>"; };
+		000000000000000000000081 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Views/PlayOfflineView.swift"; sourceTree = "<group>"; };
+		000000000000000000000082 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Views/JoinServerView.swift"; sourceTree = "<group>"; };
+		000000000000000000000083 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Views/DownloadsView.swift"; sourceTree = "<group>"; };
+		000000000000000000000084 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Views/DiagnosticsView.swift"; sourceTree = "<group>"; };
+		000000000000000000000085 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Services/LocalSession.swift"; sourceTree = "<group>"; };
+		000000000000000000000086 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Services/AssetContainers.swift"; sourceTree = "<group>"; };
+		000000000000000000000087 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Services/ResourceCatalog.swift"; sourceTree = "<group>"; };
+		000000000000000000000088 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Services/LoginProtocol.swift"; sourceTree = "<group>"; };
 		000000000000000000000078 = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		000000000000000000000079 = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		00000000000000000000000C = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Launcher.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -83,6 +113,19 @@
 				000000000000000000000070,
 				000000000000000000000071,
 				000000000000000000000072,
+				00000000000000000000007A,
+				00000000000000000000007B,
+				00000000000000000000007C,
+				00000000000000000000007D,
+				000000000000000000000080,
+				000000000000000000000081,
+				000000000000000000000082,
+				000000000000000000000083,
+				000000000000000000000084,
+				000000000000000000000085,
+				000000000000000000000086,
+				000000000000000000000087,
+				000000000000000000000088,
 				000000000000000000000003,
 			);
 			path = Launcher;
@@ -93,6 +136,8 @@
 			children = (
 				000000000000000000000078,
 				000000000000000000000079,
+				00000000000000000000007E,
+				00000000000000000000007F,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -164,6 +209,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				0000000000000000000000DC,
+				0000000000000000000000E1,
+				0000000000000000000000E2,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -189,6 +236,19 @@
 				0000000000000000000000D4,
 				0000000000000000000000D5,
 				0000000000000000000000D6,
+				0000000000000000000000DD,
+				0000000000000000000000DE,
+				0000000000000000000000DF,
+				0000000000000000000000E0,
+				0000000000000000000000E3,
+				0000000000000000000000E4,
+				0000000000000000000000E5,
+				0000000000000000000000E6,
+				0000000000000000000000E7,
+				0000000000000000000000E8,
+				0000000000000000000000E9,
+				0000000000000000000000EA,
+				0000000000000000000000EB,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

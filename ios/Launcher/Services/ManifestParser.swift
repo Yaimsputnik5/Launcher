@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationXML) && !canImport(UIKit)
+import FoundationXML
+#endif
 
 private func trimmedText(_ value: String) -> String {
     value.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -139,12 +142,14 @@ final class ClientManifestParser: NSObject, XMLParserDelegate {
                 .compactMap { GameLocale.fromManifest(String($0)) }
 
         case "Folder":
-            guard let rawName = attributeDict["name"] else {
-                fail(LauncherError.malformedManifest("Folder without name"), parser: parser)
-                return
-            }
+            // The published OSFR manifest starts with an unnamed root <Folder>.
+            // Sanctuary's downloader also treats a missing name as "no path
+            // component", so preserve that behavior here.
+            let rawName = (attributeDict["name"] ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
             do {
-                stack.append(FolderFrame(name: try SafePath.validatedLeaf(rawName)))
+                let leaf = rawName.isEmpty ? "" : try SafePath.validatedLeaf(rawName)
+                stack.append(FolderFrame(name: leaf))
             } catch {
                 fail(error, parser: parser)
             }

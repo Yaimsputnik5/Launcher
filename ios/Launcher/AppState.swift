@@ -242,8 +242,11 @@ final class ServerRuntime: ObservableObject, Identifiable {
                          base: URL,
                          clientRoot: URL,
                          into items: inout [DownloadItem]) throws {
-        let folderLeaf = try SafePath.validatedLeaf(folder.name)
-        let folderComponents = components + [folderLeaf]
+        // Published manifests use an unnamed root <Folder>, which adds no path
+        // component. Named child folders are still validated as single leaves.
+        let folderComponents = folder.name.isEmpty
+            ? components
+            : components + [try SafePath.validatedLeaf(folder.name)]
         let localFolder = try SafePath.contained(base: clientRoot, components: folderComponents)
 
         for file in folder.files {

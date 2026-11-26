@@ -1,0 +1,109 @@
+name: Build iOS IPA
+
+on:
+  workflow_dispatch:
+    inputs:
+      embed_client:
+        description: "Download and embed the original Free Realms client payload"
+        required: false
+        default: true
+        type: boolean
+      publish:
+        description: "Publish the unsigned IPA to the ios-ipa release (only if you have redistribution rights)"
+        required: false
+        default: false
+        type: boolean
+      sanctuary_repo:
+        description: "Sanctuary repository to take server data from"
+        required: false
+        default: "https://github.com/YaimSputnik5/Sanctuary.git"
+        type: string
+      sanctuary_ref:
+        description: "Sanctuary commit or ref"
+        required: false
+        default: "f5240b7554f2a80d6b815cb7ead7ffee12499565"
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build unsigned iOS IPA
+    runs-on: macos-26
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Toolchain versions
+        run: |
+          sw_vers
+          xcodebuild -version
+
+      # The binary app icon cannot be represented in the MCP file-push path,
+      # so restore the upstream original on the runner before building.
+      - name: Restore app icon
+        run: |
+          set -euo pipefail
+          mkdir -p ios/Launcher/Resources/Assets.xcassets/AppIcon.appiconset
+          curl -fsSL https://raw.githubusercontent.com/Open-Source-Free-Realms/Launcher/main/assets/icon.png \
+            -o ios/Launcher/Resources/Assets.xcassets/AppIcon.appiconset/icon.png
+          file ios/Launcher/Resources/Assets.xcassets/AppIcon.appiconset/icon.png
+
+      - name: Clone Sanctuary resources
+        run: |
+          set -euo pipefail
+          git clone --depth 1 "${{ inputs.sanctuary_repo }}" "$RUNNER_TEMP/Sanctuary"
+          git -C "$RUNNER_TEMP/Sanctuary" fetch --depth 1 origin "${{ inputs.sanctuary_ref }}"
+          git -C "$RUNNER_TEMP/Sanctuary" checkout --detach FETCH_HEAD
+
+      - name: Sync Sanctuary resources into the app
+        env:
+          SANCTUARY_DIR: ${{ runner.temp }}/Sanctuary
+        run: ios/scripts/sync_sanctuary_resources.sh
+
+      - name: Build IPA
+        id: build
+        continue-on-error: true
+        env:
+          IOS_EMBED_CLIENT: ${{ inputs.embed_client }}
+        run: |
+          cd ios
+          chmod +x build_ipa.sh scripts/*.sh
+          set -o pipefail
+          ./build_ipa.sh 2>&1 | tee build.log
+
+      - name: Upload IPA
+        if: steps.build.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: OSFRLauncher-ios-unsigned
+          path: ios/Launcher.ipa
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload failed build log
+        if: steps.build.outcome != 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: OSFRLauncher-ios-build-log
+          path: ios/build.log
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Publish ios-ipa release
+        if: ${{ inputs.publish && steps.build.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete ios-ipa --yes --cleanup-tag >/dev/null 2>&1 || true
+          gh release create ios-ipa ios/Launcher.ipa ios/build.log \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "iOS IPA (unsigned)" \
+            --notes "Unsigned iOS 17+ IPA built on GitHub Actions. Install with AltStore or SideStore. Client payload embedded: ${{ inputs.embed_client }} (third-party game content; publish only if you have redistribution rights). Sanctuary data: ${{ inputs.sanctuary_repo }}@${{ inputs.sanctuary_ref }}."
+
+      - name: Fail if xcodebuild failed
+        if: steps.build.outcome != 'success'
+        run: exit 1

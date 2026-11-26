@@ -18,6 +18,33 @@ if ! command -v xcodebuild >/dev/null 2>&1; then
 fi
 
 cd "$SCRIPT_DIR"
+
+case "${IOS_EMBED_CLIENT:-0}" in
+  1|true|TRUE|yes|YES)
+  echo "Staging the original client payload for embedding..."
+  IOS_CLIENT_DEST="$SCRIPT_DIR/Launcher/Resources/ClientAssets" \
+    "$SCRIPT_DIR/scripts/fetch_client_payload.sh"
+    ;;
+  *)
+    ;;
+esac
+
+if [ -n "${SANCTUARY_DIR:-}" ] && [ -d "$SANCTUARY_DIR/src/Resources" ]; then
+  echo "Syncing Sanctuary resources from $SANCTUARY_DIR..."
+  SANCTUARY_DIR="$SANCTUARY_DIR" "$SCRIPT_DIR/scripts/sync_sanctuary_resources.sh"
+fi
+
+CLIENT_INDEX="$SCRIPT_DIR/Launcher/Resources/ClientAssets/client-assets-index.json"
+if [ -f "$CLIENT_INDEX" ]; then
+  echo "Client payload index found; Xcode will copy ClientAssets into the app."
+else
+  echo "Warning: no embedded client payload. Set IOS_EMBED_CLIENT=1 to include it." >&2
+fi
+
+if [ ! -d "$SCRIPT_DIR/Launcher/Resources/SanctuaryResources" ]; then
+  echo "Warning: SanctuaryResources is missing. Run scripts/sync_sanctuary_resources.sh." >&2
+fi
+
 rm -rf "$BUILD_DIR" "$SCRIPT_DIR/Payload" "$IPA"
 
 xcodebuild \

@@ -52,6 +52,32 @@ struct NoticeOverlay: View {
     }
 }
 
+struct ServerRow: View {
+    @ObservedObject var runtime: ServerRuntime
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(runtime.info.name)
+                    .font(.headline)
+                Spacer()
+                StatusBadge(status: runtime.status)
+            }
+            Text(runtime.info.url)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            if !runtime.statusMessage.isEmpty {
+                Text(runtime.statusMessage)
+                    .font(.caption2)
+                    .foregroundStyle(runtime.lastError == nil ? Color.secondary : Color.red)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+}
+
 struct InsecureEndpointWarning: View {
     var body: some View {
         Label(

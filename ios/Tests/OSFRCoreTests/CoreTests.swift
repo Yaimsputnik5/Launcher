@@ -1,0 +1,94 @@
+import Foundation
+import XCTest
+@testable import OSFRCore
+
+final class CoreTests: XCTestCase {
+    func testXXHash64Vectors() {
+        XCTAssertEqual(XXHash64.hash(Data()), 0xEF46DB3751D8E999)
+        XCTAssertEqual(XXHash64.hash(Data("abc".utf8)), 0x44BC2CF5AD770999)
+    }
+
+    func testBaseURLRejectsEmbeddedCredentials() throws {
+        XCTAssertThrowsError(try URLHelper.baseURL("https://user:pass@example.com"))
+    }
+
+    func testBaseURLNormalizesTrailingSlash() throws {
+        XCTAssertEqual(
+            try URLHelper.baseURL("https://example.com/api").absoluteString,
+            "https://example.com/api/"
+        )
+    }
+
+    func testJoiningKeepsBasePath() {
+        let base = URL(string: "https://example.com/api/")!
+        XCTAssertEqual(
+            URLHelper.joining(base, "login").absoluteString,
+            "https://example.com/api/login"
+        )
+    }
+
+    func testServerManifestV2() throws {
+        let xml = """
+        <?xml version="1.0"?><ServerManifest version="2">
+          <Name>Sanctuary</Name>
+          <Description>Local server</Description>
+          <WebApiUrl>http://127.0.0.1:20040/</WebApiUrl>
+          <LoginServer>127.0.0.1:20042</LoginServer>
+        </ServerManifest>
+        """
+        let manifest = try ServerManifestParser().parse(Data(xml.utf8))
+        XCTAssertEqual(manifest.version, 2)
+        XCTAssertEqual(manifest.name, "Sanctuary")
+        XCTAssertEqual(manifest.webAPIURL, "http://127.0.0.1:20040/")
+        XCTAssertEqual(manifest.loginServer, "127.0.0.1:20042")
+    }
+
+    func testClientManifestParsesFiles() throws {
+        let hash = XXHash64.hash(Data("abc".utf8))
+        let xml = """
+        <?xml version="1.0"?><ClientManifest version="1" languages="en_US">
+          <Folder name="client">
+            <File name="a.bin" size="3" hash="\(hash)"/>
+          </Folder>
+        </ClientManifest>
+        """
+        let manifest = try ClientManifestParser().parse(Data(xml.utf8))
+        XCTAssertEqual(manifest.languages, [.en_US])
+        XCTAssertEqual(manifest.rootFolder.name, "client")
+        XCTAssertEqual(manifest.rootFolder.files.count, 1)
+        XCTAssertEqual(manifest.rootFolder.files[0].name, "a.bin")
+        XCTAssertEqual(manifest.rootFolder.files[0].hash, hash)
+    }
+
+    func testClientManifestAllowsUnnamedRoot() throws {
+        let xml = """
+        <?xml version="1.0"?><ClientManifest version="1" languages="en_us">
+          <Folder>
+            <Folder name="data">
+              <File name="a.bin" size="3" hash="1"/>
+            </Folder>
+          </Folder>
+        </ClientManifest>
+        """
+        let manifest = try ClientManifestParser().parse(Data(xml.utf8))
+        XCTAssertEqual(manifest.rootFolder.name, "")
+        XCTAssertEqual(manifest.rootFolder.folders.count, 1)
+        XCTAssertEqual(manifest.rootFolder.folders[0].name, "data")
+        XCTAssertEqual(manifest.rootFolder.folders[0].files[0].name, "a.bin")
+    }
+
+    func testClientManifestRejectsTraversal() {
+        let xml = """
+        <?xml version="1.0"?><ClientManifest version="1" languages="en_US">
+          <Folder name=".."><File name="a.bin" size="3" hash="1"/></Folder>
+        </ClientManifest>
+        """
+        XCTAssertThrowsError(try ClientManifestParser().parse(Data(xml.utf8)))
+    }
+
+    func testSafePathValidatedLeaf() throws {
+        XCTAssertEqual(try SafePath.validatedLeaf("Client"), "Client")
+        XCTAssertThrowsError(try SafePath.validatedLeaf("../escape"))
+        XCTAssertThrowsError(try SafePath.validatedLeaf("a/b"))
+    }
+}

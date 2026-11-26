@@ -401,3 +401,16 @@ FodyWeavers.xsd
 
 # JetBrains Rider
 *.sln.iml
+
+# Native iOS port
+ios/build/
+ios/.build/
+ios/Payload/
+ios/*.ipa
+ios/Launcher/Resources/ClientAssets/*
+!ios/Launcher/Resources/ClientAssets/.gitkeep
+ios/Launcher/Resources/SanctuaryResources/*
+!ios/Launcher/Resources/SanctuaryResources/.gitkeep
+ios/scripts/__pycache__/
+ios/Launcher.xcodeproj/xcuserdata/
+ios/Launcher.xcodeproj/project.xcworkspace/xcuserdata/
