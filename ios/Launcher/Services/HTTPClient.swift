@@ -70,7 +70,10 @@ final class HTTPClient {
             if !succeeded { try? fm.removeItem(at: temp) }
         }
 
-        let (bytes, response) = try await session.bytes(from: url)
+        var request = URLRequest(url: url)
+        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue("*/*", forHTTPHeaderField: "Accept")
+        let (bytes, response) = try await session.bytes(from: request)
         guard let http = response as? HTTPURLResponse else {
             throw LauncherError.httpStatus(-1)
         }
@@ -83,16 +86,24 @@ final class HTTPClient {
         // FileHandle(forWritingTo:) requires the file to exist.
         fm.createFile(atPath: temp.path, contents: nil)
         let handle = try FileHandle(forWritingTo: temp)
-        try await write(bytes, using: handle, expectedBytes: expectedBytes, progress: progress)
+        try await write(
+            bytes,
+            using: handle,
+            expectedBytes: expectedBytes ?? expectedSize,
+            progress: progress
+        )
 
         try verify(temp, size: expectedSize, hash: expectedHash)
         if fm.fileExists(atPath: destination.path) {
-            _ = try fm.replaceItemAt(
+            let replacement = try fm.replaceItemAt(
                 destination,
                 withItemAt: temp,
                 backupItemName: nil,
                 options: .usingNewMetadataOnly
             )
+            guard replacement != nil else {
+                throw LauncherError.fileSystem("Could not replace \(destination.lastPathComponent)")
+            }
         } else {
             try fm.moveItem(at: temp, to: destination)
         }

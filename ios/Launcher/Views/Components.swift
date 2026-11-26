@@ -1,18 +1,27 @@
 import SwiftUI
 
 struct StatusBadge: View {
-    let status: ServerStatus?
+    let state: ServerPresentationState
 
     private var label: String {
-        guard let status else { return "Unknown" }
-        if !status.online { return "Offline" }
-        return status.joining ? "Joining" : "Online"
+        switch state {
+        case .unknown: return "Unknown"
+        case .refreshing: return "Refreshing"
+        case .online: return "Online"
+        case .locked: return "Locked"
+        case .offline: return "Offline"
+        case .unsupported: return "Unsupported"
+        case .error: return "Error"
+        }
     }
 
     private var color: Color {
-        guard let status else { return .gray }
-        if !status.online { return .red }
-        return status.joining ? .orange : .green
+        switch state {
+        case .unknown, .refreshing: return .yellow
+        case .online: return .green
+        case .locked, .offline, .error: return .red
+        case .unsupported: return .orange
+        }
     }
 
     var body: some View {
@@ -36,6 +45,7 @@ struct NoticeOverlay: View {
                     Image(systemName: notice.isError ? "exclamationmark.triangle.fill" : "info.circle.fill")
                     Text(notice.message)
                         .font(.footnote)
+                        .textSelection(.enabled)
                     Spacer(minLength: 0)
                 }
                 .padding(10)
@@ -47,7 +57,6 @@ struct NoticeOverlay: View {
             }
         }
         .padding(.horizontal)
-        .allowsHitTesting(false)
         .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 }
@@ -61,16 +70,16 @@ struct ServerRow: View {
                 Text(runtime.info.name)
                     .font(.headline)
                 Spacer()
-                StatusBadge(status: runtime.status)
+                StatusBadge(state: runtime.presentationState)
             }
             Text(runtime.info.url)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
-            if !runtime.statusMessage.isEmpty {
-                Text(runtime.statusMessage)
+            if !runtime.statusText.isEmpty {
+                Text(runtime.statusText)
                     .font(.caption2)
-                    .foregroundStyle(runtime.lastError == nil ? Color.secondary : Color.red)
+                    .foregroundStyle(runtime.presentationState == .error ? Color.red : Color.secondary)
                     .lineLimit(1)
             }
         }
@@ -81,10 +90,18 @@ struct ServerRow: View {
 struct InsecureEndpointWarning: View {
     var body: some View {
         Label(
-            "This server uses HTTP. Your username and password are not encrypted in transit.",
+            "This endpoint does not use HTTPS. Your username and password are not encrypted in transit.",
             systemImage: "exclamationmark.shield"
         )
         .font(.footnote)
         .foregroundStyle(.orange)
     }
+}
+
+/// The C# launcher warns for any API scheme that is not HTTPS.
+func isInsecureEndpoint(_ value: String) -> Bool {
+    guard let components = URLComponents(string: value), let scheme = components.scheme?.lowercased() else {
+        return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+    return scheme != "https"
 }

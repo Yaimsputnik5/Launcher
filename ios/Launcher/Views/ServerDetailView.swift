@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct ServerDetailView: View {
     @ObservedObject var runtime: ServerRuntime
@@ -6,21 +7,45 @@ struct ServerDetailView: View {
     @Environment(\.openURL) private var openURL
 
     @State private var showingLogin = false
-    @State private var showingDesktopOnly = false
+    @State private var showingClientReady = false
     @State private var confirmingDelete = false
+    @State private var shareItem: ShareItem?
+
+    private var description: AttributedString {
+        var rich = (try? AttributedString(
+            markdown: runtime.info.descriptionText,
+            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        )) ?? AttributedString(runtime.info.descriptionText)
+        for run in rich.runs {
+            if let link = run.link {
+                guard let components = URLComponents(url: link, resolvingAgainstBaseURL: false),
+                      let scheme = components.scheme?.lowercased(),
+                      scheme == "https" || scheme == "http"
+                else {
+                    rich[run.range].link = nil
+                }
+            }
+        }
+        return rich
+    }
 
     var body: some View {
         Form {
             Section("Status") {
                 HStack {
-                    StatusBadge(status: runtime.status)
+                    StatusBadge(state: runtime.presentationState)
                     Spacer()
                     if runtime.isRefreshing {
                         ProgressView()
                     }
                 }
-                Text(runtime.statusMessage.isEmpty ? "No status received yet." : runtime.statusMessage)
+                Text(runtime.statusText)
                     .font(.subheadline)
+                if runtime.info.isBootstrapOnly {
+                    Text("Using preset endpoints — refresh failed. The saved record is not live manifest data.")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
                 Button("Refresh") {
                     Task { await runtime.refresh() }
                 }
@@ -28,13 +53,13 @@ struct ServerDetailView: View {
             }
 
             Section("About") {
-                Text(runtime.info.descriptionText.isEmpty ? "No description provided." : runtime.info.descriptionText)
+                Text(description)
                     .font(.body)
                     .textSelection(.enabled)
                 if let url = URL(string: runtime.info.url), url.scheme?.lowercased() == "https" || url.scheme?.lowercased() == "http" {
                     Button("Open Server Website") { openURL(url) }
                 }
-                if runtime.info.webAPIURL.lowercased().hasPrefix("http://") {
+                if isInsecureEndpoint(runtime.info.webAPIURL) {
                     InsecureEndpointWarning()
                 }
             }
@@ -42,8 +67,9 @@ struct ServerDetailView: View {
             Section("Client Files") {
                 Button {
                     Task {
-                        await runtime.prepareForDesktopPlay()
-                        showingDesktopOnly = true
+                        if await runtime.prepareForDesktopPlay() {
+                            showingClientReady = true
+                        }
                     }
                 } label: {
                     Label("Download / Verify Client", systemImage: "arrow.down.to.line")
@@ -56,23 +82,42 @@ struct ServerDetailView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-
-                Text("Downloads are stored in the app sandbox. This build cannot launch \(AppConstants.desktopExecutable).")
+                if !runtime.taskStatusMessage.isEmpty {
+                    Text(runtime.taskStatusMessage)
+                        .font(.caption)
+                        .foregroundStyle(runtime.lastError == nil ? Color.secondary : Color.red)
+                }
+                if let folder = try? AppPaths.clientDirectory(runtime.info) {
+                    Button("Share Client Folder") { shareItem = ShareItem(url: folder) }
+                }
+                Text("Downloads are stored in the app sandbox and consumed by the native World tab.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
             Section("Account") {
                 Button("Sign In") { showingLogin = true }
+                    .disabled(runtime.presentationState != .online)
+                if runtime.presentationState != .online {
+                    Text("Sign in is available when the server is online.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 if runtime.info.rememberUsername && !runtime.info.username.isEmpty {
                     Text("Remembered user: \(runtime.info.username)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                if let session = state.remoteSession, session.host == runtime.info.loginServer {
+                    LabeledContent("Game Session") {
+                        Text(session.mode == .remote ? "Ready" : "Local")
+                    }
+                }
             }
 
             Section {
                 Button("Delete Server", role: .destructive) { confirmingDelete = true }
+                    .disabled(runtime.isDownloading)
             }
         }
         .navigationTitle(runtime.info.name)
@@ -83,8 +128,11 @@ struct ServerDetailView: View {
         .sheet(isPresented: $showingLogin) {
             LoginView(runtime: runtime)
         }
-        .sheet(isPresented: $showingDesktopOnly) {
-            DesktopOnlySheet(runtime: runtime)
+        .sheet(isPresented: $showingClientReady) {
+            ClientReadySheet(runtime: runtime)
+        }
+        .sheet(item: $shareItem) { item in
+            ShareSheet(items: [item.url])
         }
         .alert("Delete \(runtime.info.name)?", isPresented: $confirmingDelete) {
             Button("Delete", role: .destructive) {
@@ -97,32 +145,47 @@ struct ServerDetailView: View {
     }
 }
 
-struct DesktopOnlySheet: View {
+struct ClientReadySheet: View {
     let runtime: ServerRuntime
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 16) {
-                Image(systemName: "desktopcomputer")
+                Image(systemName: "checkmark.seal.fill")
                     .font(.system(size: 48))
-                    .foregroundStyle(.blue)
-                Text("Desktop Game Required")
+                    .foregroundStyle(.green)
+                Text("Client Files Verified")
                     .font(.title2.bold())
-                Text("Client files are managed, but iOS cannot execute \(AppConstants.desktopExecutable) or Wine. Open the server website on a Windows, macOS, or Linux computer to play.")
+                Text("All files for \(runtime.info.name) are current. The native World tab reads them directly from the app sandbox.")
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.secondary)
-                if let url = URL(string: runtime.info.loginServer), url.scheme != nil {
-                    Link("Open Game Website", destination: url)
+                if let url = URL(string: runtime.info.url), url.scheme == "https" || url.scheme == "http" {
+                    Link("Open Server Website", destination: url)
                         .buttonStyle(.borderedProminent)
                 }
                 Spacer()
             }
             .padding()
-            .navigationTitle("Not Available on iOS")
+            .navigationTitle("Client Ready")
             .toolbar {
                 Button("Done") { dismiss() }
             }
         }
     }
+}
+
+private struct ShareItem: Identifiable {
+    let url: URL
+    var id: URL { url }
+}
+
+struct ShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }

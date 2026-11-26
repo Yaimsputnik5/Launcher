@@ -16,6 +16,7 @@ enum AppConstants {
 struct AppSettings: Codable {
     var servers: [ServerInfo] = []
     var downloadThreads: Int = max(2, ProcessInfo.processInfo.activeProcessorCount / 2)
+    var parallelDownloads: Bool = true
     var locale: GameLocale = .en_US
     var didSeedDefaultServers = false
 
@@ -49,12 +50,17 @@ struct ServerInfo: Codable, Identifiable, Equatable {
     var rememberUsername: Bool
     var rememberPassword: Bool
     var locale: GameLocale
+    /// True until a live servermanifest.xml has supplied real endpoints. The
+    /// C# launcher never persists a bootstrap record; iOS keeps one so the
+    /// public server is visible offline, but must not present it as live data.
+    var isBootstrapOnly: Bool = false
 
     enum CodingKeys: String, CodingKey {
         case id, url, name
         case descriptionText = "description"
         case webAPIURL = "webApiUrl"
         case loginServer, savePath, username, rememberUsername, rememberPassword, locale
+        case isBootstrapOnly
     }
 
     static func make(
@@ -75,9 +81,23 @@ struct ServerInfo: Codable, Identifiable, Equatable {
             username: "",
             rememberUsername: false,
             rememberPassword: false,
-            locale: .en_US
+            locale: .en_US,
+            isBootstrapOnly: false
         )
     }
+}
+
+/// Mirrors the C# `ServerStatus` enum plus transient refresh/error states used
+/// by native UI. The C# app initializes to Offline and uses red Locked when the
+/// status reply reports a joining/locked server.
+enum ServerPresentationState: String, Codable {
+    case unknown
+    case refreshing
+    case online
+    case locked
+    case offline
+    case unsupported
+    case error
 }
 
 // MARK: - Game locales
@@ -89,6 +109,10 @@ enum GameLocale: String, Codable, CaseIterable, Identifiable {
     case nl_NL, pl_PL, fi_FL, da_DK, nn_NO
 
     var id: String { rawValue }
+
+    /// The C# settings UI omits `None`; keep the stored enum value for manifest
+    /// compatibility but do not offer it to users.
+    static let selectable: [GameLocale] = allCases.filter { $0 != .none }
 
     var displayName: String {
         switch self {
@@ -180,6 +204,7 @@ enum LauncherError: LocalizedError {
     case unsupportedScheme(String)
     case httpStatus(Int)
     case unauthorized
+    case loginRejected(Int32)
     case conflict
     case badContentType(String)
     case invalidManifestVersion(Int)
@@ -187,6 +212,7 @@ enum LauncherError: LocalizedError {
     case malformedManifest(String)
     case unsafePath(String)
     case checksumMismatch(String)
+    case fileSystem(String)
     case keychain(Int)
     case canceled
 
@@ -196,6 +222,7 @@ enum LauncherError: LocalizedError {
         case .unsupportedScheme(let scheme): return "Unsupported URL scheme: \(scheme)"
         case .httpStatus(let code): return "Server returned HTTP \(code)."
         case .unauthorized: return "Incorrect username or password."
+        case .loginRejected(let status): return "The game login server rejected the session (status \(status))."
         case .conflict: return "That username is already registered."
         case .badContentType(let type): return "Expected XML but received \(type)."
         case .invalidManifestVersion(let version): return "Invalid manifest version: \(version)."
@@ -203,6 +230,7 @@ enum LauncherError: LocalizedError {
         case .malformedManifest(let detail): return "Malformed manifest: \(detail)"
         case .unsafePath(let value): return "Unsafe path in manifest: \(value)"
         case .checksumMismatch(let name): return "Checksum mismatch for \(name)."
+        case .fileSystem(let detail): return "File system error: \(detail)"
         case .keychain(let status): return "Keychain error (\(status))."
         case .canceled: return "Canceled."
         }

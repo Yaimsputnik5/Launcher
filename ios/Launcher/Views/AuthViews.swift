@@ -12,11 +12,16 @@ struct LoginView: View {
     @State private var showingRegister = false
     @State private var busy = false
     @State private var errorMessage: String?
+    @FocusState private var usernameFocused: Bool
 
     init(runtime: ServerRuntime) {
         self.runtime = runtime
         _username = State(initialValue: runtime.info.username)
-        _password = State(initialValue: CredentialStore.shared.password(for: runtime.info.id) ?? "")
+        // The C# login view loads the stored password only when the user has
+        // explicitly asked for it to be remembered.
+        _password = State(initialValue: runtime.info.rememberPassword
+            ? (CredentialStore.shared.password(for: runtime.info.id) ?? "")
+            : "")
         _rememberUsername = State(initialValue: runtime.info.rememberUsername)
         _rememberPassword = State(initialValue: runtime.info.rememberPassword)
     }
@@ -24,7 +29,7 @@ struct LoginView: View {
     var body: some View {
         NavigationStack {
             Form {
-                if runtime.info.webAPIURL.lowercased().hasPrefix("http://") {
+                if isInsecureEndpoint(runtime.info.webAPIURL) {
                     Section { InsecureEndpointWarning() }
                 }
 
@@ -32,9 +37,20 @@ struct LoginView: View {
                     TextField("Username", text: $username)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
+                        .submitLabel(.next)
+                        .focused($usernameFocused)
+                        .onSubmit { usernameFocused = false }
                     SecureField("Password", text: $password)
-                    Toggle("Remember Username", isOn: $rememberUsername)
-                    Toggle("Remember Password", isOn: $rememberPassword)
+                        .submitLabel(.go)
+                        .onSubmit { Task { await login() } }
+                    Toggle("Remember Username", isOn:Binding(
+                        get: { rememberUsername },
+                        set: { rememberUsername = $0; applyRememberFlags() }
+                    ))
+                    Toggle("Remember Password", isOn: Binding(
+                        get: { rememberPassword },
+                        set: { rememberPassword = $0; applyRememberFlags() }
+                    ))
                 }
 
                 if let errorMessage {
@@ -45,12 +61,15 @@ struct LoginView: View {
 
                 Section {
                     Button("Create an Account") { showingRegister = true }
+                        .disabled(busy)
                 }
             }
             .navigationTitle("Sign In")
+            .task { usernameFocused = true }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { dismiss() }
+                        .disabled(busy)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Sign In") {
@@ -68,6 +87,18 @@ struct LoginView: View {
         }
     }
 
+    private func applyRememberFlags() {
+        var info = runtime.info
+        info.username = rememberUsername ? username.trimmed : ""
+        info.rememberUsername = rememberUsername
+        info.rememberPassword = rememberPassword
+        runtime.info = info
+        state.update(info)
+        if !rememberPassword {
+            CredentialStore.shared.delete(for: info.id)
+        }
+    }
+
     private func login() async {
         busy = true
         errorMessage = nil
@@ -79,7 +110,31 @@ struct LoginView: View {
                 username: username.trimmed,
                 password: password
             )
-            _ = response.sessionId // Confirms the response; never stored in the keychain.
+
+            // Sanctuary clients exchange the WebAPI ticket for a real game
+            // session over the Login UDP listener. The desktop launcher only
+            // forwards it as a launch argument; iOS performs the handshake.
+            let gameSession = try await LoginUDPSession.authenticate(
+                address: runtime.info.loginServer,
+                sessionID: response.sessionId,
+                fingerprint: "OSFRLauncheriOS"
+            )
+            guard gameSession.reply.loggedIn else {
+                throw LauncherError.loginRejected(gameSession.reply.status)
+            }
+
+            let configuration = WorldSessionConfiguration(
+                mode: .remote,
+                host: runtime.info.loginServer,
+                username: username.trimmed,
+                sessionID: response.sessionId,
+                characterID: nil,
+                ticket: nil,
+                cryptoKey: nil,
+                loginArguments: parseLaunchArguments(response.launchArguments),
+                locale: state.settings.locale
+            )
+            state.setRemoteSession(configuration)
 
             var info = runtime.info
             info.username = rememberUsername ? username.trimmed : ""
@@ -96,10 +151,11 @@ struct LoginView: View {
                 CredentialStore.shared.delete(for: info.id)
             }
 
-            state.notify("Signed in. iOS can manage files but cannot launch the desktop game.")
+            state.notify("Signed in. Game session established with \(runtime.info.name).")
             dismiss()
         } catch {
             errorMessage = error.localizedDescription
+            state.notify("Sign in failed: \(error.localizedDescription)", isError: true)
             if case LauncherError.unauthorized = error {
                 password = ""
             }
@@ -117,6 +173,7 @@ struct RegisterView: View {
     @State private var confirmPassword = ""
     @State private var busy = false
     @State private var errorMessage: String?
+    @FocusState private var usernameFocused: Bool
 
     private var passwordsMatch: Bool { password == confirmPassword }
     private var isValid: Bool {
@@ -129,12 +186,20 @@ struct RegisterView: View {
     var body: some View {
         NavigationStack {
             Form {
+                if isInsecureEndpoint(runtime.info.webAPIURL) {
+                    Section { InsecureEndpointWarning() }
+                }
+
                 Section("New Account") {
                     TextField("Username", text: $username)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
+                        .submitLabel(.next)
+                        .focused($usernameFocused)
                     SecureField("Password", text: $password)
                     SecureField("Confirm Password", text: $confirmPassword)
+                        .submitLabel(.go)
+                        .onSubmit { Task { await register() } }
                     if !confirmPassword.isEmpty && !passwordsMatch {
                         Text("Passwords do not match.").foregroundStyle(.red)
                     }
@@ -145,9 +210,11 @@ struct RegisterView: View {
                 }
             }
             .navigationTitle("Register")
+            .task { usernameFocused = true }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { dismiss() }
+                        .disabled(busy)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Register") {
@@ -177,10 +244,48 @@ struct RegisterView: View {
             dismiss()
         } catch {
             errorMessage = error.localizedDescription
+            state.notify("Registration failed: \(error.localizedDescription)", isError: true)
+            if case LauncherError.conflict = error {
+                username = ""
+            } else {
+                username = ""
+                password = ""
+                confirmPassword = ""
+            }
         }
     }
 }
 
 private extension String {
     var trimmed: String { trimmingCharacters(in: .whitespacesAndNewlines) }
+}
+
+/// Converts the WebAPI `LaunchArguments` string into the argument array kept in
+/// a native `WorldSessionConfiguration`. Quoted values are preserved as one
+/// argument; the C# launcher forwards the same string to the game process.
+private func parseLaunchArguments(_ raw: String?) -> [String] {
+    guard let raw, !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
+    var arguments: [String] = []
+    var current = ""
+    var quote: Character?
+    for character in raw {
+        if character == "\"" || character == "'" {
+            if quote == character {
+                quote = nil
+            } else if quote == nil {
+                quote = character
+            } else {
+                current.append(character)
+            }
+        } else if character.isWhitespace && quote == nil {
+            if !current.isEmpty {
+                arguments.append(current)
+                current = ""
+            }
+        } else {
+            current.append(character)
+        }
+    }
+    if !current.isEmpty { arguments.append(current) }
+    return arguments
 }

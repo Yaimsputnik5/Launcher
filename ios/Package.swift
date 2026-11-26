@@ -19,6 +19,7 @@ let package = Package(
                 "Resources/Info.plist",
                 "Services/CredentialStore.swift",
                 "Services/HTTPClient.swift",
+                "Services/LoginUDPSession.swift",
                 "Services/ServerStatusClient.swift",
                 "Views"
             ],
@@ -37,7 +38,11 @@ let package = Package(
                 "Services/ClientAssetStore.swift",
                 "Services/SanctuaryResourceStore.swift",
                 "Services/ResourceCatalog.swift",
-                "Services/WorldMapModel.swift"
+                "Services/WorldMapModel.swift",
+                "Engine/CollectionSpawns.swift",
+                "Engine/GameWorld.swift",
+                "Services/GatewayProtocol.swift",
+                "Services/ImageCodecs.swift"
             ]
         ),
         .testTarget(

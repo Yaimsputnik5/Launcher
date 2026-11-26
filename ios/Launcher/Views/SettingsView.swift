@@ -12,6 +12,10 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 Section("Downloads") {
+                    Toggle("Parallel downloads", isOn: Binding(
+                        get: { state.settings.parallelDownloads },
+                        set: { state.setParallelDownloads($0) }
+                    ))
                     Picker("Download threads", selection: Binding(
                         get: { state.settings.downloadThreads },
                         set: { state.setDownloadThreads($0) }
@@ -24,7 +28,13 @@ struct SettingsView: View {
 
                 Section("Servers") {
                     Button("Restore Public OSFR Server") {
-                        Task { try? await state.restoreDefaultServer() }
+                        Task {
+                            do {
+                                try await state.restoreDefaultServer()
+                            } catch {
+                                state.notify("Could not restore the public server: \(error.localizedDescription)", isError: true)
+                            }
+                        }
                     }
                     Text("The launcher ships with https://opensourcefreerealms.com and loads its name and endpoints from servermanifest.xml.")
                         .font(.caption)
@@ -36,7 +46,7 @@ struct SettingsView: View {
                         get: { state.settings.locale },
                         set: { state.setLocale($0) }
                     )) {
-                        ForEach(GameLocale.allCases) { locale in
+                        ForEach(GameLocale.selectable) { locale in
                             Text(locale.displayName).tag(locale)
                         }
                     }
@@ -63,8 +73,14 @@ struct SettingsView: View {
                 }
 
                 Section("About") {
-                    Text("Native iOS OSFR app. Server management, downloads, and account access are available while the all-in-one world engine is being ported.")
+                    LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0")
                     Text("Bundle ID: \(Bundle.main.bundleIdentifier ?? "unknown")")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    if let url = URL(string: "https://github.com/YaimSputnik5/Launcher/releases/tag/ios-ipa") {
+                        Link("Release Notes & IPA", destination: url)
+                    }
+                    Text("Native iOS OSFR app with embedded client data, offline host/play, and Sanctuary-compatible server joining.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

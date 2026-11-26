@@ -68,6 +68,7 @@ struct PlayOfflineView: View {
             .task {
                 readiness = ClientAssetStore.shared.availability()
                 sanctuaryReadiness = SanctuaryResourceStore.shared.readiness()
+                configuration.locale = state.settings.locale
             }
         }
     }

@@ -46,11 +46,13 @@ struct DownloadsView: View {
                                         .frame(width: 80)
                                 }
                             }
-                            Text(runtime.downloadedFileName.isEmpty
-                                 ? "Download / verify client files when needed."
-                                 : runtime.downloadedFileName)
+                            Text(runtime.taskStatusMessage.isEmpty
+                                 ? (runtime.downloadedFileName.isEmpty
+                                    ? "Download / verify client files when needed."
+                                    : runtime.downloadedFileName)
+                                 : runtime.taskStatusMessage)
                                 .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(runtime.lastError == nil ? Color.secondary : Color.red)
                             Button("Prepare Client") {
                                 Task { await runtime.prepareForDesktopPlay() }
                             }
