@@ -133,30 +133,41 @@ jobs:
 
       - name: Publish build log
         if: always()
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           cd "$GITHUB_WORKSPACE"
           touch ios/build.log
-          gh release delete ios-build-log --yes --cleanup-tag >/dev/null 2>&1 || true
-          gh release create ios-build-log ios/build.log \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "iOS build log (latest)" \
-            --notes "Build log from the latest ios-build workflow run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          notes="Build log from the latest ios-build workflow run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          if gh release view ios-build-log --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload ios-build-log ios/build.log --clobber --repo "$GITHUB_REPOSITORY"
+            gh release edit ios-build-log --repo "$GITHUB_REPOSITORY" --notes "$notes"
+          else
+            gh release create ios-build-log ios/build.log \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "iOS build log (latest)" \
+              --notes "$notes"
+          fi
 
       - name: Publish ios-ipa release
-        if: ${{ steps.cfg.outputs.publish == 'true' && steps.build.outcome == 'success' }}
+        if: ${{ always() && steps.cfg.outputs.publish == 'true' && steps.build.outcome == 'success' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh release delete ios-ipa --yes --cleanup-tag >/dev/null 2>&1 || true
-          gh release create ios-ipa ios/Launcher.ipa ios/build.log \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "iOS IPA (unsigned)" \
-            --notes "Unsigned iOS 17+ IPA built on GitHub Actions. Install with AltStore or SideStore. Client payload embedded: ${{ steps.cfg.outputs.embed }} (third-party game content; publish only if you have redistribution rights). Sanctuary data: ${{ steps.cfg.outputs.repo }}@${{ steps.cfg.outputs.ref }}."
+          notes="Unsigned iOS 17+ IPA built on GitHub Actions. Install with AltStore or SideStore. Client payload embedded: ${{ steps.cfg.outputs.embed }} (third-party game content; publish only if you have redistribution rights). Sanctuary data: ${{ steps.cfg.outputs.repo }}@${{ steps.cfg.outputs.ref }}."
+          if gh release view ios-ipa --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload ios-ipa ios/Launcher.ipa ios/build.log --clobber --repo "$GITHUB_REPOSITORY"
+            gh release edit ios-ipa --repo "$GITHUB_REPOSITORY" --notes "$notes"
+          else
+            gh release create ios-ipa ios/Launcher.ipa ios/build.log \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "iOS IPA (unsigned)" \
+              --notes "$notes"
+          fi
 
       - name: Fail if xcodebuild failed
-        if: steps.build.outcome != 'success'
+        if: ${{ always() && steps.build.outcome != 'success' }}
         run: exit 1
