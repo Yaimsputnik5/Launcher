@@ -186,9 +186,62 @@ struct LoginResponse: Codable {
     let sessionId: String
     let launchArguments: String?
 
-    enum CodingKeys: String, CodingKey {
-        case sessionId = "SessionId"
-        case launchArguments = "LaunchArguments"
+    private enum CodingKeys: String, CodingKey {
+        case sessionId
+        case launchArguments
+    }
+
+    private struct AnyCodingKey: CodingKey {
+        let stringValue: String
+        let intValue: Int? = nil
+
+        init(stringValue: String) { self.stringValue = stringValue }
+        init?(intValue: Int) { return nil }
+    }
+
+    init(sessionId: String, launchArguments: String?) {
+        self.sessionId = sessionId
+        self.launchArguments = launchArguments
+    }
+
+    /// Sanctuary's minimal WebAPI uses System.Text.Json's default camelCase,
+    /// so the wire keys are `sessionId`/`launchArguments`. Older or customized
+    /// APIs may use the C# model names (`SessionId`/`LaunchArguments`); accept
+    /// both case-insensitively so credentials are never blamed for a JSON
+    /// naming mismatch.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: AnyCodingKey.self)
+        let keys = Dictionary(
+            container.allKeys.map { ($0.stringValue.lowercased(), $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+
+        func decoded<T: Decodable>(_ type: T.Type, named names: [String]) throws -> T? {
+            for name in names {
+                if let key = keys[name.lowercased()] {
+                    return try container.decodeIfPresent(T.self, forKey: key)
+                }
+            }
+            return nil
+        }
+
+        guard let sessionId: String = try decoded(String.self, named: ["sessionId", "SessionId"]) else {
+            throw DecodingError.keyNotFound(
+                AnyCodingKey(stringValue: "sessionId"),
+                .init(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "WebAPI login response is missing sessionId"
+                )
+            )
+        }
+        self.sessionId = sessionId
+        launchArguments = try decoded(String.self, named: ["launchArguments", "LaunchArguments"])
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(sessionId, forKey: .sessionId)
+        try container.encodeIfPresent(launchArguments, forKey: .launchArguments)
     }
 }
 
@@ -204,6 +257,7 @@ enum LauncherError: LocalizedError {
     case unsupportedScheme(String)
     case httpStatus(Int)
     case unauthorized
+    case malformedLoginResponse(String)
     case loginRejected(Int32)
     case conflict
     case badContentType(String)
@@ -222,6 +276,8 @@ enum LauncherError: LocalizedError {
         case .unsupportedScheme(let scheme): return "Unsupported URL scheme: \(scheme)"
         case .httpStatus(let code): return "Server returned HTTP \(code)."
         case .unauthorized: return "Incorrect username or password."
+        case .malformedLoginResponse(let detail):
+            return "The server returned an unreadable sign-in response (\(detail))."
         case .loginRejected(let status): return "The game login server rejected the session (status \(status))."
         case .conflict: return "That username is already registered."
         case .badContentType(let type): return "Expected XML but received \(type)."

@@ -27,6 +27,30 @@ final class CoreTests: XCTestCase {
         )
     }
 
+    func testLoginResponseAcceptsSanctuaryCamelCaseJSON() throws {
+        let json = #"{"sessionId":"abc123","launchArguments":"--locale en_US"}"#
+        let response = try JSONDecoder().decode(LoginResponse.self, from: Data(json.utf8))
+        XCTAssertEqual(response.sessionId, "abc123")
+        XCTAssertEqual(response.launchArguments, "--locale en_US")
+    }
+
+    func testLoginResponseAcceptsPascalCaseJSON() throws {
+        let json = #"{"SessionId":"def456","LaunchArguments":null}"#
+        let response = try JSONDecoder().decode(LoginResponse.self, from: Data(json.utf8))
+        XCTAssertEqual(response.sessionId, "def456")
+        XCTAssertNil(response.launchArguments)
+    }
+
+    func testLoginResponseRejectsMissingSessionId() {
+        let json = #"{"launchArguments":null}"#
+        XCTAssertThrowsError(try JSONDecoder().decode(LoginResponse.self, from: Data(json.utf8))) { error in
+            guard case DecodingError.keyNotFound(let key, _) = error else {
+                return XCTFail("Expected keyNotFound, got \(error)")
+            }
+            XCTAssertEqual(key.stringValue, "sessionId")
+        }
+    }
+
     func testServerManifestV2() throws {
         let xml = """
         <?xml version="1.0"?><ServerManifest version="2">

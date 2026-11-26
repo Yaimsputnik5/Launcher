@@ -41,7 +41,24 @@ final class HTTPClient {
             if status == 401 { throw LauncherError.unauthorized }
             guard (200..<300).contains(status) else { throw LauncherError.httpStatus(status) }
         }
-        return try decoder.decode(LoginResponse.self, from: data)
+        do {
+            return try decoder.decode(LoginResponse.self, from: data)
+        } catch {
+            throw LauncherError.malformedLoginResponse(Self.loginResponseDetail(error))
+        }
+    }
+
+    private static func loginResponseDetail(_ error: Error) -> String {
+        switch error {
+        case DecodingError.keyNotFound(let key, _):
+            return "missing \(key.stringValue)"
+        case DecodingError.typeMismatch(let type, _):
+            return "invalid \(type)"
+        case DecodingError.dataCorrupted(let context):
+            return context.debugDescription
+        default:
+            return "unexpected format"
+        }
     }
 
     func register(webAPI: URL, username: String, password: String) async throws {
