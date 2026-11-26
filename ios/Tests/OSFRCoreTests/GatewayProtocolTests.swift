@@ -356,6 +356,30 @@ final class GatewayProtocolTests: XCTestCase {
         XCTAssertTrue(worldEvents.contains(.world(.positionUpdate(position))))
     }
 
+    /// `Sanctuary.UdpLibrary/Internal/UdpReliableChannel.cs` initializes
+    /// `ReliableIncomingId` to 0 and delivers only the packet carrying the next
+    /// expected id. Starting at 1 would have the server acknowledge the frame
+    /// but never route `PacketLogin` to its handler.
+    func testGatewayReliableIDsStartAtZeroThenIncrement() throws {
+        var session = GatewaySession(connectCode: 7, encryptCode: 0xDEAD_BEEF)
+        try session.setCipher(ticket: "00112233445566778899aabbccddeeff")
+
+        let hello = GatewaySessionHello(
+            ticket: "00112233445566778899aabbccddeeff",
+            guid: 1,
+            version: "1.910.1.530630",
+            unknown: ""
+        )
+        let login = try session.beginLogin(hello)
+        XCTAssertEqual(try LoginFrameHeader(data: login).reliableID, 0)
+
+        let followUp = try session.makeFrame(packet: Data([0x01, 0x00]), secure: false)
+        XCTAssertEqual(try LoginFrameHeader(data: followUp).reliableID, 1)
+
+        let next = try session.makeFrame(packet: Data([0x02, 0x00]), secure: false)
+        XCTAssertEqual(try LoginFrameHeader(data: next).reliableID, 2)
+    }
+
     // MARK: - Connect / confirm
 
     /// `Sanctuary.UdpLibrary/UdpConnection.cs`: connect fields are big-endian,

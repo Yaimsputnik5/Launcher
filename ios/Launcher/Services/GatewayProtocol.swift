@@ -1499,9 +1499,15 @@ struct GatewaySession {
             cipher = active
         }
 
+        // Sanctuary's UdpReliableChannel initializes ReliableIncomingId to 0
+        // and only delivers a packet whose stamp equals the next expected id.
+        // The very first gateway frame therefore has to use id 0; using 1
+        // makes the server ACK the datagram but buffer it forever, which
+        // presents as a login handshake timeout.
+        let reliableID = outgoingReliableID
         outgoingReliableID = outgoingReliableID &+ 1
         let frame = GatewayFrame(
-            reliableID: outgoingReliableID,
+            reliableID: reliableID,
             compressionEnabled: compressionEnabled,
             payload: body
         )
