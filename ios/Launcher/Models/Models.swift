@@ -3,7 +3,7 @@ import Foundation
 // MARK: - Constants
 
 enum AppConstants {
-    static let defaultServerURLs = ["https://opensourcefreerealms.com"]
+    static let defaultServerURLs = [DefaultServer.url]
     static let serverManifestFile = "servermanifest.xml"
     static let clientManifestFile = "clientmanifest.xml"
     static let clientRoot = "client"

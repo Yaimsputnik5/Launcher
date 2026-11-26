@@ -14,9 +14,16 @@ final class AppState: ObservableObject {
         for runtime in runtimes { runtime.state = self }
 
         if loaded.servers.isEmpty && !loaded.didSeedDefaultServers {
+            // Install the bundled preset synchronously so the public server is
+            // always visible, then replace its details with the live manifest.
+            let preset = DefaultServer.info()
             settings.didSeedDefaultServers = true
+            settings.servers = [preset]
+            let presetRuntime = ServerRuntime(info: preset)
+            presetRuntime.state = self
+            runtimes = [presetRuntime]
             persistSettings()
-            Task { await seedDefaultServers() }
+            Task { await presetRuntime.refresh() }
         }
     }
 
@@ -99,10 +106,21 @@ final class AppState: ObservableObject {
         }
     }
 
-    private func seedDefaultServers() async {
-        for url in AppConstants.defaultServerURLs {
-            try? await addServer(urlString: url)
+    /// Re-adds the bundled preset if the user has removed every server and asks
+    /// to restore it from Settings. Existing lists are never overwritten.
+    func restoreDefaultServer() async throws {
+        if settings.servers.contains(where: { $0.id == DefaultServer.id }) {
+            notify("The public server is already in your list.")
+            return
         }
+        let preset = DefaultServer.info()
+        settings.servers.append(preset)
+        let runtime = ServerRuntime(info: preset)
+        runtime.state = self
+        runtimes.append(runtime)
+        persistSettings()
+        notify("Restored \(preset.name).")
+        await runtime.refresh()
     }
 }
 

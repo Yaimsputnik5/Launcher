@@ -22,6 +22,15 @@ struct SettingsView: View {
                     }
                 }
 
+                Section("Servers") {
+                    Button("Restore Public OSFR Server") {
+                        Task { try? await state.restoreDefaultServer() }
+                    }
+                    Text("The launcher ships with https://opensourcefreerealms.com and loads its name and endpoints from servermanifest.xml.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
                 Section("Game") {
                     Picker("Game language", selection: Binding(
                         get: { state.settings.locale },

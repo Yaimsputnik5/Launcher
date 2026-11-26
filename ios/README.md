@@ -6,6 +6,7 @@ This is a native iOS rewrite of the launcher. It is a **separate app** under `io
 
 Supported:
 
+- Ships with the original launcher's single default server, `https://opensourcefreerealms.com`, refreshed from `servermanifest.xml` (v1 and v2).
 - Add/delete servers from `servermanifest.xml` (v1 and v2).
 - Refresh server status over the original UDP status protocol (port 20042).
 - Fetch `clientmanifest.xml`, verify existing files with XXH64, download missing or changed files, and verify every download before replacing the local copy.
@@ -16,10 +17,11 @@ Supported:
 
 In progress toward full parity:
 
-- The app shell now has **Launcher**, **Play Offline**, **Join Server**, **Downloads**, and **Diagnostics** sections.
+- The app shell now has **Launcher**, **Play Offline**, **World**, **Join Server**, **Downloads**, and **Diagnostics** sections.
 - Sanctuary server data is staged into `Launcher.app/SanctuaryResources` at build time.
 - The original client payload can be staged into `Launcher.app/ClientAssets` at build time and verified with XXH64.
-- Foundation-only protocol, resource, container, and local-session layers are being added with Linux XCTest coverage.
+- The **World** tab renders FabledRealms' environment grid, atlas destinations, and a persisted offline player that can walk to any traversable tile.
+- Foundation-only protocol, resource, container, world-map, and local-session layers have Linux XCTest coverage (62 tests).
 
 Not supported on iOS:
 

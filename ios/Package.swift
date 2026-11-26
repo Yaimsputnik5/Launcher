@@ -24,6 +24,7 @@ let package = Package(
             ],
             sources: [
                 "Models/Models.swift",
+                "Models/DefaultServer.swift",
                 "Models/EngineModels.swift",
                 "Services/Paths.swift",
                 "Services/XXHash64.swift",
@@ -35,7 +36,8 @@ let package = Package(
                 "Services/LocalSession.swift",
                 "Services/ClientAssetStore.swift",
                 "Services/SanctuaryResourceStore.swift",
-                "Services/ResourceCatalog.swift"
+                "Services/ResourceCatalog.swift",
+                "Services/WorldMapModel.swift"
             ]
         ),
         .testTarget(

@@ -38,6 +38,9 @@
 		0000000000000000000000E9 = {isa = PBXBuildFile; fileRef = 000000000000000000000086; };
 		0000000000000000000000EA = {isa = PBXBuildFile; fileRef = 000000000000000000000087; };
 		0000000000000000000000EB = {isa = PBXBuildFile; fileRef = 000000000000000000000088; };
+		0000000000000000000000EC = {isa = PBXBuildFile; fileRef = 000000000000000000000089; };
+		0000000000000000000000ED = {isa = PBXBuildFile; fileRef = 00000000000000000000008A; };
+		0000000000000000000000EE = {isa = PBXBuildFile; fileRef = 00000000000000000000008B; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -71,6 +74,9 @@
 		000000000000000000000086 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Services/AssetContainers.swift"; sourceTree = "<group>"; };
 		000000000000000000000087 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Services/ResourceCatalog.swift"; sourceTree = "<group>"; };
 		000000000000000000000088 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Services/LoginProtocol.swift"; sourceTree = "<group>"; };
+		000000000000000000000089 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Models/DefaultServer.swift"; sourceTree = "<group>"; };
+		00000000000000000000008A = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Services/WorldMapModel.swift"; sourceTree = "<group>"; };
+		00000000000000000000008B = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Views/GamePlayerView.swift"; sourceTree = "<group>"; };
 		000000000000000000000078 = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		000000000000000000000079 = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		00000000000000000000000C = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Launcher.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -126,6 +132,9 @@
 				000000000000000000000086,
 				000000000000000000000087,
 				000000000000000000000088,
+				000000000000000000000089,
+				00000000000000000000008A,
+				00000000000000000000008B,
 				000000000000000000000003,
 			);
 			path = Launcher;
@@ -249,6 +258,9 @@
 				0000000000000000000000E9,
 				0000000000000000000000EA,
 				0000000000000000000000EB,
+				0000000000000000000000EC,
+				0000000000000000000000ED,
+				0000000000000000000000EE,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

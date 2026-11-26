@@ -64,6 +64,11 @@ struct RootView: View {
                         Label("Play Offline", systemImage: "gamecontroller")
                     }
 
+                GamePlayerView()
+                    .tabItem {
+                        Label("World", systemImage: "map.fill")
+                    }
+
                 JoinServerView()
                     .tabItem {
                         Label("Join Server", systemImage: "network")

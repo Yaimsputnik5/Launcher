@@ -104,6 +104,7 @@ The current launcher UI becomes one section of the app:
 
 - **Launcher**: server list, manifests, downloads, account settings.
 - **Play Offline**: local host session, character select, in-process world.
+- **World**: native atlas/world player over the bundled FabledRealms grid, with destinations, tile movement, and a persisted character.
 - **Join Server**: remote host, account/session handshake, world connection.
 - **Downloads**: embedded payload status and optional repair download.
 - **Diagnostics**: engine logs, packet traces, asset verification.
@@ -161,8 +162,8 @@ does not claim such a license.
   `ios/README.md` for its SHA-256 and embedded contents. Physical-device launch
   still needs to be done by the person side-loading it.
 - Packet primitives, login message framing, `.pack`/`.rcc` readers, resource
-  catalog loaders, and a local account/character store are implemented as
-  Foundation-only modules with 55 passing Linux tests.
+  catalog loaders, a world-map loader, and a local account/character store are
+  implemented as Foundation-only modules with 62 passing Linux tests.
 - Engine actors, renderer, gateway AES-CCM, and full remote world transport are
   not yet complete;
   see the phase checklist below.
@@ -177,6 +178,8 @@ does not claim such a license.
 - [x] Port wire primitives and crypto with vectors.
 - [x] Port resource catalog loaders with fixture tests.
 - [x] Implement in-process local account/character/session flow.
+- [x] Add default OSFR public server preset with manifest refresh.
+- [x] Add native atlas/world player backed by the zone grid and POIs.
 - [ ] Implement zone/entity/quest/collection core.
 - [x] Parse `.rcc` and `.pack` enough to load a usable asset subset.
 - [ ] Build a playable native renderer for the FabledRealms zone.
