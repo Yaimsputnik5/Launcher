@@ -4,9 +4,8 @@ on:
   workflow_dispatch:
     inputs:
       embed_client:
-        description: "Download and embed the original Free Realms client payload"
+        description: "Download and embed the original Free Realms client payload (overrides ios/ci-config/embed-client.txt)"
         required: false
-        default: true
         type: boolean
       publish:
         description: "Publish the unsigned IPA to the ios-ipa release (only if you have redistribution rights)"
@@ -23,6 +22,11 @@ on:
         required: false
         default: "f5240b7554f2a80d6b815cb7ead7ffee12499565"
         type: string
+  # Pushes to ios-build run the same build with repository-controlled settings.
+  # This makes CI testable without repository-dispatch credentials.
+  push:
+    branches:
+      - ios-build
 
 permissions:
   contents: write
@@ -35,6 +39,21 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Resolve build configuration
+        id: cfg
+        run: |
+          set -euo pipefail
+          embed="${{ inputs.embed_client }}"
+          if [ -z "$embed" ]; then embed="$(tr -d '[:space:]' < ios/ci-config/embed-client.txt)"; fi
+          repo="${{ inputs.sanctuary_repo }}"
+          if [ -z "$repo" ]; then repo="https://github.com/YaimSputnik5/Sanctuary.git"; fi
+          ref="${{ inputs.sanctuary_ref }}"
+          if [ -z "$ref" ]; then ref="f5240b7554f2a80d6b815cb7ead7ffee12499565"; fi
+          echo "embed=$embed" >> "$GITHUB_OUTPUT"
+          echo "repo=$repo" >> "$GITHUB_OUTPUT"
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          echo "Embedding client payload: $embed"
 
       - name: Toolchain versions
         run: |
@@ -52,10 +71,13 @@ jobs:
           file ios/Launcher/Resources/Assets.xcassets/AppIcon.appiconset/icon.png
 
       - name: Clone Sanctuary resources
+        env:
+          SANCTUARY_REPO: ${{ steps.cfg.outputs.repo }}
+          SANCTUARY_REF: ${{ steps.cfg.outputs.ref }}
         run: |
           set -euo pipefail
-          git clone --depth 1 "${{ inputs.sanctuary_repo }}" "$RUNNER_TEMP/Sanctuary"
-          git -C "$RUNNER_TEMP/Sanctuary" fetch --depth 1 origin "${{ inputs.sanctuary_ref }}"
+          git clone --depth 1 "$SANCTUARY_REPO" "$RUNNER_TEMP/Sanctuary"
+          git -C "$RUNNER_TEMP/Sanctuary" fetch --depth 1 origin "$SANCTUARY_REF"
           git -C "$RUNNER_TEMP/Sanctuary" checkout --detach FETCH_HEAD
 
       - name: Sync Sanctuary resources into the app
@@ -67,19 +89,21 @@ jobs:
         id: build
         continue-on-error: true
         env:
-          IOS_EMBED_CLIENT: ${{ inputs.embed_client }}
+          IOS_EMBED_CLIENT: ${{ steps.cfg.outputs.embed }}
         run: |
           cd ios
           chmod +x build_ipa.sh scripts/*.sh
           set -o pipefail
           ./build_ipa.sh 2>&1 | tee build.log
 
-      - name: Upload IPA
+      - name: Upload IPA and build log
         if: steps.build.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: OSFRLauncher-ios-unsigned
-          path: ios/Launcher.ipa
+          path: |
+            ios/Launcher.ipa
+            ios/build.log
           if-no-files-found: error
           retention-days: 14
 
@@ -102,7 +126,7 @@ jobs:
           gh release create ios-ipa ios/Launcher.ipa ios/build.log \
             --repo "$GITHUB_REPOSITORY" \
             --title "iOS IPA (unsigned)" \
-            --notes "Unsigned iOS 17+ IPA built on GitHub Actions. Install with AltStore or SideStore. Client payload embedded: ${{ inputs.embed_client }} (third-party game content; publish only if you have redistribution rights). Sanctuary data: ${{ inputs.sanctuary_repo }}@${{ inputs.sanctuary_ref }}."
+            --notes "Unsigned iOS 17+ IPA built on GitHub Actions. Install with AltStore or SideStore. Client payload embedded: ${{ steps.cfg.outputs.embed }} (third-party game content; publish only if you have redistribution rights). Sanctuary data: ${{ steps.cfg.outputs.repo }}@${{ steps.cfg.outputs.ref }}."
 
       - name: Fail if xcodebuild failed
         if: steps.build.outcome != 'success'
