@@ -31,6 +31,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: ios-ipa-build
+  cancel-in-progress: true
+
 jobs:
   build:
     name: Build unsigned iOS IPA
@@ -50,10 +54,17 @@ jobs:
           if [ -z "$repo" ]; then repo="https://github.com/YaimSputnik5/Sanctuary.git"; fi
           ref="${{ inputs.sanctuary_ref }}"
           if [ -z "$ref" ]; then ref="f5240b7554f2a80d6b815cb7ead7ffee12499565"; fi
+          publish="${{ inputs.publish }}"
+          if [ -z "$publish" ]; then publish="$(tr -d '[:space:]' < ios/ci-config/publish-release.txt)"; fi
+          case "$publish" in
+            1|true|TRUE|yes|YES) publish=true ;;
+            *) publish=false ;;
+          esac
           echo "embed=$embed" >> "$GITHUB_OUTPUT"
           echo "repo=$repo" >> "$GITHUB_OUTPUT"
           echo "ref=$ref" >> "$GITHUB_OUTPUT"
-          echo "Embedding client payload: $embed"
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+          echo "Embedding client payload: $embed; publishing: $publish"
 
       - name: Toolchain versions
         run: |
@@ -95,8 +106,10 @@ jobs:
           set -o pipefail
           bash ./build_ipa.sh 2>&1 | tee build.log
 
+      # A payload-embedded IPA is larger than the free plan's 500 MB artifact
+      # limit; published builds are delivered through the release instead.
       - name: Upload IPA and build log
-        if: steps.build.outcome == 'success'
+        if: steps.build.outcome == 'success' && steps.cfg.outputs.publish != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: OSFRLauncher-ios-unsigned
@@ -115,8 +128,22 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+      - name: Publish build log
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
+          touch ios/build.log
+          gh release delete ios-build-log --yes --cleanup-tag >/dev/null 2>&1 || true
+          gh release create ios-build-log ios/build.log \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "iOS build log (latest)" \
+            --notes "Build log from the latest ios-build workflow run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+
       - name: Publish ios-ipa release
-        if: ${{ inputs.publish && steps.build.outcome == 'success' }}
+        if: ${{ steps.cfg.outputs.publish == 'true' && steps.build.outcome == 'success' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
