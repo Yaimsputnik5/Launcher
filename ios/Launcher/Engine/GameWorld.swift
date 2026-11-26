@@ -632,6 +632,12 @@ final class WorldSimulation {
     private func syncPlayerQuests() {
         player.quests = questProgress.keys.sorted().compactMap { questProgress[$0] }
         player.activeQuestID = questProgress.first(where: { !$0.value.completed })?.key
+        // Sanctuary stores goal counters per character, so persist every active
+        // row as soon as a goal advances. Completion is committed separately
+        // through completeQuest, which also clears the active quest pointer.
+        for progress in player.quests where !progress.completed {
+            try? session?.updateQuestProgress(progress)
+        }
     }
 
     private static func normalizedProgress(

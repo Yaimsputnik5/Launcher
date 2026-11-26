@@ -38,6 +38,9 @@ concurrency:
 jobs:
   build:
     name: Build unsigned iOS IPA
+    # Documentation-only pushes use [skip ci] so they do not replace a verified
+    # IPA release with an unnecessary rebuild.
+    if: ${{ !contains(github.event.head_commit.message, '[skip ci]') }}
     runs-on: macos-15-intel
     timeout-minutes: 120
     steps:

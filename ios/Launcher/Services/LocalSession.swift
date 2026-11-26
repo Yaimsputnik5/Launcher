@@ -601,6 +601,34 @@ final class LocalSession {
         return item
     }
 
+    /// Persists per-goal progress for an active quest. Sanctuary keeps one
+    /// `CharacterQuestProgress` row plus its goal counters, so advancing a goal
+    /// must be durable before the quest is completed.
+    @discardableResult
+    func updateQuestProgress(_ progress: LocalQuestProgress) throws -> LocalQuestProgress {
+        guard progress.questID > 0 else { throw LocalSessionError.invalidQuest(progress.questID) }
+        guard progress.goalProgress.allSatisfy({ $0.count >= 0 }) else {
+            throw LocalSessionError.invalidQuest(progress.questID)
+        }
+        let (accountIndex, characterIndex) = try requireSelectedCharacter(requireInWorld: true)
+        var quests = file.accounts[accountIndex].characters[characterIndex].quests
+        if let index = quests.firstIndex(where: { $0.questID == progress.questID }) {
+            // Completed rows are immutable; WorldSimulation persists completion
+            // through completeQuest, which also clears the active quest.
+            guard !quests[index].completed else { return quests[index] }
+            quests[index] = progress
+        } else {
+            guard !progress.completed else { throw LocalSessionError.invalidQuest(progress.questID) }
+            quests.append(progress)
+        }
+        quests.sort { $0.questID < $1.questID }
+        file.accounts[accountIndex].characters[characterIndex].quests = quests
+        file.accounts[accountIndex].characters[characterIndex].activeQuestID =
+            quests.first(where: { !$0.completed })?.questID
+        try save()
+        return progress
+    }
+
     /// Marks quest progress complete. Rewards, prerequisites, and goal rules are
     /// intentionally not simulated in this first layer.
     @discardableResult
@@ -608,23 +636,26 @@ final class LocalSession {
         guard questID > 0 else { throw LocalSessionError.invalidQuest(questID) }
         let (accountIndex, characterIndex) = try requireSelectedCharacter(requireInWorld: true)
         var quests = file.accounts[accountIndex].characters[characterIndex].quests
+        let completed: LocalQuestProgress
         if let index = quests.firstIndex(where: { $0.questID == questID }) {
             guard !quests[index].completed else { throw LocalSessionError.questAlreadyCompleted(questID) }
             quests[index].completed = true
-            file.accounts[accountIndex].characters[characterIndex].quests = quests
-            try save()
-            return quests[index]
+            completed = quests[index]
+        } else {
+            completed = LocalQuestProgress(
+                questID: questID,
+                currentGoalID: 0,
+                completed: true,
+                goalProgress: []
+            )
+            quests.append(completed)
         }
-        let progress = LocalQuestProgress(
-            questID: questID,
-            currentGoalID: 0,
-            completed: true,
-            goalProgress: []
-        )
-        quests.append(progress)
+        quests.sort { $0.questID < $1.questID }
         file.accounts[accountIndex].characters[characterIndex].quests = quests
+        file.accounts[accountIndex].characters[characterIndex].activeQuestID =
+            quests.first(where: { !$0.completed })?.questID
         try save()
-        return progress
+        return completed
     }
 
     /// Explicit save for callers that batch in-memory edits. All commands above

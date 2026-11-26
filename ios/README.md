@@ -10,7 +10,7 @@ Supported:
 - Add/delete servers from `servermanifest.xml` (v1 and v2).
 - Refresh server status over the original UDP status protocol (port 20042).
 - Fetch `clientmanifest.xml`, verify existing files with XXH64, download missing or changed files, and verify every download before replacing the local copy.
-- Sign in/register against the server web API.
+- Sign in/register against the server web API and complete a native Sanctuary `LoginUdp_6` game-session handshake.
 - Remember usernames and passwords using the iOS Keychain.
 - Persist settings and server metadata as JSON in the app sandbox.
 - Allow custom HTTP servers via App Transport Security (HTTPS is still recommended).
@@ -20,8 +20,10 @@ In progress toward full parity:
 - The app shell now has **Launcher**, **Play Offline**, **World**, **Join Server**, **Downloads**, and **Diagnostics** sections.
 - Sanctuary server data is staged into `Launcher.app/SanctuaryResources` at build time.
 - The original client payload can be staged into `Launcher.app/ClientAssets` at build time and verified with XXH64.
-- The **World** tab renders FabledRealms' environment grid, atlas destinations, and a persisted offline player that can walk to any traversable tile.
-- Foundation-only protocol, resource, container, world-map, and local-session layers have Linux XCTest coverage (62 tests).
+- The **World** tab is backed by Sanctuary zone, collection-spawn, quest and NPC data. It runs 10 Hz/1 Hz simulation ticks, gathers exact collection nodes, advances quest goals, persists per-goal progress, grants items and persists a local character. NPC coordinates are explicitly marked as inferred because `Npcs.json` ships no spawn positions.
+- Native TGA/DDS decoders read the original client textures from `.tga`, `.dds`, `.pack` and `.rcc` sources.
+- Sanctuary gateway framing and AES-CCM codecs, plus native Login UDP authentication, are implemented.
+- Foundation-only protocol, resource, container, image, gateway, world-simulation and local-session layers have Linux XCTest coverage (94 tests).
 
 Not supported on iOS:
 
@@ -114,10 +116,13 @@ Files are shared through the Files app because `UIFileSharingEnabled` is set.
 | `Downloader.DownloadService` | `HTTPClient.downloadFile` with `URLSession.AsyncBytes` |
 | `ServerStatusHelper` | `ServerStatusClient` (Network.framework UDP) |
 | `ViewModels/*` + `Views/*` | `AppState` / `ServerRuntime` + SwiftUI views |
-| Sanctuary `UdpLibrary` / `LoginUdp_6` | `ProtocolPrimitives` + `LoginProtocol` messages |
+| Sanctuary `UdpLibrary` / `LoginUdp_6` | `ProtocolPrimitives`, `LoginProtocol` messages and `LoginUDPSession` |
+| Sanctuary gateway `CGAPI_527` | `GatewayProtocol` AES-CCM framing, opcodes and session codecs |
 | Sanctuary `Resources/*` | `ResourceCatalog` typed loaders |
+| Sanctuary `BaseZone` / `CollectionNode` / `QuestManager` | `WorldSimulation` and `CollectionSpawnCatalog` |
 | Sanctuary world database | `LocalSession` offline JSON store (first layer) |
 | Free Realms `.pack` / `.rcc` | `AssetContainers` verified readers |
+| Free Realms `.tga` / `.dds` textures | `ImageCodecs` RGBA8 decoders |
 | `DiscordService`, `WineHelper`, `Dx9Helper` | Intentionally omitted; no iOS equivalent in this repo |
 
 ## Deliberate safety fixes in the port
@@ -159,7 +164,8 @@ Foundation-only logic is verified locally:
 swift test --package-path ios
 ```
 
-The 55 tests cover XXH64, URL/path safety, manifest v1/v2, packet primitives,
-CRC32, RC4, GUID layout, login framing/messages, `.pack`/`.rcc` parsing,
-Sanctuary resource schemas, and offline account/character persistence. SwiftUI
-and iOS framework code can only be compiled by the macOS workflow.
+The 93 tests cover XXH64, URL/path safety, manifest v1/v2, packet primitives,
+CRC32, RC4, GUID layout, login framing/messages, gateway AES-CCM and opcode
+codecs, `.pack`/`.rcc` parsing, TGA/DDS decoding, Sanctuary resource schemas,
+zone/collection/quest simulation and offline account/character persistence.
+SwiftUI and iOS framework code can only be compiled by the macOS workflow.

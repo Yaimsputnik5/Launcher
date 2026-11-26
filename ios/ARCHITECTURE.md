@@ -104,8 +104,8 @@ The current launcher UI becomes one section of the app:
 
 - **Launcher**: server list, manifests, downloads, account settings.
 - **Play Offline**: local host session, character select, in-process world.
-- **World**: native atlas/world player over the bundled FabledRealms grid, with destinations, tile movement, and a persisted character.
-- **Join Server**: remote host, account/session handshake, world connection.
+- **World**: native world player over the bundled FabledRealms grid with exact collection spawns, explicitly inferred NPC positions, 10 Hz/1 Hz deterministic ticks, quest goals, item grants and a persisted character.
+- **Join Server**: remote host, WebAPI sign-in, real `LoginUdp_6` session handshake, character login ticket and gateway transport.
 - **Downloads**: embedded payload status and optional repair download.
 - **Diagnostics**: engine logs, packet traces, asset verification.
 
@@ -162,11 +162,14 @@ does not claim such a license.
   `ios/README.md` for its SHA-256 and embedded contents. Physical-device launch
   still needs to be done by the person side-loading it.
 - Packet primitives, login message framing, `.pack`/`.rcc` readers, resource
-  catalog loaders, a world-map loader, and a local account/character store are
-  implemented as Foundation-only modules with 62 passing Linux tests.
-- Engine actors, renderer, gateway AES-CCM, and full remote world transport are
-  not yet complete;
-  see the phase checklist below.
+  catalog loaders, a world-map loader, a local account/character store, TGA/DDS
+  decoders, AES-CCM gateway codecs and the source-backed zone/collection/quest
+  simulation are implemented as Foundation-only modules with 94 passing Linux
+  tests.
+- Native Login UDP authentication, gateway framing/opcodes, a simulation-backed
+  World tab and launcher-parity fixes are integrated into the SwiftUI app. The
+  full 3D renderer, navmesh routines, Lua script runtime and complete remote
+  gameplay transport remain open; see the phase checklist below.
 
 ## Phase checklist
 
@@ -179,10 +182,32 @@ does not claim such a license.
 - [x] Port resource catalog loaders with fixture tests.
 - [x] Implement in-process local account/character/session flow.
 - [x] Add default OSFR public server preset with manifest refresh.
-- [x] Add native atlas/world player backed by the zone grid and POIs.
-- [ ] Implement zone/entity/quest/collection core.
+- [x] Add native simulation-backed world player with exact collection spawns, inferred NPC placement, quest goals and the zone grid.
+- [x] Implement source-backed zone/entity/quest/collection simulation core (NPC positions are explicitly inferred where Sanctuary ships no spawn data).
 - [x] Parse `.rcc` and `.pack` enough to load a usable asset subset.
-- [ ] Build a playable native renderer for the FabledRealms zone.
-- [ ] Implement remote Login/Gateway compatibility (login messages done; gateway pending).
+- [x] Decode TGA and DDS textures into RGBA8 buffers.
+- [ ] Build a full 3D Metal renderer for the FabledRealms zone; the current World tab is a data-driven 2D simulation view.
+- [ ] Implement complete remote Login/Gateway gameplay transport (session login and AES-CCM codecs are done; character/gateway handoff remains).
 - [x] Build and verify a full all-in-one IPA with embedded client data.
 - [ ] Side-load that IPA on a physical iOS device (requires the user's device).
+
+## Parity boundary
+
+The port is source-backed, but "1:1 with the desktop game" is not yet achievable
+on iOS from the checked-in assets alone. The following remain explicit gaps:
+
+- No Windows executable is run. Native code replaces the game host, so any
+  behavior implemented only in `FreeRealms.exe` must be ported separately.
+- The World tab is a deterministic 2D simulation/state view, not a 3D Metal
+  renderer. FXO compiled shaders and Granny meshes are staged but not decoded.
+- NPC coordinates and wandering are inferred: Sanctuary's `Npcs.json` has no
+  spawn positions and its Recast routines are not ported. Exact collection
+  spawns, zone environments, POIs and quest definitions are source-backed.
+- Drop rolls use the first positive drop-table entry instead of the server's
+  RNG. Dialogue trees, reward bundles, prerequisite/next-quest chains and
+  quest exclusions are not simulated.
+- Login UDP session establishment and gateway AES-CCM codecs are implemented;
+  character/gateway handoff and continuous world-socket gameplay are still in
+  progress and are not represented as exact parity.
+- Full manifest XSD-equivalent validation and complete `.rcc`/`.pack` PNG
+  decompression are not implemented; embedded assets are verified by XXH64.

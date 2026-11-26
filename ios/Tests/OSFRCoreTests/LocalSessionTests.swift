@@ -132,6 +132,31 @@ final class LocalSessionTests: XCTestCase {
         }
     }
 
+    func testQuestGoalProgressPersistsBeforeCompletion() throws {
+        let configuration = LocalHostConfiguration()
+        let session = try LocalSession(directory: directory)
+        _ = try session.bootstrapOffline(configuration: configuration, password: password)
+        try session.enterWorld()
+
+        var progress = try XCTUnwrap(session.selectedCharacter?.quests.first { $0.questID == 2563 })
+        progress.currentGoalID = 99
+        progress.goalProgress[0].count = 2
+        try session.updateQuestProgress(progress)
+
+        let reopened = try LocalSession(directory: directory)
+        _ = try reopened.login(username: configuration.accountName, password: password)
+        let loaded = try XCTUnwrap(reopened.selectedCharacter)
+        XCTAssertEqual(loaded.quests.first(where: { $0.questID == 2563 })?.currentGoalID, 99)
+        XCTAssertEqual(loaded.quests.first(where: { $0.questID == 2563 })?.goalProgress.first?.count, 2)
+        XCTAssertEqual(loaded.activeQuestID, 2563)
+
+        _ = try reopened.completeQuest(questID: 2563)
+        let completed = try LocalSession(directory: directory)
+        _ = try completed.login(username: configuration.accountName, password: password)
+        XCTAssertTrue(completed.selectedCharacter?.quests.first(where: { $0.questID == 2563 })?.completed == true)
+        XCTAssertNil(completed.selectedCharacter?.activeQuestID)
+    }
+
     func testUnsupportedSchemaVersionIsRejected() throws {
         let session = try LocalSession(directory: directory)
         _ = try session.createAccount(username: "local", password: password)
