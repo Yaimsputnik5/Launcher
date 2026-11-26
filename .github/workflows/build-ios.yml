@@ -1,0 +1,48 @@
+name: Build unsigned iOS IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - ios-build
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Restore app icon from upstream
+        run: |
+          mkdir -p ios/Launcher/Resources/Assets.xcassets/AppIcon.appiconset
+          curl -fsSL https://raw.githubusercontent.com/Open-Source-Free-Realms/Launcher/main/assets/icon.png \
+            -o ios/Launcher/Resources/Assets.xcassets/AppIcon.appiconset/icon.png
+          file ios/Launcher/Resources/Assets.xcassets/AppIcon.appiconset/icon.png
+      - name: Build unsigned IPA
+        id: build
+        continue-on-error: true
+        run: |
+          cd ios
+          chmod +x build_ipa.sh
+          set -o pipefail
+          ./build_ipa.sh 2>&1 | tee build.log
+      - name: Publish IPA and build log
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          notes="Unsigned iOS IPA built from the Launcher ios/ SwiftUI sources."
+          if [ -f ios/Launcher.ipa ]; then
+            gh release create ios-ipa ios/Launcher.ipa ios/build.log \
+              --repo "$GITHUB_REPOSITORY" --title "iOS IPA (unsigned)" --notes "$notes" --clobber
+          else
+            gh release create ios-ipa ios/build.log \
+              --repo "$GITHUB_REPOSITORY" --title "iOS build log (failed)" --notes "$notes" --clobber
+          fi
+      - name: Fail if xcodebuild failed
+        if: steps.build.outcome != 'success'
+        run: exit 1

@@ -1,0 +1,313 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0000000000000000000000C8 = {isa = PBXBuildFile; fileRef = 000000000000000000000064; };
+		0000000000000000000000C9 = {isa = PBXBuildFile; fileRef = 000000000000000000000065; };
+		0000000000000000000000CA = {isa = PBXBuildFile; fileRef = 000000000000000000000066; };
+		0000000000000000000000CB = {isa = PBXBuildFile; fileRef = 000000000000000000000067; };
+		0000000000000000000000CC = {isa = PBXBuildFile; fileRef = 000000000000000000000068; };
+		0000000000000000000000CD = {isa = PBXBuildFile; fileRef = 000000000000000000000069; };
+		0000000000000000000000CE = {isa = PBXBuildFile; fileRef = 00000000000000000000006A; };
+		0000000000000000000000CF = {isa = PBXBuildFile; fileRef = 00000000000000000000006B; };
+		0000000000000000000000D0 = {isa = PBXBuildFile; fileRef = 00000000000000000000006C; };
+		0000000000000000000000D1 = {isa = PBXBuildFile; fileRef = 00000000000000000000006D; };
+		0000000000000000000000D2 = {isa = PBXBuildFile; fileRef = 00000000000000000000006E; };
+		0000000000000000000000D3 = {isa = PBXBuildFile; fileRef = 00000000000000000000006F; };
+		0000000000000000000000D4 = {isa = PBXBuildFile; fileRef = 000000000000000000000070; };
+		0000000000000000000000D5 = {isa = PBXBuildFile; fileRef = 000000000000000000000071; };
+		0000000000000000000000D6 = {isa = PBXBuildFile; fileRef = 000000000000000000000072; };
+		0000000000000000000000DC = {isa = PBXBuildFile; fileRef = 000000000000000000000079; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		000000000000000000000064 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LauncherApp.swift"; sourceTree = "<group>"; };
+		000000000000000000000065 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppState.swift"; sourceTree = "<group>"; };
+		000000000000000000000066 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Models/Models.swift"; sourceTree = "<group>"; };
+		000000000000000000000067 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Services/Paths.swift"; sourceTree = "<group>"; };
+		000000000000000000000068 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Services/XXHash64.swift"; sourceTree = "<group>"; };
+		000000000000000000000069 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Services/CredentialStore.swift"; sourceTree = "<group>"; };
+		00000000000000000000006A = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Services/ManifestParser.swift"; sourceTree = "<group>"; };
+		00000000000000000000006B = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Services/HTTPClient.swift"; sourceTree = "<group>"; };
+		00000000000000000000006C = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Services/ServerStatusClient.swift"; sourceTree = "<group>"; };
+		00000000000000000000006D = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Views/RootView.swift"; sourceTree = "<group>"; };
+		00000000000000000000006E = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Views/Components.swift"; sourceTree = "<group>"; };
+		00000000000000000000006F = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Views/AddServerView.swift"; sourceTree = "<group>"; };
+		000000000000000000000070 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Views/ServerDetailView.swift"; sourceTree = "<group>"; };
+		000000000000000000000071 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Views/AuthViews.swift"; sourceTree = "<group>"; };
+		000000000000000000000072 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Views/SettingsView.swift"; sourceTree = "<group>"; };
+		000000000000000000000078 = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		000000000000000000000079 = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		00000000000000000000000C = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Launcher.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		000000000000000000000015 = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		000000000000000000000001 = {
+			isa = PBXGroup;
+			children = (
+				000000000000000000000002,
+				000000000000000000000004,
+			);
+			sourceTree = "<group>";
+		};
+		000000000000000000000002 = {
+			isa = PBXGroup;
+			children = (
+				000000000000000000000064,
+				000000000000000000000065,
+				000000000000000000000066,
+				000000000000000000000067,
+				000000000000000000000068,
+				000000000000000000000069,
+				00000000000000000000006A,
+				00000000000000000000006B,
+				00000000000000000000006C,
+				00000000000000000000006D,
+				00000000000000000000006E,
+				00000000000000000000006F,
+				000000000000000000000070,
+				000000000000000000000071,
+				000000000000000000000072,
+				000000000000000000000003,
+			);
+			path = Launcher;
+			sourceTree = "<group>";
+		};
+		000000000000000000000003 = {
+			isa = PBXGroup;
+			children = (
+				000000000000000000000078,
+				000000000000000000000079,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		000000000000000000000004 = {
+			isa = PBXGroup;
+			children = (
+				00000000000000000000000C,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		00000000000000000000000A = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 000000000000000000000023;
+			buildPhases = (
+				000000000000000000000014,
+				000000000000000000000015,
+				000000000000000000000016,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Launcher;
+			productName = Launcher;
+			productReference = 00000000000000000000000C;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		00000000000000000000000B = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1500;
+				LastUpgradeCheck = 1500;
+				TargetAttributes = {
+					00000000000000000000000A = {
+						CreatedOnToolsVersion = 15.0;
+					};
+				};
+			};
+			buildConfigurationList = 000000000000000000000022;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 000000000000000000000001;
+			productRefGroup = 000000000000000000000004;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				00000000000000000000000A,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		000000000000000000000016 = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0000000000000000000000DC,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		000000000000000000000014 = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0000000000000000000000C8,
+				0000000000000000000000C9,
+				0000000000000000000000CA,
+				0000000000000000000000CB,
+				0000000000000000000000CC,
+				0000000000000000000000CD,
+				0000000000000000000000CE,
+				0000000000000000000000CF,
+				0000000000000000000000D0,
+				0000000000000000000000D1,
+				0000000000000000000000D2,
+				0000000000000000000000D3,
+				0000000000000000000000D4,
+				0000000000000000000000D5,
+				0000000000000000000000D6,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		00000000000000000000001E = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_NO_COMMON_BLOCKS = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SDKROOT = iphoneos;
+				SWIFT_STRICT_CONCURRENCY = minimal;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				ONLY_ACTIVE_ARCH = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+			};
+			name = Debug;
+		};
+		00000000000000000000001F = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_NO_COMMON_BLOCKS = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SDKROOT = iphoneos;
+				SWIFT_STRICT_CONCURRENCY = minimal;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		000000000000000000000020 = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Launcher/Resources/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+								 "$(inherited)",
+								 "@executable_path/Frameworks",
+							 );
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.opensourcefreerealms.launcher;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				ENABLE_TESTABILITY = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		000000000000000000000021 = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Launcher/Resources/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+								 "$(inherited)",
+								 "@executable_path/Frameworks",
+							 );
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.opensourcefreerealms.launcher;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		000000000000000000000022 = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				00000000000000000000001E,
+				00000000000000000000001F,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		000000000000000000000023 = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				000000000000000000000020,
+				000000000000000000000021,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 00000000000000000000000B;
+}
