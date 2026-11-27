@@ -1344,6 +1344,27 @@ struct ResourceCatalog: Equatable {
         self.missingFiles = missingFiles
     }
 
+    /// Resolves a server-provided zone name to the exact resource name used by
+    /// the bundle. Sanctuary sends display names such as "Fabled Realms" while
+    /// the resources are named "FabledRealms", so matching must ignore casing
+    /// and punctuation without accepting an unrelated zone.
+    func zoneName(matching candidate: String) -> String? {
+        let key = Self.zoneMatchKey(candidate)
+        guard !key.isEmpty else { return nil }
+        if let exact = zones.first(where: { $0.name.caseInsensitiveCompare(candidate) == .orderedSame }) {
+            return exact.name
+        }
+        if let normalized = zones.first(where: { Self.zoneMatchKey($0.name) == key }) {
+            return normalized.name
+        }
+        return zoneEnvironments.keys.first { Self.zoneMatchKey($0) == key }
+    }
+
+    private static func zoneMatchKey(_ value: String) -> String {
+        String(value.unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) })
+            .lowercased()
+    }
+
     /// Resolves a bundle-relative path through `SafePath` containment checks.
     func url(forRelativePath relativePath: String) throws -> URL {
         try Self.containedURL(relativePath, in: rootURL)

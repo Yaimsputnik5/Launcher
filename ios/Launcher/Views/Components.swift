@@ -90,7 +90,7 @@ struct ServerRow: View {
 struct InsecureEndpointWarning: View {
     var body: some View {
         Label(
-            "This endpoint does not use HTTPS. Your username and password are not encrypted in transit.",
+            "This endpoint does not use HTTPS. Credentials are allowed only over HTTPS or to localhost; manifest and status requests may still use HTTP.",
             systemImage: "exclamationmark.shield"
         )
         .font(.footnote)

@@ -115,11 +115,16 @@ struct LoginView: View {
             // session over the Login UDP listener. The desktop launcher only
             // forwards the WebAPI ticket to FreeRealms.exe; iOS performs the
             // full character-select/gateway-ticket handshake natively.
+            let launch = LaunchArguments(response.launchArguments)
+            let loginAddress = launch.server ?? runtime.info.loginServer
+            let effectiveSessionID = launch.sessionID ?? response.sessionId
+            let effectiveLocale = launch.locale ?? state.settings.locale
             let gameSession = try await LoginUDPSession.authenticateCharacter(
-                address: runtime.info.loginServer,
-                sessionID: response.sessionId,
-                fingerprint: "OSFRLauncheriOS",
-                locale: state.settings.locale
+                address: loginAddress,
+                sessionID: effectiveSessionID,
+                fingerprint: runtime.info.loginFingerprint
+                    ?? "\(Bundle.main.bundleIdentifier ?? "dev.opensourcefreerealms.launcher")/ios",
+                locale: effectiveLocale
             )
             guard gameSession.sessionReply.loggedIn else {
                 throw LauncherError.loginRejected(gameSession.sessionReply.status)
@@ -128,18 +133,18 @@ struct LoginView: View {
             let details = try? gameSession.character.details()
             let configuration = WorldSessionConfiguration(
                 mode: .remote,
-                host: runtime.info.loginServer,
+                host: loginAddress,
                 username: username.trimmed,
-                sessionID: response.sessionId,
+                sessionID: effectiveSessionID,
                 characterID: GuidHelper.playerId(gameSession.entityKey),
                 ticket: gameSession.clientData.serverTicket,
                 cryptoKey: gameSession.clientData.cryptoKey,
-                loginArguments: parseLaunchArguments(response.launchArguments),
-                locale: state.settings.locale,
+                loginArguments: launch.raw,
+                locale: effectiveLocale,
                 characterName: details?.name,
                 gatewayAddress: gameSession.clientData.serverAddress,
                 gatewayGUID: gameSession.playerGUID,
-                gatewayVersion: GatewayUDPSession.defaultClientVersion,
+                gatewayVersion: runtime.info.gatewayVersion ?? GatewayUDPSession.defaultClientVersion,
                 serverID: gameSession.character.lastServerID > 0
                     ? gameSession.character.lastServerID : 1
             )
@@ -269,32 +274,3 @@ private extension String {
     var trimmed: String { trimmingCharacters(in: .whitespacesAndNewlines) }
 }
 
-/// Converts the WebAPI `LaunchArguments` string into the argument array kept in
-/// a native `WorldSessionConfiguration`. Quoted values are preserved as one
-/// argument; the C# launcher forwards the same string to the game process.
-private func parseLaunchArguments(_ raw: String?) -> [String] {
-    guard let raw, !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
-    var arguments: [String] = []
-    var current = ""
-    var quote: Character?
-    for character in raw {
-        if character == "\"" || character == "'" {
-            if quote == character {
-                quote = nil
-            } else if quote == nil {
-                quote = character
-            } else {
-                current.append(character)
-            }
-        } else if character.isWhitespace && quote == nil {
-            if !current.isEmpty {
-                arguments.append(current)
-                current = ""
-            }
-        } else {
-            current.append(character)
-        }
-    }
-    if !current.isEmpty { arguments.append(current) }
-    return arguments
-}

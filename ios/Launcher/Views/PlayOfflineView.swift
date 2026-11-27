@@ -2,13 +2,15 @@ import SwiftUI
 
 struct PlayOfflineView: View {
     @EnvironmentObject private var state: AppState
-    @State private var password = "offline"
+    @State private var password = ""
     @State private var readiness = ClientAssetStore.shared.availability()
     @State private var sanctuaryReadiness = SanctuaryResourceStore.shared.readiness()
     @State private var sessionMessage = "No offline session started."
     @State private var sessionError: String?
 
-    private var configuration: LocalHostConfiguration { state.settings.hostConfiguration }
+    /// The global game language is part of the effective offline configuration;
+    /// host fields must not silently overwrite it.
+    private var configuration: LocalHostConfiguration { state.effectiveHostConfiguration() }
 
     var body: some View {
         NavigationStack {
@@ -36,7 +38,7 @@ struct PlayOfflineView: View {
                 Section("Local Profile") {
                     TextField("Profile name", text: state.hostBinding(\.profileName))
                     TextField("Player name", text: state.hostBinding(\.playerName))
-                    SecureField("Offline password", text: $password)
+                    SecureField("Choose an offline password", text: $password)
                     Stepper(
                         "Starting zone: \(configuration.startingZoneID)",
                         value: state.hostBinding(\.startingZoneID),
@@ -55,8 +57,8 @@ struct PlayOfflineView: View {
                         LabeledContent("Status", value: "In world")
                         LabeledContent("Profile", value: active.configuration.profileName ?? active.configuration.username)
                         LabeledContent("Character", value: active.displayName)
-                        LabeledContent("Zone", value: String(state.settings.hostConfiguration.startingZoneID))
-                        LabeledContent("Coins", value: String(state.settings.hostConfiguration.startingCoins))
+                        LabeledContent("Zone", value: String((active.hostConfiguration ?? configuration).startingZoneID))
+                        LabeledContent("Coins", value: String((active.hostConfiguration ?? configuration).startingCoins))
                         Button("Leave World", role: .destructive) {
                             state.leaveOfflineWorld()
                             sessionMessage = "Left the offline world."

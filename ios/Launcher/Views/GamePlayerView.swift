@@ -11,6 +11,7 @@ final class GameEngineController: ObservableObject {
     @Published private(set) var errorMessage: String?
 
     private var engine: OSFREngine?
+    private var remoteZoneName: String?
 
     var isLoaded: Bool { engine != nil }
 
@@ -45,15 +46,20 @@ final class GameEngineController: ObservableObject {
 
     /// Attaches a packet-driven remote presentation. The underlying simulation
     /// is used only for the real Sanctuary zone grid; its local player, NPCs and
-    /// collection nodes are never published in remote mode.
-    func attachRemote(session: ActiveWorldSession) {
+    /// collection nodes are never published in remote mode. The zone comes from
+    /// the decoded `PacketSendZoneDetails`; no zone is chosen locally when the
+    /// server has supplied one.
+    func attachRemote(session: ActiveWorldSession, observation: GatewayWorldObservation) {
         guard !isLoaded else { return }
         guard let root = AppPaths.bundledSanctuaryResources else {
             errorMessage = "Sanctuary resources are not bundled in this build."
             return
         }
         do {
-            let simulation = try WorldSimulation(rootURL: root, zoneName: "FabledRealms")
+            let catalog = try ResourceCatalog(rootURL: root)
+            let resolvedZone = observation.zoneName.flatMap { catalog.zoneName(matching: $0) }
+                ?? "FabledRealms"
+            let simulation = try WorldSimulation(rootURL: root, zoneName: resolvedZone)
             let engine = OSFREngine(
                 simulation: simulation,
                 presentationMode: .remote,
@@ -63,9 +69,24 @@ final class GameEngineController: ObservableObject {
             self.snapshot = nil
             self.frame = engine.frame
             self.engine = engine
+            remoteZoneName = resolvedZone
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Rebuilds the packet map if a later zone packet changes the server zone.
+    func syncRemoteZone(session: ActiveWorldSession, observation: GatewayWorldObservation) {
+        guard let serverZone = observation.zoneName else { return }
+        guard let root = AppPaths.bundledSanctuaryResources else { return }
+        let resolved = (try? ResourceCatalog(rootURL: root))?.zoneName(matching: serverZone)
+        guard let resolved, resolved != remoteZoneName else { return }
+        reset()
+        attachRemote(session: session, observation: observation)
+        if let engine {
+            engine.applyRemoteObservation(observation)
+            publish(engine)
         }
     }
 
@@ -80,6 +101,7 @@ final class GameEngineController: ObservableObject {
         simulation = nil
         snapshot = nil
         frame = nil
+        remoteZoneName = nil
         errorMessage = nil
     }
 
@@ -490,6 +512,11 @@ private struct RemoteWorldView: View {
     @EnvironmentObject private var state: AppState
     @StateObject private var controller = GameEngineController()
     @State private var loadedSessionID: UUID?
+    @State private var chatText = ""
+    @State private var chatChannel: GatewayChatMessage.Channel = .worldSay
+    @State private var tellRecipient = ""
+    @State private var areaNameID: Int32 = 0
+    @State private var outboundError: String?
     let session: ActiveWorldSession
 
     private var observation: GatewayWorldObservation { state.worldObservation }
@@ -544,6 +571,45 @@ private struct RemoteWorldView: View {
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
 
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Outbound Packets")
+                        .font(.headline)
+                    Picker("Channel", selection: $chatChannel) {
+                        ForEach(GatewayChatMessage.Channel.allCases) { channel in
+                            Text(channel.displayName).tag(channel)
+                        }
+                    }
+                    if chatChannel == .tell {
+                        TextField("Recipient", text: $tellRecipient)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                    }
+                    if chatChannel == .worldArea {
+                        Stepper("Area name ID: \(areaNameID)", value: $areaNameID, in: 0...Int32.max)
+                    }
+                    TextField("Message", text: $chatText)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit { sendChatPacket() }
+                    HStack {
+                        Button("Send Chat") { sendChatPacket() }
+                        Button("Sync Time") { sendTimeSync() }
+                    }
+                    HStack {
+                        Button("Move +X") { sendMove(dx: 1, dz: 0) }
+                        Button("Move -X") { sendMove(dx: -1, dz: 0) }
+                        Button("Move +Z") { sendMove(dx: 0, dz: 1) }
+                        Button("Move -Z") { sendMove(dx: 0, dz: -1) }
+                    }
+                    Button("Jump") { sendJump() }
+                    if let outboundError {
+                        Text(outboundError)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
+                }
+                .padding()
+                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
+
                 Button("Leave World", role: .destructive) {
                     state.disconnectGateway()
                 }
@@ -553,11 +619,12 @@ private struct RemoteWorldView: View {
         }
         .task {
             guard loadedSessionID != session.id else { return }
-            controller.attachRemote(session: session)
+            controller.attachRemote(session: session, observation: observation)
             controller.applyRemoteObservation(observation)
             loadedSessionID = session.id
         }
         .onReceive(state.$worldObservation) { observation in
+            controller.syncRemoteZone(session: session, observation: observation)
             controller.applyRemoteObservation(observation)
         }
     }
@@ -585,6 +652,140 @@ private struct RemoteWorldView: View {
         } else {
             ProgressView("Loading packet map…")
                 .frame(height: 320)
+        }
+    }
+
+    private var selfGUID: UInt64? {
+        observation.playerGUID ?? session.configuration.gatewayGUID
+    }
+
+    private var selfPosition: GatewayVector4 {
+        guard let selfGUID, let entry = observation.positions[selfGUID] else {
+            return GatewayVector4(x: 0, y: 0, z: 0, w: 1)
+        }
+        return GatewayVector4(
+            x: Float(entry.position.x),
+            y: Float(entry.position.y),
+            z: Float(entry.position.z),
+            w: 1
+        )
+    }
+
+    private var selfRotation: GatewayVector3 {
+        guard let selfGUID, let entry = observation.positions[selfGUID] else {
+            return GatewayVector3(x: 0, y: 0, z: 0)
+        }
+        return GatewayVector3(
+            x: Float(entry.rotation.x),
+            y: Float(entry.rotation.y),
+            z: Float(entry.rotation.z)
+        )
+    }
+
+    private func recipientName() -> GatewayName {
+        let parts = tellRecipient.trimmingCharacters(in: .whitespaces)
+            .split(maxSplits: 1, omittingEmptySubsequences: false) { $0.isWhitespace }
+            .map(String.init)
+        return GatewayName(
+            firstNameID: 0,
+            lastNamePrefixID: 0,
+            lastNameSuffixID: 0,
+            firstName: parts.first ?? "",
+            lastName: parts.count > 1 ? parts[1] : ""
+        )
+    }
+
+    private func sendChatPacket() {
+        guard !chatText.isEmpty else { return }
+        guard let gateway = state.gatewaySession else {
+            outboundError = "The gateway is not connected."
+            return
+        }
+        do {
+            try gateway.sendChat(
+                channel: chatChannel,
+                message: chatText,
+                toName: recipientName(),
+                position: selfPosition,
+                areaNameID: chatChannel == .worldArea ? areaNameID : nil
+            )
+            chatText = ""
+            outboundError = nil
+        } catch {
+            outboundError = error.localizedDescription
+        }
+    }
+
+    private func sendTimeSync() {
+        guard let gateway = state.gatewaySession else {
+            outboundError = "The gateway is not connected."
+            return
+        }
+        let minutes = Int32(TimeZone.current.secondsFromGMT() / 60)
+        let unixSeconds = Int64(Date().timeIntervalSince1970)
+        let gameTime = 8 * (unixSeconds - 1_221_361_670) - Int64(minutes)
+        do {
+            try gateway.sendGameTimeSync(time: gameTime, serverRate: 8, useClientTime: false)
+            outboundError = nil
+        } catch {
+            outboundError = error.localizedDescription
+        }
+    }
+
+    private func sendMove(dx: Float, dz: Float) {
+        guard let gateway = state.gatewaySession, let guid = selfGUID else {
+            outboundError = "The gateway is not connected or no self packet has arrived."
+            return
+        }
+        let position = GatewayVector3(
+            x: selfPosition.x + dx,
+            y: selfPosition.y,
+            z: selfPosition.z + dz
+        )
+        do {
+            let sequence = observation.ownTeleportSequence
+                ?? observation.positions[guid]?.teleportSequence
+                ?? 0
+            try gateway.sendPositionUpdate(
+                guid: guid,
+                position: position,
+                rotation: selfRotation,
+                state: 1,
+                teleportSequence: sequence
+            )
+            if sequence != 0 { state.consumeTeleportSequence() }
+            try gateway.sendCameraUpdate(position: position, rotation: selfRotation)
+            outboundError = nil
+        } catch {
+            outboundError = error.localizedDescription
+        }
+    }
+
+    private func sendJump() {
+        guard let gateway = state.gatewaySession, let guid = selfGUID else {
+            outboundError = "The gateway is not connected or no self packet has arrived."
+            return
+        }
+        do {
+            let sequence = observation.ownTeleportSequence
+                ?? observation.positions[guid]?.teleportSequence
+                ?? 0
+            try gateway.sendJumpUpdate(
+                guid: guid,
+                position: GatewayVector3(
+                    x: selfPosition.x,
+                    y: selfPosition.y,
+                    z: selfPosition.z
+                ),
+                rotation: selfRotation,
+                state: 0x02,
+                teleportSequence: sequence,
+                verticalVelocity: 6
+            )
+            if sequence != 0 { state.consumeTeleportSequence() }
+            outboundError = nil
+        } catch {
+            outboundError = error.localizedDescription
         }
     }
 }
