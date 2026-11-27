@@ -1291,6 +1291,86 @@ struct WorldPositionUpdate: Equatable {
     }
 }
 
+/// `Sanctuary.Packet.BasePlayerUpdatePacket` (35) entity spawns.
+///
+/// Only the fields needed to place a packet-backed marker are decoded: the
+/// remainder of these large spawn packets is deliberately left unread. C# source:
+/// `BasePlayerUpdatePacket/PlayerUpdatePacketAddPc.cs` (sub 1) and
+/// `PlayerUpdatePacketAddNpc.cs` (sub 2). Both write a full four-float Vector4
+/// position followed by a four-float Quaternion rotation.
+struct GatewayEntityAddition: Equatable {
+    static let opcode: Int16 = 35
+
+    var guid: UInt64
+    var subOpcode: Int16
+    var name: String
+    var modelID: Int32
+    var position: GatewayVector4
+    var rotation: GatewayVector4
+
+    var isNPC: Bool { subOpcode == 2 }
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        do {
+            let opcode = try GatewayWire.readInt16(&reader)
+            guard opcode == Self.opcode else {
+                throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+            }
+            subOpcode = try GatewayWire.readInt16(&reader)
+            guard subOpcode == 1 || subOpcode == 2 else {
+                throw GatewayProtocolError.malformedFrame("unknown player-update sub-opcode \(subOpcode)")
+            }
+
+            guid = try reader.readUInt64()
+            if subOpcode == 1 {
+                let name = try GatewayName(reader: &reader)
+                self.name = [name.firstName, name.lastName].filter { !$0.isEmpty }.joined(separator: " ")
+                modelID = try reader.readInt32()
+                _ = try reader.readInt32() // chat bubble foreground
+                _ = try reader.readInt32() // chat bubble background
+                _ = try reader.readInt32() // chat bubble size
+            } else {
+                let nameID = try reader.readInt32()
+                modelID = try reader.readInt32()
+                _ = try reader.readBool()
+                name = "NPC \(nameID)"
+                _ = try reader.readInt32() // chat bubble foreground
+                _ = try reader.readInt32() // chat bubble background
+                _ = try reader.readInt32() // chat bubble size
+                _ = try reader.readFloat() // scale
+            }
+            position = try GatewayVector4(reader: &reader)
+            rotation = try GatewayVector4(reader: &reader)
+        } catch let error as ProtocolError {
+            throw GatewayProtocolError.wire(error)
+        }
+    }
+}
+
+/// `Sanctuary.Packet.PacketSendSelfToClient` (opcode 12): an Int32-prefixed
+/// nested world packet. The server uses this to deliver the authenticated
+/// player's own spawn data through the tunnel.
+struct GatewaySendSelf: Equatable {
+    static let opcode: Int16 = 12
+
+    var payload: Data
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        do {
+            let opcode = try GatewayWire.readInt16(&reader)
+            guard opcode == Self.opcode else {
+                throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+            }
+            payload = try reader.readData()
+        } catch let error as ProtocolError {
+            throw GatewayProtocolError.wire(error)
+        }
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
 /// `Sanctuary.Packet.Common.NameData`: three Int32 name ids then two strings.
 struct GatewayName: Equatable {
     var firstNameID: Int32
@@ -1436,6 +1516,8 @@ struct GatewayChatMessage: Equatable {
 enum GatewayWorldPacket: Equatable {
     case positionUpdate(WorldPositionUpdate)
     case chat(GatewayChatMessage)
+    case entityAdded(GatewayEntityAddition)
+    case sendSelf(GatewaySendSelf)
     case unknown(Int16, Data)
 }
 
@@ -1448,6 +1530,10 @@ enum GatewayWorldCodec {
             return .positionUpdate(try WorldPositionUpdate(data: data))
         case GatewayChatMessage.opcode:
             return .chat(try GatewayChatMessage(data: data))
+        case GatewayEntityAddition.opcode:
+            return .entityAdded(try GatewayEntityAddition(data: data))
+        case GatewaySendSelf.opcode:
+            return .sendSelf(try GatewaySendSelf(data: data))
         default:
             return .unknown(opcode, data)
         }
@@ -1477,6 +1563,9 @@ struct GatewayWorldObservation: Equatable, Sendable {
     }
 
     var positions: [UInt64: Position] = [:]
+    /// Names are only populated by decoded spawn packets. Position-only updates
+    /// must never fabricate a name.
+    var names: [UInt64: String] = [:]
     var chatMessages: [ChatMessage] = []
     var lastEvent: String?
 
@@ -1521,6 +1610,31 @@ struct GatewayWorldObservation: Equatable, Sendable {
             chatMessages.append(message)
             if chatMessages.count > 32 { chatMessages.removeFirst(chatMessages.count - 32) }
             lastEvent = "Chat · \(message.fromName)"
+        case .entityAdded(let addition):
+            names[addition.guid] = addition.name
+            positions[addition.guid] = Position(
+                guid: addition.guid,
+                position: ZoneVector(
+                    x: Double(addition.position.x),
+                    y: Double(addition.position.y),
+                    z: Double(addition.position.z),
+                    w: Double(addition.position.w)
+                ),
+                rotation: ZoneVector(
+                    x: Double(addition.rotation.x),
+                    y: Double(addition.rotation.y),
+                    z: Double(addition.rotation.z),
+                    w: Double(addition.rotation.w)
+                ),
+                state: 0,
+                teleportSequence: 0,
+                receivedAt: now
+            )
+            lastEvent = "Spawn · \(addition.name)"
+        case .sendSelf(let wrapped):
+            // The nested payload is decoded by GatewaySession.decodeWorld; the
+            // wrapper itself is never treated as an entity or fabricated state.
+            lastEvent = "Self packet · \(wrapped.payload.count) bytes"
         case .unknown(let opcode, _):
             lastEvent = "Unparsed world opcode \(opcode)"
         }
@@ -1684,10 +1798,14 @@ struct GatewaySession {
         return events
     }
 
-    private func decodeWorld(_ payload: Data) -> [GatewaySessionEvent] {
+    private func decodeWorld(_ payload: Data, depth: Int = 0) -> [GatewaySessionEvent] {
         guard let decoded = try? GatewayWorldCodec.decodeAny(payload) else {
             return []
         }
-        return [.world(decoded)]
+        var events: [GatewaySessionEvent] = [.world(decoded)]
+        if case .sendSelf(let wrapped) = decoded, depth < 4 {
+            events.append(contentsOf: decodeWorld(wrapped.payload, depth: depth + 1))
+        }
+        return events
     }
 }

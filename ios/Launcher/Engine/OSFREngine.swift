@@ -573,6 +573,17 @@ final class OSFREngine {
             for position in remoteObservation.positions.values.sorted(by: { $0.guid < $1.guid }) {
                 guard let unit = map.unitPosition(for: position.position) else { continue }
                 let isSelf = position.guid == selfGUID
+                // A name is shown only when a spawn packet supplied it;
+                // position-only updates remain identified by GUID.
+                let packetName = remoteObservation.names[position.guid]
+                let label: String
+                if isSelf {
+                    label = "Packet you\(packetName.map { " · \($0)" } ?? "") · \(position.guid)"
+                } else if let packetName {
+                    label = "\(packetName) · \(position.guid)"
+                } else {
+                    label = "Packet \(position.guid)"
+                }
                 entities.append(Self.marker(
                     id: position.guid,
                     kind: .player,
@@ -582,7 +593,7 @@ final class OSFREngine {
                         ? EngineColor(r: 0.24, g: 0.54, b: 1, a: 1)
                         : EngineColor(r: 0.94, g: 0.45, b: 0.32, a: 0.95),
                     outline: EngineColor(r: 1, g: 1, b: 1, a: 1),
-                    label: isSelf ? "Packet you · \(position.guid)" : "Packet \(position.guid)",
+                    label: label,
                     layer: 3
                 ))
             }

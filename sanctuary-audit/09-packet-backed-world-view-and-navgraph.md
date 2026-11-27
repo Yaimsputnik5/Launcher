@@ -26,6 +26,32 @@ server sends a packet. The remote World tab passes that observation to a remote
 Foundation tests cover the observation accumulator and prove that removing all
 observations removes every packet-backed marker from the remote frame.
 
+## Entity spawn and self-packet decoding
+
+Two more tunneled world payloads are now decoded from the authoritative
+Sanctuary packet classes:
+
+- `BasePlayerUpdatePacket` opcode `35`, sub-opcode `1` (`PlayerUpdatePacketAddPc`)
+  or `2` (`PlayerUpdatePacketAddNpc`). The decoder reads only the verified
+  prefix through the full four-float `Vector4` position and `Quaternion`
+  rotation; later appearance fields are intentionally left untouched. PC names
+  come from `NameData` (three Int32 IDs, first name, last name). NPC names in the
+  view are derived from the real `NameId` field as `NPC <id>` because the full
+  localized name table is not decoded here.
+- `PacketSendSelfToClient` opcode `12`: a length-prefixed nested world packet.
+  The session emits the wrapper event and recursively decodes the nested packet
+  up to a depth of four, so self-spawn and self-position data are still
+  packet-backed rather than synthesized.
+
+Spawn names are stored per GUID in the observation. Position-only updates never
+create a name, so the remote view falls back to the GUID when no spawn packet
+has supplied a label.
+
+Sources:
+`/tmp/opencode/sanctuary/src/Sanctuary.Packet/BasePlayerUpdatePacket/PlayerUpdatePacketAddPc.cs`,
+`.../PlayerUpdatePacketAddNpc.cs`, `.../BasePlayerUpdatePacket.cs`, and
+`/tmp/opencode/sanctuary/src/Sanctuary.Packet/PacketSendSelfToClient.cs`.
+
 ## `FabledRealms.map` decoded structure
 
 `FabledRealms.map` is stored in `Assets_002.pack` at absolute offset 37,348,187
@@ -65,6 +91,6 @@ future object placement work, not yet a reconstructed chunk schema.
 
 ## Verification
 
-- Linux foundation tests: `swift test --package-path ios` — 126 tests, 0 failures.
+- Linux foundation tests: `swift test --package-path ios` — 138 tests, 0 failures.
 - iOS compilation and IPA replacement remain gated on the `ios-build.yml`
   workflow; no release asset is considered updated until that run is green.

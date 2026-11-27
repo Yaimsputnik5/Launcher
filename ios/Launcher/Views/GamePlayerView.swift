@@ -539,7 +539,7 @@ private struct RemoteWorldView: View {
                 .padding()
                 .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
 
-                Text("Markers appear only after position packets arrive. Local simulation entities are deliberately hidden.")
+                Text("Markers appear only after position packets arrive; names only after spawn packets. Local simulation entities are deliberately hidden.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)

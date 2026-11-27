@@ -321,6 +321,105 @@ final class GatewayProtocolTests: XCTestCase {
         XCTAssertEqual(try GatewayWorldCodec.decodeAny(chat.encoded()), .chat(chat))
     }
 
+    /// `BasePlayerUpdatePacket` spawn prefixes (sub 1 = PC, sub 2 = NPC) are
+    /// enough to place markers; trailing appearance fields are intentionally
+    /// not decoded. Source: Sanctuary's PlayerUpdatePacketAddPc/AddNpc.cs.
+    func testPlayerSpawnPrefixDecodesForPacketBackedMarkers() throws {
+        var pc = PacketWriter()
+        GatewayWire.appendInt16(35, to: &pc.data)
+        GatewayWire.appendInt16(1, to: &pc.data)
+        pc.writeUInt64(0x1234)
+        GatewayName(
+            firstNameID: 3,
+            lastNamePrefixID: 4,
+            lastNameSuffixID: 5,
+            firstName: "Ada",
+            lastName: "Lovelace"
+        ).append(to: &pc)
+        pc.writeInt32(7) // model
+        pc.writeInt32(1) // chat bubble foreground
+        pc.writeInt32(2) // chat bubble background
+        pc.writeInt32(3) // chat bubble size
+        pc.writeFloat(10) // position x/y/z/w
+        pc.writeFloat(20)
+        pc.writeFloat(30)
+        pc.writeFloat(1)
+        pc.writeFloat(0.1) // rotation x/y/z/w
+        pc.writeFloat(0.2)
+        pc.writeFloat(0.3)
+        pc.writeFloat(0.4)
+
+        let decodedPC = try GatewayWorldCodec.decodeAny(pc.data)
+        guard case .entityAdded(let addition) = decodedPC else {
+            return XCTFail("expected an entity spawn, got \(decodedPC)")
+        }
+        XCTAssertFalse(addition.isNPC)
+        XCTAssertEqual(addition.guid, 0x1234)
+        XCTAssertEqual(addition.name, "Ada Lovelace")
+        XCTAssertEqual(addition.modelID, 7)
+        XCTAssertEqual(addition.position, GatewayVector4(x: 10, y: 20, z: 30, w: 1))
+
+        var observation = GatewayWorldObservation.empty
+        observation.apply(decodedPC)
+        XCTAssertEqual(observation.positionCount, 1)
+        XCTAssertEqual(observation.names[0x1234], "Ada Lovelace")
+
+        var npc = PacketWriter()
+        GatewayWire.appendInt16(35, to: &npc.data)
+        GatewayWire.appendInt16(2, to: &npc.data)
+        npc.writeUInt64(0xABCD)
+        npc.writeInt32(99) // name id
+        npc.writeInt32(42) // model id
+        npc.writeBool(false)
+        npc.writeInt32(1) // chat bubble foreground
+        npc.writeInt32(2) // chat bubble background
+        npc.writeInt32(3) // chat bubble size
+        npc.writeFloat(1.5) // scale
+        npc.writeFloat(-4)
+        npc.writeFloat(5)
+        npc.writeFloat(6)
+        npc.writeFloat(1)
+        npc.writeFloat(0)
+        npc.writeFloat(0)
+        npc.writeFloat(0)
+        npc.writeFloat(1)
+
+        let decodedNPC = try GatewayWorldCodec.decodeAny(npc.data)
+        guard case .entityAdded(let npcAddition) = decodedNPC else {
+            return XCTFail("expected an entity spawn, got \(decodedNPC)")
+        }
+        XCTAssertTrue(npcAddition.isNPC)
+        XCTAssertEqual(npcAddition.name, "NPC 99")
+        XCTAssertEqual(npcAddition.position, GatewayVector4(x: -4, y: 5, z: 6, w: 1))
+    }
+
+    /// PacketSendSelfToClient (12) wraps a length-prefixed nested world packet.
+    /// Source: Sanctuary.Packet.PacketSendSelfToClient.cs.
+    func testSendSelfWrapperDecodesNestedWorldPacket() throws {
+        let position = WorldPositionUpdate(
+            guid: 77,
+            position: GatewayVector3(x: 1, y: 2, z: 3),
+            rotation: GatewayVector3(x: 0, y: 0, z: 0),
+            state: 0,
+            teleportSequence: 0
+        )
+        var wrapped = PacketWriter()
+        GatewayWire.appendInt16(12, to: &wrapped.data)
+        wrapped.writeData(position.encoded())
+
+        guard case .sendSelf(let packet) = try GatewayWorldCodec.decodeAny(wrapped.data) else {
+            return XCTFail("expected PacketSendSelfToClient")
+        }
+        XCTAssertEqual(packet.payload, position.encoded())
+
+        var session = GatewaySession(connectCode: 1, encryptCode: 0)
+        let events = try session.receiveApplicationData(
+            GatewayPacketCodec.encode(GatewayTunneledWorldPacket(payload: wrapped.data))
+        )
+        XCTAssertTrue(events.contains(.world(.sendSelf(packet))))
+        XCTAssertTrue(events.contains(.world(.positionUpdate(position))))
+    }
+
     /// End-to-end synthetic flow: unencrypted `PacketLogin`, login reply,
     /// then an encrypted tunneled world packet.
     func testSessionLoginThenEncryptedWorldPacket() throws {
