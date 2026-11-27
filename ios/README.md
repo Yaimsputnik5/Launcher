@@ -152,11 +152,16 @@ A real unsigned IPA with the full all-in-one UI, the embedded original client
 payload, and the Sanctuary server data was compiled on a free GitHub Actions
 macOS runner:
 
-- Workflow run: <https://github.com/YaimSputnik5/Launcher/actions/runs/46050119557>
-- Built commit: `da9e20e6d6fc6366e1b40457ed391c0ab0af8b51`
+- Workflow run: <https://github.com/YaimSputnik5/Launcher/actions/runs/46053385412>
+- Built commit: `ba415b9a83115a432ce2d35e153e8f1ab2776993`
 - Release: <https://github.com/YaimSputnik5/Launcher/releases/tag/ios-ipa>
-- Local artifact: `ios/Launcher.ipa` (375,200,457 bytes)
-- SHA-256: `6b853be4f83cc4a104293e3e8acbfa8dacaca652d0c04e52ee8543db6dc2a943`
+- Local artifact: `ios/Launcher.ipa` (375,201,080 bytes)
+- SHA-256: `e20cb582d77df157dc4338e69cea6f49342720e095b7403aacd5fad9c8bfdd1d`
+
+Bundled resources are validated by lexical containment, with symlink resolution
+still required for writable roots. This avoids rejecting real app-bundle files
+when LiveContainer resolves the bundle through `/private/var/...` while leaving
+path-traversal and symlink-escape rejection intact.
 
 Both the IPA build and the release-publishing steps succeeded. The checksum above
 was read from the GitHub release asset digest and verified against a fully
@@ -178,7 +183,7 @@ Foundation-only logic is verified locally:
 swift test --package-path ios
 ```
 
-The 206 tests (1 skipped) cover XXH64, URL/path safety, manifest v1/v2 and
+The 209 tests (1 skipped) cover XXH64, URL/path safety, manifest v1/v2 and
 case-insensitive manifest locales, embedded-payload manifest matching, packet primitives,
 CRC32, RC4, GUID layout, WebAPI login response decoding, login framing/messages,
 gateway AES-CCM, opcode codecs and reliable-ID sequencing, `.pack`/`.rcc`
