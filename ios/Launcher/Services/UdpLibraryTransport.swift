@@ -358,7 +358,7 @@ enum UdpLibrary {
             guard let base = inputBuffer.baseAddress else {
                 throw UdpLibraryError.decompressionFailed
             }
-            stream.src_ptr = base.assumingMemoryBound(to: UInt8.self)
+            stream.src_ptr = UnsafePointer(base.assumingMemoryBound(to: UInt8.self))
             stream.src_size = inputBuffer.count
 
             var output = Data()
