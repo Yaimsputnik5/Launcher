@@ -151,6 +151,8 @@ final class LoginUDPSession: @unchecked Sendable {
     private var connectionConfig: UdpLibraryConnectionConfig?
     private var outgoingReliable: UdpLibraryOutgoingReliableState?
     private var pendingReliableFrame: Data?
+    private var bufferedAcks = UdpLibraryBufferedAcks()
+    private var ackFlushTimer: DispatchWorkItem?
     private var flowResult = LoginFlowResult()
     private var continuation: CheckedContinuation<LoginFlowResult, Error>?
     private var connectRetry: DispatchWorkItem?
@@ -463,13 +465,7 @@ final class LoginUDPSession: @unchecked Sendable {
                 reliableID: reliableID,
                 applications: applications
             ) else { return }
-            let packet = UdpLibrary.encodeAck(
-                type: ack.type,
-                reliableID: ack.reliableID,
-                encryptCode: encryptCode,
-                userSuppliedCompression: false
-            )
-            rawSend(packet)
+            enqueueAck(type: ack.type, reliableID: ack.reliableID)
             for application in ack.applications {
                 handleApplication(application)
             }
@@ -490,6 +486,46 @@ final class LoginUDPSession: @unchecked Sendable {
         case .application, .internalPacket:
             break
         }
+    }
+
+    /// Sanctuary buffers ACKs for `MaxDataHoldTime` (50 ms) and coalesces them
+    /// into one CRC-protected Multi datagram when possible.
+    private func enqueueAck(type: UInt8, reliableID: UInt16) {
+        let limit = max(
+            0,
+            (connectionConfig?.maxRawPacketSize ?? 512)
+                - (connectionConfig?.crcBytes ?? Self.crcBytes)
+                - (connectionConfig?.encryptExpansionBytes ?? 0)
+        )
+        if bufferedAcks.cookedLength + 5 > limit { flushAcks() }
+        bufferedAcks.enqueue(
+            type: type,
+            reliableID: reliableID,
+            isAckAll: type >= 21 && type <= 24,
+            deduping: true
+        )
+        guard ackFlushTimer == nil else { return }
+        let item = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.queue.async {
+                self.flushAcks()
+            }
+        }
+        ackFlushTimer = item
+        DispatchQueue.global(qos: .utility).asyncAfter(
+            deadline: .now() + .milliseconds(50),
+            execute: item
+        )
+    }
+
+    private func flushAcks() {
+        ackFlushTimer?.cancel()
+        ackFlushTimer = nil
+        guard let frame = bufferedAcks.flush(
+            encryptCode: encryptCode,
+            userSuppliedCompression: false
+        ) else { return }
+        rawSend(frame)
     }
 
     private func handleApplication(_ application: Data) {
@@ -684,6 +720,7 @@ final class LoginUDPSession: @unchecked Sendable {
             length: frame.count,
             now: udpClockMilliseconds()
         )
+        flushAcks()
         rawSend(frame)
         scheduleReliableRetry()
     }
@@ -758,6 +795,14 @@ final class LoginUDPSession: @unchecked Sendable {
         connectRetry = nil
         reliableRetry = nil
         timeoutWork = nil
+        ackFlushTimer?.cancel()
+        ackFlushTimer = nil
+        if let frame = bufferedAcks.flush(
+            encryptCode: encryptCode,
+            userSuppliedCompression: false
+        ) {
+            rawSend(frame)
+        }
         pendingReliableFrame = nil
         outgoingReliable?.reset()
         connection.stateUpdateHandler = nil
@@ -772,6 +817,7 @@ final class LoginUDPSession: @unchecked Sendable {
         connectRetry?.cancel()
         reliableRetry?.cancel()
         timeoutWork?.cancel()
+        ackFlushTimer?.cancel()
         connection.cancel()
     }
 }
@@ -835,6 +881,8 @@ final class GatewayUDPSession: @unchecked Sendable {
     private var isActive = false
     private var continuation: CheckedContinuation<Void, Error>?
     private var pendingFrames: [UInt16: Data] = [:]
+    private var bufferedAcks = UdpLibraryBufferedAcks()
+    private var ackFlushTimer: DispatchWorkItem?
     private var connectRetry: DispatchWorkItem?
     private var retryTimer: DispatchWorkItem?
     private var keepAliveTimer: DispatchWorkItem?
@@ -980,13 +1028,7 @@ final class GatewayUDPSession: @unchecked Sendable {
                 reliableID: reliableID,
                 applications: applications
             ) else { return }
-            let packet = UdpLibrary.encodeAck(
-                type: ack.type,
-                reliableID: ack.reliableID,
-                encryptCode: encryptCode,
-                userSuppliedCompression: userSuppliedCompression
-            )
-            rawSend(packet)
+            enqueueAck(type: ack.type, reliableID: ack.reliableID)
             record(
                 "ack type=\(ack.type) id=\(ack.reliableID) " +
                 "delivered=\(ack.applications.count) duplicate=\(ack.wasDuplicate)"
@@ -1015,6 +1057,47 @@ final class GatewayUDPSession: @unchecked Sendable {
         case .internalPacket(let type):
             record("internal type=\(type)")
         }
+    }
+
+    /// Mirrors `UdpReliableChannel.ReliablePacket`: ACKs are held briefly and
+    /// coalesced into a Multi datagram. A later AckAll replaces the earliest
+    /// buffered selective ACK so cumulative progress is processed first.
+    private func enqueueAck(type: UInt8, reliableID: UInt16) {
+        let limit = max(
+            0,
+            (connectionConfig?.maxRawPacketSize ?? 512)
+                - (connectionConfig?.crcBytes ?? 2)
+                - (connectionConfig?.encryptExpansionBytes ?? 1)
+        )
+        if bufferedAcks.cookedLength + 5 > limit { flushAcks() }
+        bufferedAcks.enqueue(
+            type: type,
+            reliableID: reliableID,
+            isAckAll: type >= 21 && type <= 24,
+            deduping: true
+        )
+        guard ackFlushTimer == nil else { return }
+        let item = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.queue.async {
+                self.flushAcks()
+            }
+        }
+        ackFlushTimer = item
+        DispatchQueue.global(qos: .utility).asyncAfter(
+            deadline: .now() + .milliseconds(50),
+            execute: item
+        )
+    }
+
+    private func flushAcks() {
+        ackFlushTimer?.cancel()
+        ackFlushTimer = nil
+        guard let frame = bufferedAcks.flush(
+            encryptCode: encryptCode,
+            userSuppliedCompression: userSuppliedCompression
+        ) else { return }
+        rawSend(frame)
     }
 
     private func handleApplication(_ application: Data) {
@@ -1162,7 +1245,52 @@ final class GatewayUDPSession: @unchecked Sendable {
             length: frame.count,
             now: udpClockMilliseconds()
         )
+        flushAcks()
         rawSend(frame)
+        scheduleRetryIfNeeded()
+    }
+
+    /// Wraps and fragments one secure gateway application packet exactly as
+    /// `UdpConnection.Send` -> `UdpReliableChannel.PullDown` would: the cipher
+    /// and wrapper are applied once, then each physical frame gets its own
+    /// reliable stamp and retransmission entry.
+    private func enqueueSecureApplication(_ packet: Data) throws {
+        guard let config = connectionConfig, var state = outgoingReliable else {
+            throw GatewayUDPError.protocolError("Gateway reliable channel is not ready")
+        }
+        let body = try gateway.wrapPayload(packet, secure: true)
+        let fragments = UdpLibraryFragmenter.split(
+            applicationPayload: body,
+            maxPayloadBytes: config.maxReliablePayloadBytes
+        )
+        guard !fragments.isEmpty else {
+            throw GatewayUDPError.protocolError("Negotiated reliable packet size is too small")
+        }
+
+        // Reliable payloads are not placed in the Multi buffer by this client;
+        // flushing first keeps the ACK stream ordered before new data.
+        flushAcks()
+        for fragment in fragments {
+            let stamp = state.nextStamp
+            let frame = UdpLibrary.encodeReliableBody(
+                type: fragment.type,
+                reliableID: stamp,
+                encryptCode: encryptCode,
+                userSuppliedCompression: userSuppliedCompression,
+                body: fragment.body
+            )
+            pendingFrames[stamp] = frame
+            var updated = state
+            updated.noteSent(
+                stamp: stamp,
+                channel: UdpLibrary.channel(for: fragment.type) ?? 0,
+                length: max(1, fragment.outstandingBytes),
+                now: udpClockMilliseconds()
+            )
+            outgoingReliable = updated
+            state = updated
+            rawSend(frame)
+        }
         scheduleRetryIfNeeded()
     }
 
@@ -1259,7 +1387,7 @@ final class GatewayUDPSession: @unchecked Sendable {
             let wrappedLocale = GatewayPacketCodec.encode(
                 GatewayTunneledWorldPacket(reliable: true, payload: setLocale.data)
             )
-            enqueue(try gateway.send(packet: wrappedLocale))
+            try enqueueSecureApplication(wrappedLocale)
 
             var initialization = PacketWriter()
             GatewayWire.appendInt16(169, to: &initialization.data)
@@ -1268,21 +1396,21 @@ final class GatewayUDPSession: @unchecked Sendable {
             let wrappedInitialization = GatewayPacketCodec.encode(
                 GatewayTunneledPacket(reliable: true, payload: initialization.data)
             )
-            enqueue(try gateway.send(packet: wrappedInitialization))
+            try enqueueSecureApplication(wrappedInitialization)
 
             var finished = PacketWriter()
             GatewayWire.appendInt16(10, to: &finished.data)
             let wrappedFinished = GatewayPacketCodec.encode(
                 GatewayTunneledPacket(reliable: true, payload: finished.data)
             )
-            enqueue(try gateway.send(packet: wrappedFinished))
+            try enqueueSecureApplication(wrappedFinished)
 
             var ready = PacketWriter()
             GatewayWire.appendInt16(13, to: &ready.data)
             let wrappedReady = GatewayPacketCodec.encode(
                 GatewayTunneledPacket(reliable: true, payload: ready.data)
             )
-            enqueue(try gateway.send(packet: wrappedReady))
+            try enqueueSecureApplication(wrappedReady)
         }
     }
 
@@ -1322,6 +1450,7 @@ final class GatewayUDPSession: @unchecked Sendable {
         guard let pendingContinuation = continuation else { return }
         self.continuation = nil
         isActive = true
+        flushAcks()
         connectRetry?.cancel()
         retryTimer?.cancel()
         timeoutWork?.cancel()
@@ -1360,10 +1489,13 @@ final class GatewayUDPSession: @unchecked Sendable {
         retryTimer?.cancel()
         keepAliveTimer?.cancel()
         timeoutWork?.cancel()
+        ackFlushTimer?.cancel()
         connectRetry = nil
         retryTimer = nil
         keepAliveTimer = nil
         timeoutWork = nil
+        ackFlushTimer = nil
+        bufferedAcks.reset()
         pendingFrames.removeAll()
         incomingReliable.reset()
         outgoingReliable?.reset()

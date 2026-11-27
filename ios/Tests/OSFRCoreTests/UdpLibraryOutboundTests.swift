@@ -94,4 +94,126 @@ final class UdpLibraryOutboundTests: XCTestCase {
         state.acknowledge(type: 17, stamp: 0xffff, now: 10)
         XCTAssertEqual(state.pendingStamps, [0])
     }
+
+    func testGiveTimeReturnsRemainingDelayForRecentlySentFrame() {
+        var state = UdpLibraryOutgoingReliableState(config: config())
+        state.noteSent(stamp: 0, channel: 0, length: 10, now: 0)
+        let tick = state.giveTime(now: 100)
+        XCTAssertTrue(tick.resends.isEmpty)
+        XCTAssertEqual(tick.delay, 1_200)
+    }
+
+    func testFragmenterKeepsPayloadAtNegotiatedLimitWhole() {
+        let payload = Data(repeating: 0x41, count: 506)
+        let fragments = UdpLibraryFragmenter.split(
+            applicationPayload: payload,
+            maxPayloadBytes: 506
+        )
+        XCTAssertEqual(fragments.count, 1)
+        XCTAssertEqual(fragments[0].type, 9)
+        XCTAssertEqual(fragments[0].body, payload)
+        XCTAssertEqual(fragments[0].outstandingBytes, 506)
+    }
+
+    func testFragmenterReservesFourBytesInFirstFragment() {
+        let payload = Data(repeating: 0x42, count: 700)
+        let fragments = UdpLibraryFragmenter.split(
+            applicationPayload: payload,
+            maxPayloadBytes: 506
+        )
+        XCTAssertEqual(fragments.count, 2)
+        XCTAssertEqual(fragments[0].type, 13)
+        XCTAssertEqual(fragments[0].body.count, 506)
+        XCTAssertEqual(Array(fragments[0].body.prefix(4)), [0, 0, 0x02, 0xbc])
+        XCTAssertEqual(fragments[0].outstandingBytes, 502)
+        XCTAssertEqual(fragments[1].body.count, 198)
+        XCTAssertEqual(fragments[1].outstandingBytes, 198)
+        XCTAssertEqual(fragments.map(\.outstandingBytes).reduce(0, +), 700)
+    }
+
+    func testFragmenterEscapesLeadingZeroOnce() {
+        let payload = Data([0, 1, 2])
+        let fragments = UdpLibraryFragmenter.split(
+            applicationPayload: payload,
+            maxPayloadBytes: 506
+        )
+        XCTAssertEqual(fragments.count, 1)
+        XCTAssertEqual(Array(fragments[0].body.prefix(3)), [0, 0, 1])
+    }
+
+    func testEncodedFragmentsReassembleThroughSharedParser() throws {
+        let payload = Data((0..<700).map { UInt8(truncatingIfNeeded: $0) })
+        let fragments = UdpLibraryFragmenter.split(
+            applicationPayload: payload,
+            maxPayloadBytes: 506
+        )
+        XCTAssertEqual(fragments.count, 2)
+
+        var state = UdpLibraryReassemblyState()
+        var delivered: UdpLibraryPacket?
+        for (index, fragment) in fragments.enumerated() {
+            let wire = UdpLibrary.encodeFragment(
+                type: fragment.type,
+                reliableID: UInt16(index),
+                encryptCode: 0,
+                userSuppliedCompression: false,
+                body: fragment.body
+            )
+            let cooked = try UdpLibrary.cook(
+                wire,
+                encryptCode: 0,
+                userSuppliedCompression: false
+            )
+            for packet in UdpLibrary.parse(cooked, state: &state) {
+                if case .reliable = packet { delivered = packet }
+            }
+        }
+
+        guard case .reliable(_, _, let body, _) = delivered else {
+            return XCTFail("expected reassembled reliable packet")
+        }
+        var expected = payload
+        if expected.first == UdpLibrary.marker { expected.insert(UdpLibrary.marker, at: 0) }
+        XCTAssertEqual(body, expected)
+    }
+
+    func testBufferedAckReplacesEarliestSelectiveAckWithAckAll() throws {
+        var buffer = UdpLibraryBufferedAcks()
+        buffer.enqueue(type: 17, reliableID: 3, isAckAll: false)
+        buffer.enqueue(type: 17, reliableID: 5, isAckAll: false)
+        buffer.enqueue(type: 21, reliableID: 7, isAckAll: true)
+        XCTAssertEqual(buffer.cookedLength, 2 + 2 * 5)
+
+        let wire = try XCTUnwrap(buffer.flush(encryptCode: 0, userSuppliedCompression: false))
+        XCTAssertEqual(buffer.count, 0)
+        let cooked = try UdpLibrary.cook(
+            wire,
+            encryptCode: 0,
+            userSuppliedCompression: false
+        )
+        let packets = UdpLibrary.parse(cooked)
+        XCTAssertEqual(packets.count, 2)
+        guard case .ackAll(let firstType, let firstID) = packets[0] else {
+            return XCTFail("expected AckAll first")
+        }
+        guard case .ack(let secondType, let secondID) = packets[1] else {
+            return XCTFail("expected selective ACK second")
+        }
+        XCTAssertEqual(firstType, 21)
+        XCTAssertEqual(firstID, 7)
+        XCTAssertEqual(secondType, 17)
+        XCTAssertEqual(secondID, 5)
+    }
+
+    func testBufferedAckSingleEntryFlushesAsStandaloneFrame() throws {
+        var buffer = UdpLibraryBufferedAcks()
+        buffer.enqueue(type: 18, reliableID: 9, isAckAll: false)
+        let wire = try XCTUnwrap(buffer.flush(encryptCode: 0, userSuppliedCompression: true))
+        let cooked = try UdpLibrary.cook(
+            wire,
+            encryptCode: 0,
+            userSuppliedCompression: true
+        )
+        XCTAssertEqual(Array(cooked), [0, 18, 0, 9])
+    }
 }

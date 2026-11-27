@@ -355,10 +355,12 @@ struct UdpLibraryOutgoingReliableState {
             return Tick(resends: [], delay: resendDelay)
         }
 
-        let delay = resendDelay
-        let oldestResendTime = max(now >= delay ? now - delay : 0, lastAcknowledgedSend)
+        let optimalResendDelay = resendDelay
+        let oldestResendTime = max(
+            now >= optimalResendDelay ? now - optimalResendDelay : 0,
+            lastAcknowledgedSend
+        )
         var ready: [UInt64] = []
-        var windowSpaceLeft = limit
         var outstanding = 0
 
         for id in pendingID..<nextID {
@@ -366,11 +368,9 @@ struct UdpLibraryOutgoingReliableState {
             if entry.lastSend < oldestResendTime {
                 ready.append(id)
             } else {
-                windowSpaceLeft -= entry.length
                 outstanding += entry.length
             }
         }
-        maxxedOutCurrentWindow = outstanding >= limit
 
         var allowWindowReset = now >= windowResetTime
             ? now - windowResetTime > averagePing
@@ -415,11 +415,153 @@ struct UdpLibraryOutgoingReliableState {
             resends.append(Resend(id: UInt16(truncatingIfNeeded: id), channel: entry.channel))
         }
 
+        // C# sets `MaxxedOutCurrentWindow` after sending the ready queue; ACKs
+        // only grow the congestion window when that flag was true.
+        maxxedOutCurrentWindow = outstanding >= limit
+
+        // `GiveTime` returns the time until the next packet becomes due, not a
+        // fresh full resend delay. Entries skipped because the window is full
+        // already have a negative remaining time and request immediate work.
+        var delay = optimalResendDelay
+        for entry in entries.values {
+            let age = now >= entry.lastSend ? now - entry.lastSend : 0
+            delay = min(delay, age >= optimalResendDelay ? 0 : optimalResendDelay - age)
+        }
+
         return Tick(resends: resends, delay: delay, timedOut: timedOut)
     }
 
     var pendingStamps: [UInt16] {
         entries.keys.sorted().map { UInt16(truncatingIfNeeded: $0) }
+    }
+
+    /// Stamp assigned to the next physical frame. Callers must encode and call
+    /// `noteSent` before asking again so high-word reconstruction stays aligned.
+    var nextStamp: UInt16 { UInt16(truncatingIfNeeded: nextID) }
+}
+
+/// One physical reliable frame planned from a logical application packet.
+/// `outstandingBytes` is Sanctuary's `bytesToSend`: the four-byte fragment
+/// length header is part of the body but not of the congestion-window charge.
+struct UdpLibraryOutboundFragment: Equatable, Sendable {
+    let type: UInt8
+    let body: Data
+    let outstandingBytes: Int
+}
+
+/// Ports `UdpReliableChannel.PullDown` for a single logical packet: small
+/// packets stay whole, larger ones reserve four bytes in the first frame for
+/// the big-endian total length and then fill later frames completely.
+enum UdpLibraryFragmenter {
+    static func split(
+        applicationPayload: Data,
+        maxPayloadBytes: Int
+    ) -> [UdpLibraryOutboundFragment] {
+        var logical = applicationPayload
+        if logical.first == UdpLibrary.marker {
+            logical.insert(UdpLibrary.marker, at: 0)
+        }
+
+        if logical.count <= maxPayloadBytes {
+            return [UdpLibraryOutboundFragment(
+                type: UdpFrameType.reliable1.rawValue,
+                body: logical,
+                outstandingBytes: logical.count
+            )]
+        }
+        guard maxPayloadBytes > 4 else { return [] }
+
+        let total = UInt32(logical.count)
+        var first = Data([
+            UInt8(truncatingIfNeeded: total >> 24),
+            UInt8(truncatingIfNeeded: total >> 16),
+            UInt8(truncatingIfNeeded: total >> 8),
+            UInt8(truncatingIfNeeded: total)
+        ])
+        let firstChunkLength = maxPayloadBytes - 4
+        first.append(contentsOf: logical.prefix(firstChunkLength))
+        var result = [UdpLibraryOutboundFragment(
+            type: UdpFrameType.fragment1.rawValue,
+            body: first,
+            outstandingBytes: firstChunkLength
+        )]
+
+        var offset = firstChunkLength
+        while offset < logical.count {
+            let length = min(maxPayloadBytes, logical.count - offset)
+            result.append(UdpLibraryOutboundFragment(
+                type: UdpFrameType.fragment1.rawValue,
+                body: Data(logical[offset..<(offset + length)]),
+                outstandingBytes: length
+            ))
+            offset += length
+        }
+        return result
+    }
+}
+
+/// Cooked ACK frames waiting for Sanctuary's 50 ms Multi-buffer flush. C#
+/// keeps a pointer to the earliest buffered ACK and overwrites it with a later
+/// AckAll when deduping is enabled, so the cumulative ACK is processed before
+/// any selective ACKs already queued behind it.
+struct UdpLibraryBufferedAcks {
+    private var packets: [Data] = []
+    private var earliestAckIndex: Int?
+
+    var count: Int { packets.count }
+
+    /// Length of the cooked Multi datagram, excluding flag and CRC. An empty
+    /// buffer has no two-byte Multi header yet.
+    var cookedLength: Int {
+        guard !packets.isEmpty else { return 0 }
+        return 2 + packets.reduce(0) { $0 + 1 + $1.count }
+    }
+
+    mutating func enqueue(
+        type: UInt8,
+        reliableID: UInt16,
+        isAckAll: Bool,
+        deduping: Bool = true
+    ) {
+        let body = UdpLibrary.encodeAckBody(type: type, reliableID: reliableID)
+        if isAckAll, deduping, let index = earliestAckIndex {
+            packets[index] = body
+            return
+        }
+        if packets.isEmpty { earliestAckIndex = 0 }
+        packets.append(body)
+    }
+
+    mutating func flush(
+        encryptCode: UInt32,
+        userSuppliedCompression: Bool
+    ) -> Data? {
+        guard !packets.isEmpty else { return nil }
+        defer { reset() }
+
+        if packets.count == 1 {
+            return UdpLibrary.encodePhysical(
+                cookedBody: packets[0],
+                encryptCode: encryptCode,
+                userSuppliedCompression: userSuppliedCompression
+            )
+        }
+
+        var cooked = Data([UdpLibrary.marker, 3])
+        for packet in packets {
+            cooked.append(UInt8(truncatingIfNeeded: packet.count))
+            cooked.append(contentsOf: packet)
+        }
+        return UdpLibrary.encodePhysical(
+            cookedBody: cooked,
+            encryptCode: encryptCode,
+            userSuppliedCompression: userSuppliedCompression
+        )
+    }
+
+    mutating func reset() {
+        packets.removeAll()
+        earliestAckIndex = nil
     }
 }
 
@@ -533,8 +675,9 @@ enum UdpLibrary {
     }
 
     /// Build a reliable frame exactly as `UdpConnection.PhysicalSend` does.
-    /// `GatewayConnection.EncryptUserSupplied` prepends its flag to everything
-    /// after the two-byte internal header, so the flag precedes the reliable id.
+    /// `UdpConnection.Send` prepends a zero-escape byte when an application
+    /// packet starts with zero; this helper applies that boundary for whole
+    /// logical packets. Fragment planners apply it before splitting instead.
     static func encodeReliable(
         type: UInt8,
         reliableID: UInt16,
@@ -542,22 +685,83 @@ enum UdpLibrary {
         userSuppliedCompression: Bool,
         payload: Data
     ) -> Data {
+        var body = payload
+        if body.first == marker {
+            body.insert(marker, at: 0)
+        }
+        return encodeReliableBody(
+            type: type,
+            reliableID: reliableID,
+            encryptCode: encryptCode,
+            userSuppliedCompression: userSuppliedCompression,
+            body: body
+        )
+    }
+
+    /// Encodes an already prepared logical body. This is used for fragments,
+    /// whose four-byte total-length header must not receive a second escape.
+    static func encodeReliableBody(
+        type: UInt8,
+        reliableID: UInt16,
+        encryptCode: UInt32,
+        userSuppliedCompression: Bool,
+        body: Data
+    ) -> Data {
         var data = Data([marker, type])
         if userSuppliedCompression {
             data.append(0) // raw; this client never compresses outbound packets
         }
         data.append(UInt8(truncatingIfNeeded: reliableID >> 8))
         data.append(UInt8(truncatingIfNeeded: reliableID))
-
-        let payloadBytes = Array(payload)
-        if payloadBytes.first == marker {
-            data.append(marker)
-        }
-        data.append(contentsOf: payloadBytes)
+        data.append(contentsOf: body)
 
         let crc = UInt16(truncatingIfNeeded: CRC32.checksum(data, encryptCode: encryptCode))
         data.append(UInt8(truncatingIfNeeded: crc >> 8))
         data.append(UInt8(truncatingIfNeeded: crc))
+        return data
+    }
+
+    /// `UdpReliableChannel` uses Fragment1-4 for the same four channels as
+    /// Reliable1-4. The first fragment's body includes the big-endian total
+    /// logical length before its chunk.
+    static func encodeFragment(
+        type: UInt8,
+        reliableID: UInt16,
+        encryptCode: UInt32,
+        userSuppliedCompression: Bool,
+        body: Data
+    ) -> Data {
+        encodeReliableBody(
+            type: type,
+            reliableID: reliableID,
+            encryptCode: encryptCode,
+            userSuppliedCompression: userSuppliedCompression,
+            body: body
+        )
+    }
+
+    /// Cooked four-byte ACK body from `UdpReliableChannel`: marker, Ack type,
+    /// big-endian reliable id. This is also the Multi subpacket representation.
+    static func encodeAckBody(type: UInt8, reliableID: UInt16) -> Data {
+        var data = Data([marker, type])
+        appendBE16(reliableID, to: &data)
+        return data
+    }
+
+    /// Applies the negotiated user-supplied flag and CRC to an already cooked
+    /// internal datagram. `BufferedSend`/`PhysicalSend` do this once for the
+    /// whole Multi container, not once per buffered ACK.
+    static func encodePhysical(
+        cookedBody: Data,
+        encryptCode: UInt32,
+        userSuppliedCompression: Bool
+    ) -> Data {
+        var data = cookedBody
+        if userSuppliedCompression {
+            data.insert(0, at: 2) // raw; this client never compresses outbound packets
+        }
+        let crc = UInt16(truncatingIfNeeded: CRC32.checksum(data, encryptCode: encryptCode))
+        appendBE16(crc, to: &data)
         return data
     }
 
@@ -570,14 +774,11 @@ enum UdpLibrary {
         encryptCode: UInt32,
         userSuppliedCompression: Bool
     ) -> Data {
-        var data = Data([marker, type])
-        if userSuppliedCompression {
-            data.append(0) // raw; this client never compresses outbound packets
-        }
-        appendBE16(reliableID, to: &data)
-        let crc = UInt16(truncatingIfNeeded: CRC32.checksum(data, encryptCode: encryptCode))
-        appendBE16(crc, to: &data)
-        return data
+        encodePhysical(
+            cookedBody: encodeAckBody(type: type, reliableID: reliableID),
+            encryptCode: encryptCode,
+            userSuppliedCompression: userSuppliedCompression
+        )
     }
 
     /// Build the two-byte `KeepAlive` internal frame. Sanctuary still applies

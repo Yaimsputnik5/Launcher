@@ -1714,10 +1714,47 @@ struct GatewaySession {
 
     /// World/gameplay packets use the secure wrapper after a successful login.
     mutating func send(packet: Data, nonceSuffix: Data? = nil) throws -> Data {
-        guard state == .authenticated else {
+        let body = try wrapPayload(packet, secure: true, nonceSuffix: nonceSuffix)
+        return makeFrame(body: body, reliableID: allocateReliableID())
+    }
+
+    /// Wraps one logical application packet once. Callers that fragment at the
+    /// UdpLibrary layer wrap here first, then encode each chunk with a
+    /// transport-owned stamp so every fragment gets its own ACK.
+    mutating func wrapPayload(
+        _ packet: Data,
+        secure: Bool,
+        nonceSuffix: Data? = nil
+    ) throws -> Data {
+        guard !secure || state == .authenticated else {
             throw GatewayProtocolError.invalidState(expected: "authenticated", actual: "\(state)")
         }
-        return try makeFrame(packet: packet, secure: true, nonceSuffix: nonceSuffix)
+        guard secure else { return packet }
+        guard var active = cipher else { throw GatewayProtocolError.cipherNotInitialized }
+        let body = try GatewayPayloadCodec.wrapSecure(
+            packet,
+            cipher: &active,
+            nonceSuffix: nonceSuffix
+        )
+        cipher = active
+        return body
+    }
+
+    func makeFrame(body: Data, reliableID: UInt16) -> Data {
+        GatewayFrameCodec.encode(
+            GatewayFrame(
+                reliableID: reliableID,
+                compressionEnabled: compressionEnabled,
+                payload: body
+            ),
+            encryptCode: encryptCode
+        )
+    }
+
+    private mutating func allocateReliableID() -> UInt16 {
+        let id = outgoingReliableID
+        outgoingReliableID = outgoingReliableID &+ 1
+        return id
     }
 
     mutating func send<Message: GatewayMessage>(_ message: Message, nonceSuffix: Data? = nil) throws -> Data {
@@ -1725,26 +1762,14 @@ struct GatewaySession {
     }
 
     mutating func makeFrame(packet: Data, secure: Bool, nonceSuffix: Data? = nil) throws -> Data {
-        var body = packet
-        if secure {
-            guard var active = cipher else { throw GatewayProtocolError.cipherNotInitialized }
-            body = try GatewayPayloadCodec.wrapSecure(body, cipher: &active, nonceSuffix: nonceSuffix)
-            cipher = active
-        }
+        let body = try wrapPayload(packet, secure: secure, nonceSuffix: nonceSuffix)
 
         // Sanctuary's UdpReliableChannel initializes ReliableIncomingId to 0
         // and only delivers a packet whose stamp equals the next expected id.
         // The very first gateway frame therefore has to use id 0; using 1
         // makes the server ACK the datagram but buffer it forever, which
         // presents as a login handshake timeout.
-        let reliableID = outgoingReliableID
-        outgoingReliableID = outgoingReliableID &+ 1
-        let frame = GatewayFrame(
-            reliableID: reliableID,
-            compressionEnabled: compressionEnabled,
-            payload: body
-        )
-        return GatewayFrameCodec.encode(frame, encryptCode: encryptCode)
+        return makeFrame(body: body, reliableID: allocateReliableID())
     }
 
     /// Feed a physical frame; errors are reported as events rather than thrown
