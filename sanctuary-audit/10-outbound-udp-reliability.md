@@ -80,15 +80,19 @@ first-send RTT sampling, ACKs of resent packets, cumulative-ACK penalty, channel
 routing, AckAll prefix release, wrap-around ids, the unacknowledged timeout,
 remaining-delay scheduling, 506-byte fragmentation boundaries, BE32 first-fragment
 headers, zero-escape placement, parser reassembly, ACK deduping and Multi wire
-layout. The full Foundation suite is 156 tests with one iOS-Compression-only skip.
+layout. The full Foundation suite is 206 tests with one iOS-Compression-only skip.
 
-This is still not a literal whole-library port:
+The earlier "not implemented" list below is historical. The current
+`ios/Launcher/Services/UdpLibraryTransport.swift` includes a Group codec and
+coalescer, CRC widths 0–4, five encryption methods (`None`, `UserSupplied`,
+`UserSupplied2`, `XorBuffer`, `Xor`), 64-bit reliable-ID reconstruction,
+per-channel ordering/reassembly, outgoing congestion/RTT state, a fragmenter, a
+shared Multi buffer, cooking/crypto and inflate. It is still not a literal
+whole-library port:
 
-- Group coalescing of multiple application packets into one logical packet is
-  not implemented; each application packet is fragmented independently.
-- Xor/XorBuffer encryption passes are rejected by the sessions; only `None` and
-  the gateway's negotiated user-supplied flag are supported.
-- The ACK buffer is flushed before new reliable data rather than sharing that
-  data's Multi datagram, which remains wire-valid but is a stricter ordering
-  approximation of `BufferedSend`.
-- Actual timing behavior against a live server still requires device testing.
+- Live timing against the real server has not been verified from this host;
+  congestion-window and resend timings remain source-derived approximations.
+- Many application-level opcode serializers and sub-opcodes remain unknown or
+  unimplemented; transport parity does not imply world-view parity.
+- `BufferedSend` scheduling details and exact datagram coalescing decisions have
+  not been proven against a live capture beyond the covered tests.

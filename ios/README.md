@@ -13,7 +13,8 @@ Supported:
 - Sign in/register against the server web API and complete a native Sanctuary `LoginUdp_6` game-session handshake.
 - Remember usernames and passwords using the iOS Keychain.
 - Persist settings and server metadata as JSON in the app sandbox.
-- Allow custom HTTP servers via App Transport Security (HTTPS is still recommended).
+- Add non-loopback HTTP servers only after an explicit warning and confirmation;
+  account credentials are accepted and stored only for HTTPS or loopback servers.
 
 In progress toward full parity:
 
@@ -27,7 +28,7 @@ In progress toward full parity:
 - A native in-process engine (`OSFREngine`) owns fixed-step advancement, input, an entity registry, an orthographic camera and a layered scene graph. `MetalWorldView` renders engine frames with a Metal pipeline; no Windows executable, Wine, DirectX, or process execution is used.
 - Native TGA/DDS decoders read the original client textures from `.tga`, `.dds`, `.pack` and `.rcc` sources, and the engine asset pipeline caches decoded textures by manifest-relative path.
 - Native Login UDP authentication performs the complete WebAPI → session → character select → character login flow, and a native gateway UDP transport opens the real `CGAPI_527` connection with the server-supplied ticket, GUID and AES-CCM session. Gateway reliable IDs start at zero, matching `UdpReliableChannel.ReliableIncomingId`; earlier builds acknowledged but never delivered `PacketLogin` and timed out during Join World. The documented client hello sends locale through `PacketTunneledClientWorldPacket` and initialization/finished/ready through `PacketTunneledClientPacket`, matching Sanctuary's handler routing. Continuous gameplay/world packets beyond that hello are not yet simulated.
-- Foundation-only protocol, resource, container, image, gateway, world-simulation, local-session and engine layers have Linux XCTest coverage (105 tests).
+- Foundation-only protocol, resource, container, image, gateway, world-simulation, local-session and engine layers have Linux XCTest coverage (206 tests, 1 skipped).
 
 Not supported on iOS:
 
@@ -102,7 +103,7 @@ quickest way to diagnose a failed macOS build.
 | Embedded client payload | `Launcher.app/ClientAssets/...` (build-time only, ignored by git) |
 | Embedded Sanctuary data | `Launcher.app/SanctuaryResources/...` (build-time only, ignored by git) |
 | Remembered passwords | iOS Keychain, service `<bundle-id>.passwords`, account = server UUID |
-| Logs | No file logging yet; use Xcode console/Console.app |
+| Logs | `Application Support/OSFRLauncher/Logs/` (rotating, 2 MiB × 4 files) |
 
 Files are shared through the Files app because `UIFileSharingEnabled` is set.
 
@@ -151,22 +152,21 @@ A real unsigned IPA with the full all-in-one UI, the embedded original client
 payload, and the Sanctuary server data was compiled on a free GitHub Actions
 macOS runner:
 
-- Workflow run: <https://github.com/YaimSputnik5/Launcher/actions/runs/45873638348>
-- Built commit: `9883ac8d44f0d9f3f372b2430f0fe53709846906`
+- Workflow run: <https://github.com/YaimSputnik5/Launcher/actions/runs/46050119557>
+- Built commit: `da9e20e6d6fc6366e1b40457ed391c0ab0af8b51`
 - Release: <https://github.com/YaimSputnik5/Launcher/releases/tag/ios-ipa>
-- Local artifact: `ios/Launcher.ipa` (374,906,714 bytes)
-- SHA-256: `db6c3e5bba5dfed11efdd6cf921b81fb8915dea321fb251417d1608a9f8bd06d`
+- Local artifact: `ios/Launcher.ipa` (375,200,457 bytes)
+- SHA-256: `6b853be4f83cc4a104293e3e8acbfa8dacaca652d0c04e52ee8543db6dc2a943`
 
-Both the IPA build and the release-publishing steps succeeded. An earlier run
-built the IPA successfully but failed while deleting/recreating the release;
-publishing now uploads assets idempotently with `gh release upload --clobber`.
-The checksum above was read from the GitHub release asset digest and was verified
-against a fully downloaded copy before being recorded here.
+Both the IPA build and the release-publishing steps succeeded. The checksum above
+was read from the GitHub release asset digest and verified against a fully
+downloaded copy: `unzip -t` reported no errors, the executable begins with the
+arm64 Mach-O magic `cffaedfe`, and `Info.plist` reports bundle ID
+`dev.opensourcefreerealms.launcher`, display name `OSFR Launcher`, version
+`1.0.0` (`1`), and `MinimumOSVersion` `17.0`.
 
-The archive contains an arm64 `Mach-O` executable and an `Info.plist` with
-bundle ID `dev.opensourcefreerealms.launcher`, display name `OSFR Launcher`,
-version `1.0.0` (`1`), and `MinimumOSVersion` `17.0`. It embeds 1,788 client
-files (893,405,496 bytes) and 101 Sanctuary files (75,740,078 bytes from commit
+The embedded payload index lists 1,788 client files (893,405,496 bytes) and the
+Sanctuary manifest lists 101 files (75,740,078 bytes from commit
 `f5240b7554f2a80d6b815cb7ead7ffee12499565`). It was built with
 `CODE_SIGNING_ALLOWED=NO`, so AltStore/SideStore must apply your signature.
 The app has not been launched on a physical device from this Linux host; that
@@ -178,8 +178,8 @@ Foundation-only logic is verified locally:
 swift test --package-path ios
 ```
 
-The 105 tests cover XXH64, URL/path safety, manifest v1/v2 and case-insensitive
-manifest locales, embedded-payload manifest matching, packet primitives,
+The 206 tests (1 skipped) cover XXH64, URL/path safety, manifest v1/v2 and
+case-insensitive manifest locales, embedded-payload manifest matching, packet primitives,
 CRC32, RC4, GUID layout, WebAPI login response decoding, login framing/messages,
 gateway AES-CCM, opcode codecs and reliable-ID sequencing, `.pack`/`.rcc`
 parsing, TGA/DDS decoding, Sanctuary resource schemas, zone/collection/quest
@@ -187,3 +187,30 @@ simulation, offline account/character persistence, host setting application,
 world gating, fixed-step engine advancement, input events, camera projection,
 entity registration and scene layering.
 SwiftUI and iOS framework code can only be compiled by the macOS workflow.
+
+## Device-side verification checklist
+
+No physical iOS device is available on the build host. Please test the published
+IPA on your own device with AltStore or SideStore and report results with the
+IPA SHA-256, iOS version, device model, and exact steps. Never send account
+credentials.
+
+1. **Launcher**: add/refresh the public server, confirm UDP status, download or
+   verify the client payload, and watch progress/resume after backgrounding.
+   Backgrounding during a download should show `Cannot close the launcher while
+   downloading.` and the stable `.part` file should resume on next launch.
+2. **Join Server**: sign in with your own account on an HTTPS server; confirm
+   WebAPI → session → character select → character login → gateway join. Before
+   join succeeds, **World** must do nothing. After join, **World** must show only
+   decoded packet-derived state, with no offline/static art injected.
+3. **Play Offline**: start an offline game, then confirm the World tab activates.
+   Change starting zone, profile name, player name, unlock-all-profile,
+   unlock-all-titles and unlock-all-tiles; restart and verify each setting is
+   still persisted and consumed by the simulation. Confirm unlock-all-tiles
+   changes walkability and click-to-move follows pathfinding waypoints.
+4. **Diagnostics**: confirm logs are present and shareable, with no credentials
+   or request bodies in log lines.
+5. **Limits**: note any missing art, sparse minimap tiles, visual differences,
+   timing stalls, disconnects or unexpected world data. These are expected gaps
+   until the compiled-client and live-session reconstruction is complete; do not
+   describe them as 1:1 parity.

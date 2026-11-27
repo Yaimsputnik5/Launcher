@@ -229,9 +229,12 @@ run is not treated as proof.
 Script: `/tmp/opencode/rea-build/ghidra-scripts/DumpFreeRealmsEvidence.java`.
 Logs: `/tmp/opencode/rea-build/ghidra-freerealms-6g.log` (10-minute run,
 terminated before its post-script), `/tmp/opencode/rea-build/ghidra-freerealms-8g.log`
-(project-directory failure), `/tmp/opencode/rea-build/ghidra-freerealms-5m.log`
-(300-second analysis timeout) and
-`/tmp/opencode/rea-build/ghidra-freerealms-evidence.log` (post-script output).
+(analysis succeeded in 768 seconds and its post-script produced xrefs and
+decompilations), `/tmp/opencode/rea-build/ghidra-freerealms-5m.log` (300-second
+analysis timeout) and `/tmp/opencode/rea-build/ghidra-freerealms-evidence.log`
+(the earlier timed-out run's post-script output, with zero references). Later
+read-only logs: `/tmp/opencode/rea-build/ghidra-startup-callee2.log` and
+`/tmp/opencode/rea-build/ghidra-startup-vtable.log`.
 
 The completed Ghidra post-script emitted real program facts:
 
@@ -240,20 +243,30 @@ The completed Ghidra post-script emitted real program facts:
 | Program | `FreeRealms.exe` |
 | Language / compiler | x86 32-bit PE / `windows` |
 | Image base | `0x00400000` |
-| Discovered functions | 134,650 |
+| Discovered functions (300 s run) | 134,650 |
+| Discovered functions (768 s run) | 153,421 |
 | `.text` | `0x00401000`–`0x0174ffff`, R-X |
 | `.rdata` | `0x01751000`–`0x01af1fff`, R-- |
 | `.data` | `0x01af2000`–`0x01cc0fff`, RW- |
 
 The first evidence-script compile failed on `MemoryBlock.getPermissions()`, which
 does not exist in Ghidra 12.2; it was corrected to explicit read/write/execute
-checks. The rerun emitted all target addresses but `TARGET_REF_COUNT` was `0`
-for every string because auto-analysis timed out at 300 seconds before reference
-creation finished. These runs therefore establish binary layout, function
-discovery and string addresses, but they are **not** proof of xref semantics or
-decompiled behavior. The `StartingZone`, `ProfileName`, `PlayerName`, `Coins`,
-`StationCash`, `Locale`, `SessionId` and `Server` identifiers remain observed
-strings; their exact use in the shipped client remains unresolved.
+checks. The 300-second rerun emitted target addresses but `TARGET_REF_COUNT` was
+`0` for every string because analysis timed out before reference creation. A
+later 8-minute run completed analysis and produced real references. It reported
+`FUNCTION_COUNT 153421`, `.text 0x00401000-0x0174ffff`, `.rdata
+0x01751000-0x01af1fff`, `.data 0x01af2000-0x01cc0fff`, plus the BINK, TLS,
+rwdata, resource and TDB blocks shown in the log. Nonzero target reference
+counts include `StartingZone` (3), `HUD:SetIsInStartingZone` (1), `ProfileName`
+(1), `ProfileId` (5), `PlayerName` (7), `Coins` (6), `StationCash` (4), `Locale`
+(3), `SessionId` (1), `Server` (5) and `TileLngLat` (1).
+`ClientStartingZoneLoader` and `ZoneIdLocation` still have zero references.
+Decompiled xrefs include `FUN_0090e8a0` choosing the string `"StartingZone"`
+for parameter value 3, `FUN_009fad80` referencing `ProfileName` and `PlayerName`,
+`FUN_00cbfd20` referencing `Coins` and `StationCash`, and `FUN_00403340`
+referencing `SessionId` and `Server`. These observations establish string/data
+use in specific native functions; they do **not** prove a complete setting map,
+a full argument parser, or line-for-line equivalence with the C# launcher.
 
 A second targeted `strings -a -n 6` pass over the same SHA-256 confirmed that
 the native client links its own `UdpLibrary` implementation. Relevant diagnostic
@@ -264,8 +277,8 @@ and RTTI strings include `ReliablePing=%dms  ZonePing=%dms`,
 `.?AVGroupLogicalPacket@UdpLibrary@@`. These corroborate that the shipped client
 tracks separate current/pending outbound reliable IDs and group logical packets,
 matching the field names in Sanctuary's C# `UdpReliableChannel`. They are string
-observations only; the exact native control flow was not recovered because
-auto-analysis timed out before references were created.
+observations only; the exact native UdpLibrary control flow was not recovered in
+these targeted runs.
 
 ### Entry point and direct calls
 
@@ -273,7 +286,7 @@ A follow-up read-only Ghidra 12.2 script, `DumpEntryPointEvidence.java`, loaded
 the already analyzed project with `-noanalysis -readonly`. It resolved a real
 PE entry symbol and decompiled it; the complete output is
 `/tmp/opencode/rea-build/ghidra-entrypoint3.log`. This is targeted evidence,
-not a full decompilation of all 134,650 discovered functions.
+not a full decompilation of all discovered functions.
 
 | Fact | Observation |
 |---|---|
@@ -290,19 +303,30 @@ not a full decompilation of all 134,650 discovered functions.
 `GetStartupInfoA`, `GetProcessHeap`, `HeapAlloc`, `GetVersionExA`, and
 `HeapFree` before entering the application. Its decompiled tail stores
 `GetCommandLineA()` in `_DAT_01cc00c8` and calls
-`FUN_00403340(0x400000, 0, commandLine, uVar4)`; this establishes where the
-process command line enters the startup path, but the direct-callee evidence
-does not decompile `FUN_00403340`, so no application-level argument parser or
-argument-to-setting mapping was proven. The other direct entry-point callee,
-`FUN_00d95820`, decompiles as MSVC runtime random-seed initialization: it reads
-`GetSystemTimeAsFileTime`, `GetCurrentProcessId`, `GetCurrentThreadId`,
+`FUN_00403340(0x400000, 0, commandLine, uVar4)`. The other direct entry-point
+callee, `FUN_00d95820`, decompiles as MSVC runtime random-seed initialization:
+it reads `GetSystemTimeAsFileTime`, `GetCurrentProcessId`, `GetCurrentThreadId`,
 `GetTickCount` and `QueryPerformanceCounter`, XORs them into `_DAT_01b839d8`,
 and writes the bitwise complement to `_DAT_01b839dc`. The import table includes
 the expected Win32 and GFx/Scaleform surface (for example `GetStartupInfoA`,
-`GetVersionExA`, `RenderMovie`, and `TCGetGuiGfxParam`). `SessionId=`,
-`Internationalization:Locale=`, `FabledRealms`, `UDPLibrary` and `LoginApiUrl`
-were not found as contiguous `.rdata` strings, while the launch argument names
-that are present have no code references in the partially analyzed project.
+`GetVersionExA`, `RenderMovie`, and `TCGetGuiGfxParam`).
+
+`FUN_00403340` was subsequently decompiled in both
+`ghidra-freerealms-8g.log` and `ghidra-startup-callee2.log`. It loads a config
+file and, on failure, calls
+`wprintf("Failed to load the config file \"%s\".  Please specify a valid ini
+file.\n")` then `_exit(-1)`. It builds an eight-slot object through
+`FUN_00401040` and dispatches through vtable offsets `0x48`, `0x44`, `0x4c`,
+`0x50`, `0x34` and `0x60`. Data references place `SessionId` at `0x004036bd`
+and `Server` at `0x00403609` inside this function; the 8-minute run also found
+`Server` references in `FUN_00fa94b0`, `FUN_00fa8880`, `FUN_00fa75e0` and
+`FUN_00fa4490`. A vtable dump (`ghidra-startup-vtable.log`) resolved the eight
+pointer values, but only `0x008f13c0` was recognized as a function in the
+read-only project; the other targets remain unnamed thunks/data in that
+project. Therefore the command line's entry path and several string uses are
+proven, but a complete native argument parser or argument-to-setting mapping is
+still not proven. `SessionId=`, `Internationalization:Locale=`, `FabledRealms`,
+`UDPLibrary` and `LoginApiUrl` were not found as contiguous `.rdata` strings.
 The iOS launch-argument parser remains source-backed by Sanctuary/README, not a
 claim of decompiled native equivalence.
 

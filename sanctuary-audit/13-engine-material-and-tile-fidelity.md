@@ -51,7 +51,12 @@ records what is still unresolved. No literal 1:1 engine claim is made here.
 - Minimap atlas rendering is **offline-only**. Remote sessions remain
   packet-only: zone selection comes from `PacketSendZoneDetails`, and entity
   markers require decoded position/spawn packets. Static client map art is not
-  injected into a remote world view.
+  injected into a remote world view. `GamePlayerView.attachRemote` now waits for
+  a server zone packet instead of defaulting to a local zone name; the packet
+  map does not attach until the server zone resolves through the Sanctuary zone
+  catalog. The projected world grid still uses the real Sanctuary zone resource
+  selected by that packet; no offline player, NPC, collection node or texture
+  path is carried into the remote frame.
 
 ## Known fidelity gaps
 

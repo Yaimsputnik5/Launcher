@@ -76,21 +76,23 @@ The authoritative source is `/tmp/opencode/sanctuary/src` at commit
 
 ## Remaining protocol gaps
 
-These are not claimed as fixed:
+The "not implemented" list below is historical; it described an earlier
+transport. The current `ios/Launcher/Services/UdpLibraryTransport.swift` has
+per-channel reliable state with congestion/RTT tracking, CRC widths 0–4, five
+encryption methods, 64-bit ID reconstruction, a fragmenter, Group codec and
+coalescer, shared Multi buffering, cooking/crypto and inflate. These remain
+unresolved:
 
-- C# keeps four windowed reliable channels with congestion control and
-  per-channel fragment state
-  (`Internal/UdpReliableChannel.cs:21-46,111-146,340-369,376-680,704-786,800-865`).
-  Swift now mirrors the inbound ordering/acknowledgement logic but still uses
-  simpler flat outbound retransmission bookkeeping and no congestion window.
-- C# negotiates and applies `MaxRawPacketSize`, CRC width, and two encryption
-  passes; Swift logs the gateway confirm but uses fixed sizes and CRC width.
-- C# can negotiate user-supplied compression on login; Swift hardcodes login
-  compression off and never compresses outbound packets.
+- Live timing, congestion behavior and long-session stability against the real
+  server have not been verified from this host.
+- Full opcode/sub-opcode serializer coverage is incomplete; unknown fields are
+  not invented.
+- GCNK decoding provides object records and labels, not reconstructed collision,
+  animation, interaction or gameplay semantics.
 
 ## Verification
 
-- Linux foundation tests: `swift test --package-path ios` — 136 tests, 0 failures.
+- Linux foundation tests: `swift test --package-path ios` — 206 tests, 1 skipped.
 - New tests cover the GCNK record layout, bad magic/version rejection,
   zero-length Multi entries, the non-encrypted type map, the optional
   17-byte confirm form, the negotiated keepalive frame, AckAll numbering, and

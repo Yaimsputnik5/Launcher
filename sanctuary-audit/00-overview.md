@@ -71,6 +71,11 @@ A Foundation-only SwiftPM target in `ios/Package.swift` now runs 8 unit tests on
 Linux covering XXH64, URL/path helpers, manifest parsing, and path traversal
 rejection. SwiftUI/iOS builds still use the macOS GitHub Actions runner.
 
+Test counts and implementation status inside individual numbered reports are
+historical snapshots of when each report was written. The current Foundation
+suite is 206 tests with 1 skipped and 0 failures; current source and the latest
+CI build are authoritative over older gap lists.
+
 ## Completed audit reports
 
 - `01-client-bootstrap-and-ci.md`

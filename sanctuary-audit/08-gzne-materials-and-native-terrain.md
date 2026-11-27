@@ -73,7 +73,8 @@ satisfies this exact formula for all 1,920 entries:
 The observed chunk origins are longitude `-32..56` and latitude `-48..24`, in
 steps of 8 (12 × 10 chunks, each 4 × 4 tiles). This is a verified mapping for
 minimap tile placement; it is not a reconstruction of terrain height or
-collision.
+collision. The native atlas implementation, its 16 available DDS entries, and
+its remaining limits are recorded in `13-engine-material-and-tile-fidelity.md`.
 
 ## Remaining unknowns
 
