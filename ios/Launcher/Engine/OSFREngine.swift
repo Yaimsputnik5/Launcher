@@ -56,6 +56,7 @@ struct EngineRect: Equatable, Sendable {
 
 enum EngineDrawableKind: String, Equatable, Sendable {
     case tile
+    case clientTexture
     case pointOfInterest
     case collection
     case npc
@@ -72,6 +73,28 @@ struct EngineDrawable: Equatable, Identifiable, Sendable {
     let outline: EngineColor?
     let label: String
     let layer: Int
+    /// Key into `EngineFrame.textures`. Nil means the renderer uses flat color.
+    let textureName: String?
+
+    init(
+        id: UInt64,
+        kind: EngineDrawableKind,
+        rect: EngineRect,
+        color: EngineColor,
+        outline: EngineColor?,
+        label: String,
+        layer: Int,
+        textureName: String? = nil
+    ) {
+        self.id = id
+        self.kind = kind
+        self.rect = rect
+        self.color = color
+        self.outline = outline
+        self.label = label
+        self.layer = layer
+        self.textureName = textureName
+    }
 }
 
 ///正交 camera for the atlas-style zone view. Zoom is anchored at `center`.
@@ -106,6 +129,30 @@ struct EngineFrame: Equatable, Sendable {
     let drawables: [EngineDrawable]
     let movementTick: Int
     let secondTick: Int
+    /// Decoded RGBA8 images referenced by `EngineDrawable.textureName`.
+    let textures: [String: DecodedImage]
+    /// Human-readable status of the first client texture load, if attempted.
+    let textureStatus: String?
+
+    init(
+        zoneID: Int,
+        zoneName: String,
+        camera: EngineCamera,
+        drawables: [EngineDrawable],
+        movementTick: Int,
+        secondTick: Int,
+        textures: [String: DecodedImage] = [:],
+        textureStatus: String? = nil
+    ) {
+        self.zoneID = zoneID
+        self.zoneName = zoneName
+        self.camera = camera
+        self.drawables = drawables
+        self.movementTick = movementTick
+        self.secondTick = secondTick
+        self.textures = textures
+        self.textureStatus = textureStatus
+    }
 
     var drawableCount: Int { drawables.count }
 }
@@ -285,6 +332,7 @@ final class EngineAssetPipeline {
     func clearCache() { cache.removeAll() }
 
     var cachedCount: Int { cache.count }
+    var cachedImages: [String: DecodedImage] { cache }
 }
 
 // MARK: - Engine
@@ -295,20 +343,29 @@ final class OSFREngine {
     let simulation: WorldSimulation
     let entityRegistry = EngineEntityRegistry()
     let sceneGraph = EngineSceneGraph()
-    let assetPipeline = EngineAssetPipeline()
+    let assetPipeline: EngineAssetPipeline
 
     private(set) var camera: EngineCamera
     private(set) var frame: EngineFrame
+    private let terrainTexturePath: String?
+    private var terrainTextureStatus: String?
     private var destination: ZoneVector?
     private var lastAdvance: Date?
     private var accumulator: TimeInterval = 0
 
-    init(simulation: WorldSimulation) {
+    init(
+        simulation: WorldSimulation,
+        assetPipeline: EngineAssetPipeline? = nil,
+        terrainTexturePath: String? = nil
+    ) {
         self.simulation = simulation
+        self.assetPipeline = assetPipeline ?? EngineAssetPipeline()
         let snapshot = simulation.snapshot
         let unit = simulation.worldMap.unitPosition(for: Self.vector(snapshot.player)).map(EnginePoint.init)
             ?? EnginePoint(x: 0.5, y: 0.5)
         self.camera = EngineCamera(center: unit, zoom: 1)
+        self.terrainTexturePath = terrainTexturePath
+            ?? ClientTextureCatalog.texturePath(forZoneName: snapshot.zoneName)
         self.frame = EngineFrame(
             zoneID: snapshot.zoneID,
             zoneName: snapshot.zoneName,
@@ -317,7 +374,18 @@ final class OSFREngine {
             movementTick: snapshot.movementTicks,
             secondTick: snapshot.secondTicks
         )
+        loadTerrainTextureIfAvailable()
         rebuildScene()
+    }
+
+    private func loadTerrainTextureIfAvailable() {
+        guard let terrainTexturePath else { return }
+        do {
+            let image = try assetPipeline.image(relativePath: terrainTexturePath)
+            terrainTextureStatus = "Embedded client DDS \(image.width)x\(image.height): \(terrainTexturePath)"
+        } catch {
+            terrainTextureStatus = "Client texture unavailable: \(error.localizedDescription)"
+        }
     }
 
     // MARK: Input
@@ -509,6 +577,21 @@ final class OSFREngine {
                 layer: 5
             ))
         }
+        if let terrainTexturePath,
+           assetPipeline.cachedImage(relativePath: terrainTexturePath) != nil {
+            // A real, decoded client minimap tile. It is inserted as a HUD-size
+            // panel rather than pretending to be the whole reconstructed zone.
+            overlays.append(EngineDrawable(
+                id: UInt64.max - 2,
+                kind: .clientTexture,
+                rect: EngineRect(x: 0.72, y: 0.03, width: 0.25, height: 0.25),
+                color: EngineColor(r: 1, g: 1, b: 1, a: 1),
+                outline: EngineColor(r: 0.85, g: 0.85, b: 0.9, a: 1),
+                label: "Client texture: \(terrainTexturePath)",
+                layer: 6,
+                textureName: terrainTexturePath
+            ))
+        }
 
         sceneGraph.rebuild(terrain: terrain, entities: entities, overlays: overlays)
         let projected = sceneGraph.flattenedDrawables.map { drawable in
@@ -519,7 +602,8 @@ final class OSFREngine {
                 color: drawable.color,
                 outline: drawable.outline,
                 label: drawable.label,
-                layer: drawable.layer
+                layer: drawable.layer,
+                textureName: drawable.textureName
             )
         }
         frame = EngineFrame(
@@ -528,7 +612,9 @@ final class OSFREngine {
             camera: camera,
             drawables: projected,
             movementTick: snapshot.movementTicks,
-            secondTick: snapshot.secondTicks
+            secondTick: snapshot.secondTicks,
+            textures: assetPipeline.cachedImages,
+            textureStatus: terrainTextureStatus
         )
     }
 

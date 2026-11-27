@@ -40,6 +40,68 @@ final class EngineTests: XCTestCase {
         try text.write(to: url, atomically: true, encoding: .utf8)
     }
 
+    private func le32(_ value: UInt32) -> Data {
+        Data([
+            UInt8(truncatingIfNeeded: value),
+            UInt8(truncatingIfNeeded: value >> 8),
+            UInt8(truncatingIfNeeded: value >> 16),
+            UInt8(truncatingIfNeeded: value >> 24)
+        ])
+    }
+
+    private func be32(_ value: UInt32) -> Data {
+        Data([
+            UInt8(truncatingIfNeeded: value >> 24),
+            UInt8(truncatingIfNeeded: value >> 16),
+            UInt8(truncatingIfNeeded: value >> 8),
+            UInt8(truncatingIfNeeded: value)
+        ])
+    }
+
+    /// Minimal uncompressed BGRA DDS, laid out like the decoded client images.
+    private func testDDS(width: Int, height: Int) -> Data {
+        var data = Data("DDS ".utf8)
+        data.append(le32(124))
+        data.append(le32(0x1007))
+        data.append(le32(UInt32(height)))
+        data.append(le32(UInt32(width)))
+        data.append(le32(UInt32(width * 4)))
+        data.append(le32(0))
+        data.append(le32(0))
+        for _ in 0..<11 { data.append(le32(0)) }
+        data.append(le32(32))
+        data.append(le32(0x41))
+        data.append(Data(repeating: 0, count: 4))
+        data.append(le32(32))
+        data.append(le32(0x00FF_0000))
+        data.append(le32(0x0000_FF00))
+        data.append(le32(0x0000_00FF))
+        data.append(le32(0xFF00_0000))
+        data.append(le32(0x1000))
+        for _ in 0..<4 { data.append(le32(0)) }
+        precondition(data.count == 128)
+        for index in 0..<(width * height) {
+            let red: UInt8 = index % 2 == 0 ? 220 : 40
+            data.append(contentsOf: [0, 0, red, 255])
+        }
+        return data
+    }
+
+    /// Single-entry `.pack` with the observed big-endian directory layout.
+    private func testPack(name: String, payload: Data) -> Data {
+        let nameBytes = Data(name.utf8)
+        var directory = be32(0)
+        directory.append(be32(1))
+        directory.append(be32(UInt32(nameBytes.count)))
+        directory.append(nameBytes)
+        directory.append(be32(UInt32(directory.count + 12)))
+        directory.append(be32(UInt32(payload.count)))
+        directory.append(be32(CRC32.checksum(payload)))
+        var result = directory
+        result.append(payload)
+        return result
+    }
+
     func testLegacyAppSettingsDecodeSuppliesOfflineHostDefaults() throws {
         let json = """
         {"servers":[],"downloadThreads":4,"parallelDownloads":true,"locale":"en_US","didSeedDefaultServers":true}
@@ -122,6 +184,38 @@ final class EngineTests: XCTestCase {
         engine.handle(.recenter())
         XCTAssertEqual(engine.camera.zoom, 2)
         XCTAssertGreaterThanOrEqual(engine.sceneGraph.flattenedDrawables.count, 1)
+    }
+
+    func testClientTextureCatalogPointsAtVerifiedFabledRealmsTile() {
+        XCTAssertEqual(
+            ClientTextureCatalog.texturePath(forZoneName: "FabledRealms"),
+            "Assets_000.pack#FabledRealms_Tile_000_-08_0_0.dds"
+        )
+        XCTAssertNil(ClientTextureCatalog.texturePath(forZoneName: "UnknownZone"))
+    }
+
+    func testEngineLoadsDecodedClientTextureIntoRenderFrame() throws {
+        let root = try makeResourceRoot()
+        let simulation = try WorldSimulation(rootURL: root, zoneID: 1)
+        let payload = testDDS(width: 4, height: 4)
+        let pack = testPack(name: "tile.dds", payload: payload)
+        let reference = "Assets_test.pack#tile.dds"
+        let loader = TextureLoader { path in
+            path == "Assets_test.pack" ? pack : nil
+        }
+        let engine = OSFREngine(
+            simulation: simulation,
+            assetPipeline: EngineAssetPipeline(loader: loader),
+            terrainTexturePath: reference
+        )
+
+        let textured = try XCTUnwrap(engine.frame.drawables.first { $0.kind == .clientTexture })
+        XCTAssertEqual(textured.textureName, reference)
+        let image = try XCTUnwrap(engine.frame.textures[reference])
+        XCTAssertEqual(image.width, 4)
+        XCTAssertEqual(image.height, 4)
+        XCTAssertEqual(image.byteCount, 4 * 4 * 4)
+        XCTAssertTrue(engine.frame.textureStatus?.contains("Embedded client DDS 4x4") == true)
     }
 
     func testActiveWorldSessionIdentitySeparatesLoginFromWorld() {

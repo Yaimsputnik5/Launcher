@@ -43,6 +43,7 @@ let package = Package(
                 "Services/WorldMapModel.swift",
                 "Engine/CollectionSpawns.swift",
                 "Engine/GameWorld.swift",
+                "Engine/ClientTextureCatalog.swift",
                 "Engine/OSFREngine.swift",
                 "Services/GatewayProtocol.swift",
                 "Services/ImageCodecs.swift"
