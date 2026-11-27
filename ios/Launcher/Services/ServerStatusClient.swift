@@ -18,11 +18,17 @@ enum ServerStatusClient {
                 port: endpointPort,
                 using: .udp
             )
+            let completionLock = NSLock()
             var resumed = false
 
             let finish: (ServerStatus?) -> Void = { status in
-                guard !resumed else { return }
+                completionLock.lock()
+                guard !resumed else {
+                    completionLock.unlock()
+                    return
+                }
                 resumed = true
+                completionLock.unlock()
                 connection.stateUpdateHandler = nil
                 connection.cancel()
                 continuation.resume(returning: status)

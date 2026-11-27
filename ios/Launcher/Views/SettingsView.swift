@@ -5,8 +5,12 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var clientReadiness = ClientAssetStore.shared.availability()
     @State private var sanctuaryReadiness = SanctuaryResourceStore.shared.readiness()
+    @State private var zoneIDs: [Int] = []
 
     private var maxThreads: Int { max(2, ProcessInfo.processInfo.activeProcessorCount) }
+    private var zoneChoices: [Int] {
+        Set(zoneIDs).union([state.settings.hostConfiguration.startingZoneID]).sorted()
+    }
 
     var body: some View {
         NavigationStack {
@@ -55,11 +59,11 @@ struct SettingsView: View {
                 Section("Offline Host") {
                     TextField("Profile name", text: state.hostBinding(\.profileName))
                     TextField("Player name", text: state.hostBinding(\.playerName))
-                    Stepper(
-                        "Starting zone: \(state.settings.hostConfiguration.startingZoneID)",
-                        value: state.hostBinding(\.startingZoneID),
-                        in: 1...9999
-                    )
+                    Picker("Starting zone", selection: state.hostBinding(\.startingZoneID)) {
+                        ForEach(zoneChoices, id: \.self) { zoneID in
+                            Text(String(zoneID)).tag(zoneID)
+                        }
+                    }
                     Toggle("Unlock all profiles", isOn: state.hostBinding(\.unlockAllProfiles))
                     Toggle("Unlock all titles", isOn: state.hostBinding(\.unlockAllTitles))
                     Toggle("Unlock all map tiles", isOn: state.hostBinding(\.unlockAllTiles))
@@ -115,6 +119,7 @@ struct SettingsView: View {
             .task {
                 clientReadiness = ClientAssetStore.shared.availability()
                 sanctuaryReadiness = SanctuaryResourceStore.shared.readiness()
+                zoneIDs = (try? ResourceCatalog.bundled())?.zones.map(\.id).sorted() ?? []
             }
             .toolbar {
                 Button("Done") { dismiss() }

@@ -57,8 +57,12 @@ final class GameEngineController: ObservableObject {
         }
         do {
             let catalog = try ResourceCatalog(rootURL: root)
-            let resolvedZone = observation.zoneName.flatMap { catalog.zoneName(matching: $0) }
-                ?? "FabledRealms"
+            guard let serverZone = observation.zoneName,
+                  let resolvedZone = catalog.zoneName(matching: serverZone)
+            else {
+                errorMessage = "Awaiting a server zone packet."
+                return
+            }
             let simulation = try WorldSimulation(rootURL: root, zoneName: resolvedZone)
             let engine = OSFREngine(
                 simulation: simulation,

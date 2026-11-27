@@ -7,10 +7,14 @@ struct PlayOfflineView: View {
     @State private var sanctuaryReadiness = SanctuaryResourceStore.shared.readiness()
     @State private var sessionMessage = "No offline session started."
     @State private var sessionError: String?
+    @State private var zoneIDs: [Int] = []
 
     /// The global game language is part of the effective offline configuration;
     /// host fields must not silently overwrite it.
     private var configuration: LocalHostConfiguration { state.effectiveHostConfiguration() }
+    private var zoneChoices: [Int] {
+        Set(zoneIDs).union([configuration.startingZoneID]).sorted()
+    }
 
     var body: some View {
         NavigationStack {
@@ -39,11 +43,11 @@ struct PlayOfflineView: View {
                     TextField("Profile name", text: state.hostBinding(\.profileName))
                     TextField("Player name", text: state.hostBinding(\.playerName))
                     SecureField("Choose an offline password", text: $password)
-                    Stepper(
-                        "Starting zone: \(configuration.startingZoneID)",
-                        value: state.hostBinding(\.startingZoneID),
-                        in: 1...9999
-                    )
+                    Picker("Starting zone", selection: state.hostBinding(\.startingZoneID)) {
+                        ForEach(zoneChoices, id: \.self) { zoneID in
+                            Text(String(zoneID)).tag(zoneID)
+                        }
+                    }
                     Toggle("Unlock all profiles", isOn: state.hostBinding(\.unlockAllProfiles))
                     Toggle("Unlock all titles", isOn: state.hostBinding(\.unlockAllTitles))
                     Toggle("Unlock all map tiles", isOn: state.hostBinding(\.unlockAllTiles))
@@ -80,6 +84,7 @@ struct PlayOfflineView: View {
             .task {
                 readiness = ClientAssetStore.shared.availability()
                 sanctuaryReadiness = SanctuaryResourceStore.shared.readiness()
+                zoneIDs = (try? ResourceCatalog.bundled())?.zones.map(\.id).sorted() ?? []
             }
         }
     }
@@ -90,6 +95,7 @@ struct PlayOfflineView: View {
             && !configuration.profileName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !configuration.playerName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !password.isEmpty
+            && zoneIDs.contains(configuration.startingZoneID)
     }
 
     private func startOfflineSession() {

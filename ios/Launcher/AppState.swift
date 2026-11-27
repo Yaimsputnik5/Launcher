@@ -266,6 +266,11 @@ final class AppState: ObservableObject {
                 throw error
             }
             gatewayStatus = "Connected as \(session.characterName ?? "character")"
+            // A single World session is shown at a time. End an offline game
+            // cleanly before replacing it so its character is not left marked
+            // as in-world after the remote session disconnects.
+            let leftOfflineWorld = activeSession?.mode == .offline
+            if leftOfflineWorld { leaveOfflineWorld() }
             // The World tab activates only after the gateway handshake succeeds.
             activeSession = ActiveWorldSession(
                 id: UUID(),
@@ -273,7 +278,7 @@ final class AppState: ObservableObject {
                 hostConfiguration: nil,
                 startedAt: Date()
             )
-            notify("Joined \(address).")
+            notify("Joined \(address).\(leftOfflineWorld ? " Offline game ended." : "")")
         } catch {
             gatewayStatus = "Failed: \(error.localizedDescription)"
             notify("Gateway join failed: \(error.localizedDescription)", isError: true)
@@ -395,6 +400,10 @@ final class ServerRuntime: ObservableObject, Identifiable {
     @Published var downloadProgress: Double = 0
     @Published var downloadedFileName = ""
 
+    /// Per-file progress is accumulated on the main actor so a slow earlier
+    /// file cannot overwrite the progress of files that already finished.
+    private var fileProgress: [Double] = []
+
     weak var state: AppState?
 
     init(info: ServerInfo) {
@@ -513,6 +522,7 @@ final class ServerRuntime: ObservableObject, Identifiable {
             }
 
             taskStatusMessage = "Preparing \(planned.count) of \(items.count) client files…"
+            fileProgress = Array(repeating: 0, count: planned.count)
             let results: [DownloadResult]
             if state?.settings.parallelDownloads == true {
                 let limit = max(1, state?.settings.downloadThreads ?? 2)
@@ -528,6 +538,7 @@ final class ServerRuntime: ObservableObject, Identifiable {
                     ) { [weak self] fraction in
                         Task { @MainActor in self?.setProgress(index: index, fraction: fraction, total: planned.count) }
                     }
+                    self.setProgress(index: index, fraction: 1, total: planned.count)
                     sequential.append(DownloadResult(index: index, name: item.file.name, error: error))
                 }
                 results = sequential
@@ -556,8 +567,12 @@ final class ServerRuntime: ObservableObject, Identifiable {
     }
 
     private func setProgress(index: Int, fraction: Double, total: Int) {
-        guard total > 0 else { return }
-        downloadProgress = min(1, max(0, (Double(index) + fraction) / Double(total)))
+        guard total > 0, index >= 0, index < total else { return }
+        if fileProgress.count != total {
+            fileProgress = Array(repeating: 0, count: total)
+        }
+        fileProgress[index] = min(1, max(0, fraction))
+        downloadProgress = min(1, fileProgress.reduce(0, +) / Double(total))
     }
 
     private func runParallel(_ items: [DownloadItem], limit: Int) async -> [DownloadResult] {
@@ -593,7 +608,7 @@ final class ServerRuntime: ObservableObject, Identifiable {
                 results.append(result)
                 await MainActor.run {
                     self.downloadedFileName = result.name
-                    self.downloadProgress = Double(results.count) / Double(max(1, items.count))
+                    self.setProgress(index: result.index, fraction: 1, total: items.count)
                 }
                 enqueueNext()
             }

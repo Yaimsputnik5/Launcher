@@ -362,6 +362,19 @@ final class OSFREngine {
     private var lastAdvance: Date?
     private var accumulator: TimeInterval = 0
 
+    /// Remote frames are described only by decoded zone packets. Offline frames
+    /// come from the explicitly started local simulation.
+    private var presentedZone: (id: Int, name: String) {
+        if presentationMode == .remote {
+            return (
+                remoteObservation.zoneID.map(Int.init) ?? 0,
+                remoteObservation.zoneName ?? "Awaiting zone packet"
+            )
+        }
+        let snapshot = simulation.snapshot
+        return (snapshot.zoneID, snapshot.zoneName)
+    }
+
     init(
         simulation: WorldSimulation,
         assetPipeline: EngineAssetPipeline? = nil,
@@ -397,11 +410,23 @@ final class OSFREngine {
         let unit = simulation.worldMap.unitPosition(for: Self.vector(snapshot.player)).map(EnginePoint.init)
             ?? EnginePoint(x: 0.5, y: 0.5)
         self.camera = EngineCamera(center: unit, zoom: 1)
-        self.terrainTexturePath = terrainTexturePath
-            ?? ClientTextureCatalog.texturePath(forZoneName: snapshot.zoneName)
+        // Static client art is offline-only; a remote world never gains a
+        // locally chosen texture, even if one was passed to this initializer.
+        self.terrainTexturePath = presentationMode == .remote
+            ? nil
+            : (terrainTexturePath ?? ClientTextureCatalog.texturePath(forZoneName: snapshot.zoneName))
+        let initialZone: (id: Int, name: String)
+        if presentationMode == .remote {
+            initialZone = (
+                remoteObservation.zoneID.map(Int.init) ?? 0,
+                remoteObservation.zoneName ?? "Awaiting zone packet"
+            )
+        } else {
+            initialZone = (snapshot.zoneID, snapshot.zoneName)
+        }
         self.frame = EngineFrame(
-            zoneID: snapshot.zoneID,
-            zoneName: snapshot.zoneName,
+            zoneID: initialZone.id,
+            zoneName: initialZone.name,
             camera: camera,
             drawables: [],
             movementTick: snapshot.movementTicks,
@@ -802,9 +827,10 @@ final class OSFREngine {
                 textureName: drawable.textureName
             )
         }
+        let zone = presentedZone
         frame = EngineFrame(
-            zoneID: snapshot.zoneID,
-            zoneName: snapshot.zoneName,
+            zoneID: zone.id,
+            zoneName: zone.name,
             camera: camera,
             drawables: projected,
             movementTick: snapshot.movementTicks,

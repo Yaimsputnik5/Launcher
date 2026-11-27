@@ -60,7 +60,7 @@ final class LaunchLog {
         }
         guard let handle = FileHandle(forWritingAtPath: currentFileURL.path) else { return }
         defer { try? handle.close() }
-        _ = handle.seekToEnd()
+        _ = try? handle.seekToEnd()
         try? handle.write(contentsOf: data)
         try? handle.synchronize()
     }

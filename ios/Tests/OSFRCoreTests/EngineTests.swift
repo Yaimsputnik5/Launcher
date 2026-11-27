@@ -269,15 +269,30 @@ final class EngineTests: XCTestCase {
         })
         XCTAssertEqual(atlas.tiles.count, 1)
 
+        let reference = "Assets_test.pack#tile.dds"
+        let loader = TextureLoader { [self] path in
+            path == "Assets_test.pack"
+                ? testPack(name: "tile.dds", payload: testDDS(width: 4, height: 4))
+                : nil
+        }
+        var observation = GatewayWorldObservation.empty
+        observation.zoneName = "PacketZone"
+        observation.zoneID = 42
         let engine = OSFREngine(
             simulation: simulation,
+            assetPipeline: EngineAssetPipeline(loader: loader),
+            terrainTexturePath: reference,
             presentationMode: .remote,
+            remoteObservation: observation,
             minimapAtlas: atlas
         )
         XCTAssertFalse(engine.frame.drawables.contains {
             $0.textureName == "Assets_000.pack#\(name)"
         })
+        XCTAssertFalse(engine.frame.drawables.contains { $0.kind == .clientTexture })
         XCTAssertFalse(engine.frame.textureStatus?.contains("decoded 1") == true)
+        XCTAssertEqual(engine.frame.zoneID, 42)
+        XCTAssertEqual(engine.frame.zoneName, "PacketZone")
     }
 
     private func cString(_ value: String) -> Data {
