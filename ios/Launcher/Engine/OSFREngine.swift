@@ -356,6 +356,7 @@ final class OSFREngine {
     private let terrainTexturePath: String?
     private var terrainTextureStatus: String?
     private var destination: ZoneVector?
+    private var navigationWaypoints: [ZoneVector] = []
     private var lastAdvance: Date?
     private var accumulator: TimeInterval = 0
 
@@ -417,6 +418,23 @@ final class OSFREngine {
 
     // MARK: Input
 
+    /// Offline movement follows the shipped SNAV polygon graph when it can
+    /// route the request; the tile-grid target remains the fallback and the
+    /// overlay marker. Remote sessions never call this path.
+    private func setDestination(_ target: ZoneVector) {
+        destination = target
+        let player = Self.vector(simulation.snapshot.player)
+        let route = simulation.navigationWaypoints(from: player, to: target) ?? [target]
+        navigationWaypoints = route.filter { waypoint in
+            let dx = waypoint.x - player.x
+            let dz = waypoint.z - player.z
+            return (dx * dx + dz * dz) > 2.25
+        }
+        if navigationWaypoints.isEmpty {
+            navigationWaypoints = route.isEmpty ? [target] : Array(route.suffix(1))
+        }
+    }
+
     func handle(_ input: EngineInputEvent) {
         guard presentationMode == .offline
                 || input.kind == .zoom
@@ -426,18 +444,18 @@ final class OSFREngine {
         case .moveTo:
             let target = simulation.worldMap.worldPosition(unitX: input.unitX, unitY: input.unitY)
             if simulation.isWalkable(target) {
-                destination = target
+                setDestination(target)
             } else if let walkable = simulation.worldMap.walkableUnit(
                 near: input.unitX,
                 unitY: input.unitY
             ) {
-                destination = simulation.worldMap.worldPosition(
+                setDestination(simulation.worldMap.worldPosition(
                     unitX: walkable.x,
                     unitY: walkable.y
-                )
+                ))
             } else if simulation.hostOptions.unlockAllTiles {
                 // The host option intentionally reveals out-of-grid tiles.
-                destination = target
+                setDestination(target)
             }
         case .interactCollection:
             simulation.interactWithCollectionNode(id: input.definitionID)
@@ -469,6 +487,7 @@ final class OSFREngine {
                         camera.center = EnginePoint(unit)
                     }
                     destination = nil
+                    navigationWaypoints = []
                 }
             }
         }
@@ -507,18 +526,25 @@ final class OSFREngine {
         lastAdvance = now
         accumulator += delta
 
-        if let destination {
+        if let waypoint = navigationWaypoints.first {
+            let player = Self.vector(simulation.snapshot.player)
+            let dx = waypoint.x - player.x
+            let dz = waypoint.z - player.z
+            let distance = (dx * dx + dz * dz).squareRoot()
+            let step = WorldSimulation.onFootMovementSpeed * delta
+            simulation.stepPlayer(toward: waypoint, deltaTime: delta)
+            if distance <= step + 0.75 {
+                navigationWaypoints.removeFirst()
+                if navigationWaypoints.isEmpty { destination = nil }
+            }
+        } else if let destination {
             let player = Self.vector(simulation.snapshot.player)
             let dx = destination.x - player.x
             let dz = destination.z - player.z
             let distance = (dx * dx + dz * dz).squareRoot()
             let step = WorldSimulation.onFootMovementSpeed * delta
-            if distance <= step + 0.5 {
-                simulation.stepPlayer(toward: destination, deltaTime: delta)
-                self.destination = nil
-            } else {
-                simulation.stepPlayer(toward: destination, deltaTime: delta)
-            }
+            simulation.stepPlayer(toward: destination, deltaTime: delta)
+            if distance <= step + 0.75 { self.destination = nil }
         }
         simulation.update(deltaTime: accumulator)
         accumulator = 0

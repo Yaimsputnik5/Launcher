@@ -134,7 +134,8 @@ private struct CollectionNodeState {
 /// Simplified (not a claim of server parity): NPC coordinates are inferred from
 /// zone area environments or walkable tiles, drop rolls use the first drop-table
 /// entry instead of `Random.Shared`, and NPC wandering uses deterministic
-/// tile-to-tile oscillation instead of a Recast navmesh path.
+/// tile-to-tile oscillation; only offline player clicks use the shipped
+/// Recast navmesh path.
 final class WorldSimulation {
     static let movableTicksPerSecond = 10
     static let movableTickInterval = 0.1
@@ -170,6 +171,9 @@ final class WorldSimulation {
     private var collectionNodes: [Int: CollectionNodeState] = [:]
     private var gatheredNodesByQuest: [Int: Set<Int>] = [:]
     private var collectedEntryIDs: Set<Int> = []
+    private let navigationURL: URL?
+    private var cachedNavMesh: NavMeshSet?
+    private var didAttemptNavMesh = false
 
     init(
         rootURL: URL,
@@ -219,6 +223,10 @@ final class WorldSimulation {
         guard let environment = catalog.zoneEnvironments[zone.name] else {
             throw WorldSimulationError.missingEnvironment(zone.name)
         }
+        navigationURL = try? SafePath.contained(
+            base: resourceRoot,
+            components: ["NavMeshes", "\(zone.name).navmesh"]
+        )
 
         let poiURL: URL
         do {
@@ -452,6 +460,33 @@ final class WorldSimulation {
             z: Double(position.z),
             w: 0
         ))
+    }
+
+    /// Real-waypoint route from the shipped Sanctuary SNAV mesh. Returns nil
+    /// when the zone has no navmesh or no polygon graph connects the points;
+    /// callers then keep the existing tile-grid direct movement. This never
+    /// fabricates coordinates from server state.
+    func navigationWaypoints(from start: ZoneVector, to goal: ZoneVector) -> [ZoneVector]? {
+        guard start.x.isFinite, start.y.isFinite, start.z.isFinite,
+              goal.x.isFinite, goal.y.isFinite, goal.z.isFinite
+        else { return nil }
+
+        if !didAttemptNavMesh {
+            didAttemptNavMesh = true
+            if let navigationURL,
+               FileManager.default.fileExists(atPath: navigationURL.path),
+               let data = try? Data(contentsOf: navigationURL, options: .mappedIfSafe) {
+                cachedNavMesh = try? NavMeshSet(data: data)
+            }
+        }
+        guard let mesh = cachedNavMesh else { return nil }
+        let path = try? mesh.findPath(
+            from: NavMeshSet.Point(x: Float(start.x), y: Float(start.y), z: Float(start.z)),
+            to: NavMeshSet.Point(x: Float(goal.x), y: Float(goal.y), z: Float(goal.z))
+        )
+        return path?.map {
+            ZoneVector(x: Double($0.x), y: Double($0.y), z: Double($0.z), w: 0)
+        }
     }
 
     /// Moves at Sanctuary's on-foot speed (8 units/s) and slides along a blocked

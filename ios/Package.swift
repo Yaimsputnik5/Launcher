@@ -47,6 +47,7 @@ let package = Package(
                 "Engine/ClientZoneManifest.swift",
                 "Engine/ClientMaterialCatalog.swift",
                 "Engine/ClientChunkCatalog.swift",
+                "Engine/NavMesh.swift",
                 "Engine/ClientTerrainPalette.swift",
                 "Engine/OSFREngine.swift",
                 "Services/GatewayProtocol.swift",

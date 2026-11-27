@@ -81,6 +81,55 @@ client, and the edge distances match the Euclidean distances between the
 stored positions. This is a decoded graph from the shipped client; the original
 engine's exact use of it has not been reconstructed from compiled code yet.
 
+## Shipped `SNAV` navigation mesh
+
+Sanctuary loads `Resources/NavMeshes/FabledRealms.navmesh` through
+`NavMeshLoader.TryLoad`: `SNAV` signature, UInt32 version `1`, then a zlib stream
+fed to DotRecast's `DtMeshSetReader`. The shipped file is 31,839,576 bytes and
+inflates to exactly 67,195,776 bytes.
+
+Decoded MSET header:
+
+| Field | Value |
+| --- | --- |
+| magic / version | `MSET` / `0x8802` |
+| tile count | 7,566 |
+| origin | `(-3072, -1966.7060546875, -2048)` |
+| tile size | `64 x 64` |
+| max tiles / polys | 7,680 / 65,536 |
+| max verts per polygon | 6 |
+
+All 7,566 payloads carry `DNAV` version `0x8809`. Together they contain 308,264
+polygons, 657,217 vertices, and 1,334,967 allocated links; tile headers and
+payloads consume the inflated stream exactly. The previous misread of `+32` as
+a polygon count was corrected: DotRecast's `DtMeshHeader` field order is
+`polyCount`, `vertCount`, `maxLinkCount`, so `+32` is the link allocation count.
+
+The native `ios/Launcher/Engine/NavMesh.swift` reader follows the authoritative
+DotRecast layouts:
+
+- `DtMeshSetReader` reads a 64-bit tile ref and Int32 payload size, then each
+  `DtMeshDataReader` record.
+- Polygon records for `0x8808+` are 28 bytes (six UInt16 vertices, six UInt16
+  neighbors, flags, count, area/type); only `0x8807` includes a leading
+  `firstLink` Int32.
+- Internal neighbors are `polygon index + 1`; external neighbors are
+  `DT_EXT_LINK | side`. `DtNavMesh.AddTile` rebuilds those via
+  `FindConnectingPolys`, matching overlapping portal slabs in the eight neighbor
+  tiles. The Swift reader implements the same portal overlap instead of
+  inventing a separate graph.
+
+`WorldSimulation.navigationWaypoints(from:to:)` parses the real SNAV file once
+and returns decoded polygon waypoints for offline clicks. `OSFREngine` follows
+those waypoints; if the graph has no route, it retains the existing tile-grid
+fallback. Remote World sessions never call this path and remain packet-only.
+
+Sources:
+`/tmp/opencode/sanctuary/src/Sanctuary.Game/Pathing/NavMeshLoader.cs`,
+`https://github.com/ikpil/DotRecast/blob/main/src/DotRecast.Detour/Io/DtMeshSetReader.cs`,
+`.../DtMeshDataReader.cs`, `.../DtNavMesh.cs`, `.../DtPoly.cs`, and
+`.../DtDetour.cs`.
+
 ## Related chunk evidence
 
 Each `FabledRealms_<longitude>_<latitude>.gcnk` begins `GCNK` version 6. After
@@ -91,6 +140,7 @@ future object placement work, not yet a reconstructed chunk schema.
 
 ## Verification
 
-- Linux foundation tests: `swift test --package-path ios` — 138 tests, 0 failures.
+- Linux foundation tests: `swift test --package-path ios` — 141 tests, 0 failures
+  (one iOS-Compression-only integration test skipped on Linux).
 - iOS compilation and IPA replacement remain gated on the `ios-build.yml`
   workflow; no release asset is considered updated until that run is green.

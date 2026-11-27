@@ -54,6 +54,7 @@
 		0000000000000000000000F9 = {isa = PBXBuildFile; fileRef = 000000000000000000000096; };
 		0000000000000000000000FA = {isa = PBXBuildFile; fileRef = 000000000000000000000097; };
 		0000000000000000000000FB = {isa = PBXBuildFile; fileRef = 000000000000000000000098; };
+		0000000000000000000000FC = {isa = PBXBuildFile; fileRef = 000000000000000000000099; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -103,6 +104,7 @@
 		000000000000000000000096 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Engine/ClientMaterialCatalog.swift"; sourceTree = "<group>"; };
 		000000000000000000000097 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Engine/ClientTerrainPalette.swift"; sourceTree = "<group>"; };
 		000000000000000000000098 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Engine/ClientChunkCatalog.swift"; sourceTree = "<group>"; };
+		000000000000000000000099 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Engine/NavMesh.swift"; sourceTree = "<group>"; };
 		000000000000000000000078 = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		000000000000000000000079 = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		00000000000000000000000C = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Launcher.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -174,6 +176,7 @@
 				000000000000000000000096,
 				000000000000000000000097,
 				000000000000000000000098,
+				000000000000000000000099,
 				000000000000000000000003,
 			);
 			path = Launcher;
@@ -313,6 +316,7 @@
 				0000000000000000000000F9,
 				0000000000000000000000FA,
 				0000000000000000000000FB,
+				0000000000000000000000FC,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
