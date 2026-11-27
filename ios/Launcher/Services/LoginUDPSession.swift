@@ -139,6 +139,7 @@ final class LoginUDPSession: @unchecked Sendable {
     private var encryptCode: UInt32 = 0
     private var cipher = LoginCipher()
     private var udpState = UdpLibraryReassemblyState()
+    private var incomingReliable = UdpLibraryIncomingReliableState()
     private var outgoingReliableID: UInt16 = 0
     private var pendingReliableFrame: Data?
     private var flowResult = LoginFlowResult()
@@ -448,8 +449,19 @@ final class LoginUDPSession: @unchecked Sendable {
     private func handleUdpPacket(_ packet: UdpLibraryPacket) {
         switch packet {
         case .reliable(let type, let reliableID, _, let applications):
-            sendAck(type: type, reliableID: reliableID)
-            for application in applications {
+            guard let ack = incomingReliable.receive(
+                type: type,
+                reliableID: reliableID,
+                applications: applications
+            ) else { return }
+            let packet = UdpLibrary.encodeAck(
+                type: ack.type,
+                reliableID: ack.reliableID,
+                encryptCode: encryptCode,
+                userSuppliedCompression: false
+            )
+            rawSend(packet)
+            for application in ack.applications {
                 handleApplication(application)
             }
         case .ack(_, let reliableID):
@@ -652,15 +664,6 @@ final class LoginUDPSession: @unchecked Sendable {
         )
     }
 
-    private func sendAck(type: UInt8, reliableID: UInt16) {
-        guard let ackType = UdpLibrary.ackType(for: type) else { return }
-        var packet = Data([0, ackType])
-        appendBE16(reliableID, to: &packet)
-        let crc = UInt16(truncatingIfNeeded: CRC32.checksum(packet, encryptCode: encryptCode))
-        appendBE16(crc, to: &packet)
-        rawSend(packet)
-    }
-
     private func rawSend(_ packet: Data) {
         connection.send(content: packet, completion: .contentProcessed { [weak self] error in
             guard let self, let error else { return }
@@ -764,6 +767,9 @@ final class GatewayUDPSession: @unchecked Sendable {
     private var encryptCode: UInt32 = 0
     private var gateway: GatewaySession
     private var udpState = UdpLibraryReassemblyState()
+    /// Ordered inbound reliable channels. Matches Sanctuary's buffering and
+    /// duplicate suppression; only packet-backed applications are delivered.
+    private var incomingReliable = UdpLibraryIncomingReliableState()
     private var userSuppliedCompression = true
     private var isActive = false
     private var continuation: CheckedContinuation<Void, Error>?
@@ -908,8 +914,23 @@ final class GatewayUDPSession: @unchecked Sendable {
         switch packet {
         case .reliable(let type, let reliableID, let body, let applications):
             record("reliable type=\(type) id=\(reliableID) body=\(body.count) apps=\(applications.count)")
-            sendAck(type: type, reliableID: reliableID)
-            for application in applications {
+            guard let ack = incomingReliable.receive(
+                type: type,
+                reliableID: reliableID,
+                applications: applications
+            ) else { return }
+            let packet = UdpLibrary.encodeAck(
+                type: ack.type,
+                reliableID: ack.reliableID,
+                encryptCode: encryptCode,
+                userSuppliedCompression: userSuppliedCompression
+            )
+            rawSend(packet)
+            record(
+                "ack type=\(ack.type) id=\(ack.reliableID) " +
+                "delivered=\(ack.applications.count) duplicate=\(ack.wasDuplicate)"
+            )
+            for application in ack.applications {
                 handleApplication(application)
             }
         case .ack(let type, let reliableID):
@@ -991,6 +1012,7 @@ final class GatewayUDPSession: @unchecked Sendable {
             return
         }
         udpState.reset()
+        incomingReliable.reset()
         gateway = GatewaySession(
             connectCode: connectCode,
             encryptCode: encryptCode,
@@ -1032,17 +1054,6 @@ final class GatewayUDPSession: @unchecked Sendable {
             deadline: .now() + Self.retryDelay,
             execute: item
         )
-    }
-
-    private func sendAck(type: UInt8, reliableID: UInt16) {
-        guard let ackType = UdpLibrary.ackType(for: type) else { return }
-        let packet = UdpLibrary.encodeAck(
-            type: ackType,
-            reliableID: reliableID,
-            encryptCode: encryptCode,
-            userSuppliedCompression: userSuppliedCompression
-        )
-        rawSend(packet)
     }
 
     private func enqueue(_ frame: Data) {
@@ -1237,6 +1248,7 @@ final class GatewayUDPSession: @unchecked Sendable {
         keepAliveTimer = nil
         timeoutWork = nil
         pendingFrames.removeAll()
+        incomingReliable.reset()
     }
 
     deinit {

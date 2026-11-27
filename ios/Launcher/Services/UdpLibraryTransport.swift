@@ -77,6 +77,86 @@ struct UdpLibraryReassemblyState {
     }
 }
 
+/// Ack decision and application payloads produced by one inbound reliable
+/// frame after Sanctuary-style ordering has been applied.
+struct UdpLibraryIncomingAck {
+    var type: UInt8
+    var reliableID: UInt16
+    var applications: [Data]
+    var wasDuplicate = false
+}
+
+/// Receive-side ordered reliable channels. C# `UdpReliableChannel` buffers
+/// packets that arrive ahead of the next expected id, delivers them only when
+/// the gap is filled, and suppresses duplicates. This reproduces that part of
+/// `ReliablePacket` without implementing the outbound congestion window.
+struct UdpLibraryIncomingReliableState {
+    private struct Entry {
+        let applications: [Data]
+    }
+
+    /// Sanctuary's external-client `MaxInstandingPackets` is 32000; 400 is the
+    /// default window and is already far beyond the gateway's burst size.
+    private static let windowSize = 400
+
+    private var expectedByChannel: [UInt8: UInt16] = [:]
+    private var bufferedByChannel: [UInt8: [UInt16: Entry]] = [:]
+
+    mutating func reset() {
+        expectedByChannel.removeAll()
+        bufferedByChannel.removeAll()
+    }
+
+    /// Returns the Ack/AckAll to send plus only the payloads Sanctuary would
+    /// deliver now. The first observed stamp seeds the channel because this
+    /// client creates a fresh connection for each login/gateway session.
+    mutating func receive(
+        type: UInt8,
+        reliableID: UInt16,
+        applications: [Data]
+    ) -> UdpLibraryIncomingAck? {
+        guard let channel = UdpLibrary.channel(for: type),
+              let ackType = UdpLibrary.ackType(for: type),
+              let ackAllType = UdpLibrary.ackAllType(for: type)
+        else { return nil }
+
+        var expected = expectedByChannel[channel] ?? reliableID
+        var buffered = bufferedByChannel[channel] ?? [:]
+        var deliver: [Data] = []
+
+        let distance = Int(Int16(bitPattern: reliableID &- expected))
+        if distance == 0 {
+            deliver.append(contentsOf: applications)
+            expected = expected &+ 1
+
+            while let entry = buffered[expected] {
+                buffered.removeValue(forKey: expected)
+                deliver.append(contentsOf: entry.applications)
+                expected = expected &+ 1
+            }
+        } else if distance > 0, distance < Self.windowSize, buffered[reliableID] == nil {
+            buffered[reliableID] = Entry(applications: applications)
+        }
+
+        expectedByChannel[channel] = expected
+        bufferedByChannel[channel] = buffered
+
+        if UdpLibrary.reliableID(expected, isAheadOf: reliableID) {
+            return UdpLibraryIncomingAck(
+                type: ackAllType,
+                reliableID: expected &- 1,
+                applications: deliver,
+                wasDuplicate: true
+            )
+        }
+        return UdpLibraryIncomingAck(
+            type: ackType,
+            reliableID: reliableID,
+            applications: deliver
+        )
+    }
+}
+
 enum UdpLibrary {
     static let marker: UInt8 = 0
     static let crcByteCount = 2
@@ -253,8 +333,28 @@ enum UdpLibrary {
 
     /// Ack channel for a reliable or fragment packet type.
     static func ackType(for reliableType: UInt8) -> UInt8? {
-        guard reliableType >= 9, reliableType <= 16 else { return nil }
+        guard channel(for: reliableType) != nil else { return nil }
         return 17 + ((reliableType - 9) % 4)
+    }
+
+    /// Cumulative AckAll channel. `UdpReliableChannel.ReliablePacket` emits
+    /// AckAll when a retransmitted id is older than the next id it expects.
+    static func ackAllType(for reliableType: UInt8) -> UInt8? {
+        guard channel(for: reliableType) != nil else { return nil }
+        return 21 + ((reliableType - 9) % 4)
+    }
+
+    /// Zero-based reliable channel used by Reliable1-4 and Fragment1-4.
+    static func channel(for reliableType: UInt8) -> UInt8? {
+        guard reliableType >= 9, reliableType <= 16 else { return nil }
+        return (reliableType - 9) % 4
+    }
+
+    /// Wrap-safe ordering for 16-bit reliable stamps, matching C#'s
+    /// `GetReliableIncomingId` window rather than plain integer comparison.
+    static func reliableID(_ lhs: UInt16, isAheadOf rhs: UInt16) -> Bool {
+        let delta = lhs &- rhs
+        return delta != 0 && delta < 0x8000
     }
 
     // MARK: - Private
@@ -458,7 +558,7 @@ enum UdpLibrary {
         }
         defer { compression_stream_destroy(&stream) }
 
-        var input = zlib.deflate
+        let input = zlib.deflate
         return try input.withUnsafeBytes { inputBuffer in
             guard let base = inputBuffer.baseAddress else {
                 throw UdpLibraryError.decompressionFailed

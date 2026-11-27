@@ -52,6 +52,65 @@ final class UdpLibraryTransportTests: XCTestCase {
         ])
     }
 
+    func testAckAllTypesAndWrapAwareReliableOrdering() {
+        XCTAssertEqual(UdpLibrary.channel(for: 9), 0)
+        XCTAssertEqual(UdpLibrary.channel(for: 12), 3)
+        XCTAssertEqual(UdpLibrary.channel(for: 16), 3)
+        XCTAssertEqual(UdpLibrary.ackType(for: 9), 17)
+        XCTAssertEqual(UdpLibrary.ackAllType(for: 9), 21)
+        XCTAssertEqual(UdpLibrary.ackAllType(for: 12), 24)
+        XCTAssertEqual(UdpLibrary.ackAllType(for: 16), 24)
+
+        XCTAssertTrue(UdpLibrary.reliableID(0x0001, isAheadOf: 0))
+        XCTAssertTrue(UdpLibrary.reliableID(0, isAheadOf: 0xFFFF))
+        XCTAssertFalse(UdpLibrary.reliableID(0, isAheadOf: 1))
+        XCTAssertFalse(UdpLibrary.reliableID(5, isAheadOf: 5))
+    }
+
+    func testIncomingReliableChannelsBufferOutOfOrderAndSuppressDuplicates() {
+        var state = UdpLibraryIncomingReliableState()
+        let a = Data([0x41])
+        let b = Data([0x42])
+        let c = Data([0x43])
+
+        // C# advances the head first, then sends AckAll through the id it just
+        // accepted (head - 1), even for the first in-order packet.
+        let first = state.receive(type: 9, reliableID: 0, applications: [a])
+        XCTAssertEqual(first?.type, 21)
+        XCTAssertEqual(first?.reliableID, 0)
+        XCTAssertEqual(first?.applications, [a])
+
+        // A later id is buffered, not delivered, while id 1 is still missing.
+        // The head did not advance, so this gets a simple Ack.
+        let ahead = state.receive(type: 9, reliableID: 2, applications: [c])
+        XCTAssertEqual(ahead?.type, 17)
+        XCTAssertEqual(ahead?.reliableID, 2)
+        XCTAssertEqual(ahead?.applications, [])
+
+        // Filling the gap drains the buffer in id order.
+        let filled = state.receive(type: 9, reliableID: 1, applications: [b])
+        XCTAssertEqual(filled?.type, 21) // AckAll through 2
+        XCTAssertEqual(filled?.reliableID, 2)
+        XCTAssertEqual(filled?.applications, [b, c])
+
+        // A retransmission below the next expected id is acknowledged but not
+        // delivered a second time.
+        let duplicate = state.receive(type: 9, reliableID: 1, applications: [b])
+        XCTAssertEqual(duplicate?.type, 21)
+        XCTAssertEqual(duplicate?.reliableID, 2)
+        XCTAssertEqual(duplicate?.applications, [])
+        XCTAssertTrue(duplicate?.wasDuplicate ?? false)
+
+        // Channels are independent, including their AckAll numbering.
+        let other = state.receive(type: 12, reliableID: 0, applications: [a])
+        XCTAssertEqual(other?.type, 24)
+        XCTAssertEqual(other?.reliableID, 0)
+        XCTAssertEqual(other?.applications, [a])
+        let otherAhead = state.receive(type: 12, reliableID: 8, applications: [b])
+        XCTAssertEqual(otherAhead?.type, 20)
+        XCTAssertEqual(otherAhead?.reliableID, 8)
+    }
+
     func testNonEncryptedPacketTypesFollowSanctuaryConnectionCheck() {
         let rawTypes: [UInt8] = [1, 2, 29, 30, 31, 32]
         let encryptedTypes: [UInt8] = [3, 9, 17, 27, 28]

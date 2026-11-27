@@ -68,15 +68,21 @@ The authoritative source is `/tmp/opencode/sanctuary/src` at commit
   sends a keepalive every 10 s after authentication, matching Sanctuary's
   external-client `UdpParams` default and staying below the gateway's 30 s
   no-data timeout.
+- `Internal/UdpReliableChannel.cs:155-257` advances the incoming head as soon
+  as an expected packet is processed, buffers later ids until the gap is filled,
+  suppresses duplicates, and sends AckAll through `head - 1` whenever the head
+  advanced. Swift now has a four-channel ordered inbound queue with wrap-safe
+  16-bit ids and the same Ack/AckAll decision for both login and gateway.
 
 ## Remaining protocol gaps
 
 These are not claimed as fixed:
 
-- C# keeps four windowed reliable channels with out-of-order queues, AckAll
-  emission, congestion control, and per-channel fragment state
-  (`Internal/UdpReliableChannel.cs:21-46,111-146,155-235,237-257,340-369,376-680,704-786,800-865`).
-  Swift still uses simpler flat ID/retry bookkeeping.
+- C# keeps four windowed reliable channels with congestion control and
+  per-channel fragment state
+  (`Internal/UdpReliableChannel.cs:21-46,111-146,340-369,376-680,704-786,800-865`).
+  Swift now mirrors the inbound ordering/acknowledgement logic but still uses
+  simpler flat outbound retransmission bookkeeping and no congestion window.
 - C# negotiates and applies `MaxRawPacketSize`, CRC width, and two encryption
   passes; Swift logs the gateway confirm but uses fixed sizes and CRC width.
 - C# can negotiate user-supplied compression on login; Swift hardcodes login
@@ -84,9 +90,10 @@ These are not claimed as fixed:
 
 ## Verification
 
-- Linux foundation tests: `swift test --package-path ios` — 134 tests, 0 failures.
+- Linux foundation tests: `swift test --package-path ios` — 136 tests, 0 failures.
 - New tests cover the GCNK record layout, bad magic/version rejection,
   zero-length Multi entries, the non-encrypted type map, the optional
-  17-byte confirm form, and the negotiated keepalive frame.
+  17-byte confirm form, the negotiated keepalive frame, AckAll numbering, and
+  wrap-aware ordered delivery with duplicate suppression on independent channels.
 - iOS compile and IPA publication remain gated on `ios-build.yml`; no release
   asset is considered updated until that workflow is green.
