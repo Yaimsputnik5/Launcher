@@ -138,16 +138,17 @@ final class GatewayProtocolTests: XCTestCase {
 
     /// `Sanctuary.UdpLibrary/UdpConnection.cs` + `Internal/UdpReliableChannel.cs`:
     /// 0x00 marker, packet type, big-endian UInt16 reliable id, zero-escaped
-    /// body, big-endian CRC-32 seeded with EncryptCode. The gateway inserts a
-    /// one-byte compression flag (0 == raw) before the application packet.
+    /// body, big-endian CRC-32 seeded with EncryptCode. `GatewayConnection`
+    /// inserts a one-byte compression flag (0 == raw) before the reliable id,
+    /// because `PhysicalSend` encrypts everything after the first two bytes.
     func testFrameRoundTripAndZeroEscape() throws {
         let header = LoginFrameHeader(type: .reliable1, reliableID: 0x1234)
         let frame = GatewayFrame(header: header, compressionEnabled: true, payload: Data([0x00, 0x01, 0x02]))
         let wire = GatewayFrameCodec.encode(frame, encryptCode: 0xDEAD_BEEF)
 
-        XCTAssertEqual(Array(wire.prefix(4)), [0x00, 0x09, 0x12, 0x34])
-        // Compression flag, escape byte, then payload.
-        XCTAssertEqual(Array(wire.dropFirst(4).dropLast(2)), [0x00, 0x00, 0x00, 0x01, 0x02])
+        XCTAssertEqual(Array(wire.prefix(5)), [0x00, 0x09, 0x00, 0x12, 0x34])
+        // Escape byte, then payload.
+        XCTAssertEqual(Array(wire.dropFirst(5).dropLast(2)), [0x00, 0x00, 0x01, 0x02])
 
         let decoded = try GatewayFrameCodec.decode(wire, encryptCode: 0xDEAD_BEEF)
         XCTAssertEqual(decoded.header, header)
@@ -155,6 +156,7 @@ final class GatewayProtocolTests: XCTestCase {
 
         let raw = GatewayFrame(reliableID: 9, compressionEnabled: false, payload: Data([1, 2, 3]))
         let rawWire = GatewayFrameCodec.encode(raw, encryptCode: 0)
+        XCTAssertEqual(Array(rawWire.prefix(4)), [0x00, 0x09, 0x00, 0x09])
         XCTAssertEqual(
             try GatewayFrameCodec.decode(rawWire, encryptCode: 0, compressionEnabled: false).payload,
             raw.payload
@@ -162,7 +164,7 @@ final class GatewayProtocolTests: XCTestCase {
     }
 
     func testTruncatedAndMalformedFramesAreRejected() throws {
-        XCTAssertThrowsError(try GatewayFrameCodec.decode(Data([0x00, 0x09, 0x00, 0x01]), encryptCode: 0)) { error in
+        XCTAssertThrowsError(try GatewayFrameCodec.decode(Data([0x00]), encryptCode: 0)) { error in
             guard case .physicalFrame(.frameTooShort) = error as? GatewayProtocolError else {
                 return XCTFail("expected truncation, got \(String(describing: error))")
             }
@@ -187,23 +189,23 @@ final class GatewayProtocolTests: XCTestCase {
             }
         }
 
-        var compressed = wire
-        compressed[4] = 1 // Sanctuary's zlib branch; not supported in this module.
+        // The compression flag is byte 2, not part of the reliable id. A
+        // nonzero flag must be valid zlib; an arbitrary 0x01 payload is rejected.
         let reCRC = GatewayFrameCodec.encode(
             GatewayFrame(reliableID: 1, payload: Data([0x01])), encryptCode: 0
         )
         XCTAssertGreaterThan(reCRC.count, 6)
         var compressedWithValidCRC = Array(reCRC)
-        compressedWithValidCRC[4] = 1
-        // Re-sign with the same CRC routine used by LoginFrame.encode.
+        compressedWithValidCRC[2] = 1
         let signed = Data(compressedWithValidCRC.dropLast(2))
         let crc = UInt16(truncatingIfNeeded: CRC32.checksum(signed, encryptCode: 0))
         compressedWithValidCRC[compressedWithValidCRC.count - 2] = UInt8(truncatingIfNeeded: crc >> 8)
         compressedWithValidCRC[compressedWithValidCRC.count - 1] = UInt8(truncatingIfNeeded: crc)
         XCTAssertThrowsError(try GatewayFrameCodec.decode(Data(compressedWithValidCRC), encryptCode: 0)) { error in
-            XCTAssertEqual(error as? GatewayProtocolError, .unsupportedCompression(1))
+            guard case .malformedFrame = error as? GatewayProtocolError else {
+                return XCTFail("expected inflate failure, got \(String(describing: error))")
+            }
         }
-        _ = compressed
     }
 
     // MARK: - Application wrapper
@@ -371,13 +373,22 @@ final class GatewayProtocolTests: XCTestCase {
             unknown: ""
         )
         let login = try session.beginLogin(hello)
-        XCTAssertEqual(try LoginFrameHeader(data: login).reliableID, 0)
+        XCTAssertEqual(
+            try GatewayFrameCodec.decode(login, encryptCode: 0xDEAD_BEEF).header.reliableID,
+            0
+        )
 
         let followUp = try session.makeFrame(packet: Data([0x01, 0x00]), secure: false)
-        XCTAssertEqual(try LoginFrameHeader(data: followUp).reliableID, 1)
+        XCTAssertEqual(
+            try GatewayFrameCodec.decode(followUp, encryptCode: 0xDEAD_BEEF).header.reliableID,
+            1
+        )
 
         let next = try session.makeFrame(packet: Data([0x02, 0x00]), secure: false)
-        XCTAssertEqual(try LoginFrameHeader(data: next).reliableID, 2)
+        XCTAssertEqual(
+            try GatewayFrameCodec.decode(next, encryptCode: 0xDEAD_BEEF).header.reliableID,
+            2
+        )
     }
 
     // MARK: - Connect / confirm

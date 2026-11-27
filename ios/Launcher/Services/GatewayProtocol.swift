@@ -38,7 +38,8 @@ import Foundation
 //   FIPS-197 AES known-answer vectors, a CCM vector computed with an
 //   independent AESCCM implementation (13-byte nonce, no AAD), and round trips.
 // - zlib compression bytes (flag 1 in GatewayConnection.EncryptUserSupplied)
-//   are not decoded; this file emits an explicit error instead of guessing.
+//   are decoded by the shared UdpLibraryTransport helper when the platform
+//   exposes the Compression framework; outbound packets always use raw (0).
 // - Reliable resend/ack windows are transport concerns. Outgoing reliable ids
 //   are generated here; incoming ids are recorded but not used for replay
 //   rejection because Sanctuary accepts retransmits inside its sliding window.
@@ -755,45 +756,73 @@ struct GatewayFrame: Equatable {
 }
 
 enum GatewayFrameCodec {
-    /// The user-supplied compression pass prepends 0 (raw) or 1 (zlib) after
-    /// the four-byte reliable header. We always emit 0; zlib is not decoded.
+    /// `PhysicalSend` preserves the two-byte internal header and runs
+    /// `EncryptUserSupplied` on everything after it. `GatewayConnection` puts
+    /// its 0/1 flag before the reliable id, so the wire layout is
+    /// `0x00, type, flag, id_hi, id_lo, payload, CRC`. We always emit raw (0).
     static func encode(_ frame: GatewayFrame, encryptCode: UInt32) -> Data {
-        var body = Data()
-        if frame.compressionEnabled {
-            body.append(0)
-        }
-        body.append(frame.payload)
-        return LoginFrame.encode(
-            header: frame.header,
+        UdpLibrary.encodeReliable(
+            type: frame.header.type.rawValue,
+            reliableID: frame.header.reliableID,
             encryptCode: encryptCode,
-            ciphertext: body
+            userSuppliedCompression: frame.compressionEnabled,
+            payload: frame.payload
         )
     }
 
     static func decode(_ data: Data, encryptCode: UInt32, compressionEnabled: Bool = true) throws -> GatewayFrame {
-        let physical: LoginFrame
+        let cooked: Data
         do {
-            physical = try LoginFrame.decode(data, encryptCode: encryptCode)
-        } catch let error as LoginProtocolError {
-            throw GatewayProtocolError.physicalFrame(error)
+            cooked = try UdpLibrary.cook(
+                data,
+                encryptCode: encryptCode,
+                userSuppliedCompression: compressionEnabled
+            )
+        } catch let error as UdpLibraryError {
+            throw map(error)
         }
-        var body = physical.ciphertext
-        if compressionEnabled {
-            guard let flag = body.first else {
-                throw GatewayProtocolError.missingCompressionFlag
-            }
-            guard flag == 0 else {
-                throw GatewayProtocolError.unsupportedCompression(flag)
-            }
-            // Data slices keep a non-zero startIndex; PacketReader indexes from
-            // zero, so make a fresh Data value after dropping the flag.
-            body = Data(body.dropFirst())
+
+        var state = UdpLibraryReassemblyState()
+        let packets = UdpLibrary.parse(cooked, state: &state)
+        guard let first = packets.first else {
+            throw GatewayProtocolError.malformedFrame("empty cooked packet")
         }
+        guard case .reliable(let type, let reliableID, let body, let applications) = first else {
+            throw GatewayProtocolError.malformedFrame("not a reliable gateway frame")
+        }
+        guard let frameType = UdpFrameType(rawValue: type), frameType.isReliableApplicationFrame else {
+            throw GatewayProtocolError.unexpectedFrameType(
+                expected: UdpFrameType.reliable1.rawValue, actual: type
+            )
+        }
+        // `body` still contains the zero-escape byte when the application
+        // payload starts with 0. The parsed applications have it stripped,
+        // matching C# ProcessCookedPacket -> CallbackRoutePacket.
+        let payload = applications.first ?? body
         return GatewayFrame(
-            header: physical.header,
+            header: LoginFrameHeader(type: frameType, reliableID: reliableID),
             compressionEnabled: compressionEnabled,
-            payload: body
+            payload: payload
         )
+    }
+
+    private static func map(_ error: UdpLibraryError) -> GatewayProtocolError {
+        switch error {
+        case .truncated:
+            return .physicalFrame(.frameTooShort(expected: 0, available: 0))
+        case .badMarker(let value):
+            return .physicalFrame(.invalidFrameMarker(value))
+        case .crcMismatch(let expected, let actual):
+            return .physicalFrame(.crcMismatch(expected: expected, actual: actual))
+        case .unsupportedCompression(let flag):
+            return .unsupportedCompression(flag)
+        case .compressionUnavailable:
+            return .malformedFrame("zlib compression is unavailable")
+        case .decompressionFailed:
+            return .malformedFrame("failed to inflate gateway frame")
+        case .fragmentTooLarge, .fragmentOverflow:
+            return .malformedFrame("invalid reliable fragment")
+        }
     }
 }
 

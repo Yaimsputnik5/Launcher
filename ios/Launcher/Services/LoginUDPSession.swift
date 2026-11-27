@@ -138,6 +138,7 @@ final class LoginUDPSession: @unchecked Sendable {
     private var fullFlow = false
     private var encryptCode: UInt32 = 0
     private var cipher = LoginCipher()
+    private var udpState = UdpLibraryReassemblyState()
     private var outgoingReliableID: UInt16 = 0
     private var pendingReliableFrame: Data?
     private var flowResult = LoginFlowResult()
@@ -420,17 +421,71 @@ final class LoginUDPSession: @unchecked Sendable {
 
     private func handle(datagram data: Data) {
         guard data.count >= 2, data[0] == 0 else { return }
-        switch data[1] {
-        case 2:
+        if data[1] == UdpFrameType.confirm.rawValue, stage == .negotiating {
             handleConfirm(data)
-        case 17...20:
-            // Ack for our reliable request. Each stage keeps retransmitting its
-            // own frame until the matching reply arrives or the flow times out.
+            return
+        }
+
+        // LoginUdp_6 negotiated methods [0,0], so there is no user-supplied
+        // pass. The shared decoder still validates the CRC, expands Multi and
+        // Group containers, and reassembles reliable fragments.
+        do {
+            let cooked = try UdpLibrary.cook(
+                data,
+                encryptCode: encryptCode,
+                userSuppliedCompression: false
+            )
+            for packet in UdpLibrary.parse(cooked, state: &udpState) {
+                handleUdpPacket(packet)
+            }
+        } catch {
+            // A malformed datagram is ignored; the overall timeout keeps the
+            // caller from hanging if every packet is corrupt.
+            _ = error
+        }
+    }
+
+    private func handleUdpPacket(_ packet: UdpLibraryPacket) {
+        switch packet {
+        case .reliable(let type, let reliableID, _, let applications):
+            sendAck(type: type, reliableID: reliableID)
+            for application in applications {
+                handleApplication(application)
+            }
+        case .ack(_, let reliableID):
+            acknowledgeOutgoing(reliableID)
+        case .ackAll(_, let reliableID):
+            acknowledgeOutgoingThrough(reliableID)
+        case .application, .internalPacket:
             break
-        case 9...12:
-            handleReliable(data)
+        }
+    }
+
+    private func handleApplication(_ application: Data) {
+        let plaintext = cipher.decryptPacket(application)
+        guard let message = try? LoginPacket.decodeAny(from: plaintext) else { return }
+        switch message {
+        case .sessionReply(let reply):
+            handleSessionReply(reply)
+        case .characterSelectReply(let reply):
+            handleCharacterSelectReply(reply)
+        case .characterLoginReply(let reply):
+            handleCharacterLoginReply(reply)
         default:
             break
+        }
+    }
+
+    /// Stops resending the one outstanding request once the peer ACKs it.
+    private func acknowledgeOutgoing(_ reliableID: UInt16) {
+        guard reliableID == (outgoingReliableID &- 1) else { return }
+        loginRetryStop()
+    }
+
+    private func acknowledgeOutgoingThrough(_ reliableID: UInt16) {
+        let distance = Int(UInt16(truncatingIfNeeded: reliableID &- (outgoingReliableID &- 1)))
+        if distance < 0x8000 {
+            loginRetryStop()
         }
     }
 
@@ -454,29 +509,6 @@ final class LoginUDPSession: @unchecked Sendable {
         // The remote EncryptCode seeds the UDP CRC. Application RC4 state is
         // independent and was initialized with the fixed login key.
         sendSessionRequest()
-    }
-
-    private func handleReliable(_ data: Data) {
-        do {
-            let frame = try LoginFrame.decode(data, encryptCode: encryptCode)
-            sendAck(for: frame.header)
-            let plaintext = cipher.decryptPacket(frame.ciphertext)
-            guard let message = try? LoginPacket.decodeAny(from: plaintext) else { return }
-            switch message {
-            case .sessionReply(let reply):
-                handleSessionReply(reply)
-            case .characterSelectReply(let reply):
-                handleCharacterSelectReply(reply)
-            case .characterLoginReply(let reply):
-                handleCharacterLoginReply(reply)
-            default:
-                break
-            }
-        } catch {
-            // A malformed datagram is ignored; the overall timeout keeps the
-            // caller from hanging if every packet is corrupt.
-            _ = error
-        }
     }
 
     private func handleSessionReply(_ reply: LoginProtocol.SessionReply) {
@@ -620,12 +652,10 @@ final class LoginUDPSession: @unchecked Sendable {
         )
     }
 
-    private func sendAck(for header: LoginFrameHeader) {
-        let channel = Int(header.type.rawValue - UdpFrameType.reliable1.rawValue)
-        guard channel >= 0, channel < 4 else { return }
-        let ackType = 17 + UInt8(channel)
+    private func sendAck(type: UInt8, reliableID: UInt16) {
+        guard let ackType = UdpLibrary.ackType(for: type) else { return }
         var packet = Data([0, ackType])
-        appendBE16(header.reliableID, to: &packet)
+        appendBE16(reliableID, to: &packet)
         let crc = UInt16(truncatingIfNeeded: CRC32.checksum(packet, encryptCode: encryptCode))
         appendBE16(crc, to: &packet)
         rawSend(packet)
@@ -730,6 +760,8 @@ final class GatewayUDPSession: @unchecked Sendable {
     private var stage: Stage = .negotiating
     private var encryptCode: UInt32 = 0
     private var gateway: GatewaySession
+    private var udpState = UdpLibraryReassemblyState()
+    private var userSuppliedCompression = true
     private var isActive = false
     private var continuation: CheckedContinuation<Void, Error>?
     private var pendingFrames: [UInt16: Data] = [:]
@@ -830,15 +862,69 @@ final class GatewayUDPSession: @unchecked Sendable {
 
     private func handle(datagram data: Data) {
         guard data.count >= 2, data[0] == 0 else { return }
-        switch data[1] {
-        case UdpFrameType.confirm.rawValue:
+        if data[1] == UdpFrameType.confirm.rawValue, stage == .negotiating {
             handleConfirm(data)
-        case 17...20:
-            handleAck(data)
-        case 9...12:
-            handleReliable(data)
-        default:
+            return
+        }
+
+        do {
+            let cooked = try UdpLibrary.cook(
+                data,
+                encryptCode: encryptCode,
+                userSuppliedCompression: userSuppliedCompression
+            )
+            for packet in UdpLibrary.parse(cooked, state: &udpState) {
+                handleUdpPacket(packet)
+            }
+        } catch {
+            // Keep the session alive for later packets; the login timeout still
+            // bounds a peer that only sends corrupt data.
+            _ = error
+        }
+    }
+
+    private func handleUdpPacket(_ packet: UdpLibraryPacket) {
+        switch packet {
+        case .reliable(let type, let reliableID, _, let applications):
+            sendAck(type: type, reliableID: reliableID)
+            for application in applications {
+                handleApplication(application)
+            }
+        case .ack(_, let reliableID):
+            pendingFrames.removeValue(forKey: reliableID)
+        case .ackAll(_, let reliableID):
+            acknowledgeAll(through: reliableID)
+        case .application, .internalPacket:
             break
+        }
+    }
+
+    private func handleApplication(_ application: Data) {
+        do {
+            for event in gateway.receiveApplicationData(application) {
+                switch event {
+                case .packet(.loginReply(let reply)) where reply.success:
+                    completeLogin()
+                case .packet(.loginReply(_)):
+                    fail(GatewayUDPError.rejected)
+                case .rejected(let error):
+                    fail(GatewayUDPError.protocolError(error.localizedDescription))
+                default:
+                    break
+                }
+            }
+        } catch {
+            fail(GatewayUDPError.protocolError(error.localizedDescription))
+        }
+    }
+
+    /// `AckAll` acknowledges every reliable id up to and including its stamp.
+    private func acknowledgeAll(through reliableID: UInt16) {
+        for pendingID in Array(pendingFrames.keys) {
+            let distance = Int(UInt16(truncatingIfNeeded: reliableID &- pendingID))
+            if distance < 0x8000 {
+                pendingFrames.removeValue(forKey: pendingID)
+            }
         }
     }
 
@@ -858,10 +944,16 @@ final class GatewayUDPSession: @unchecked Sendable {
         }
         stage = .login
         encryptCode = UInt32(bitPattern: confirm.encryptCode)
+        userSuppliedCompression = confirm.encryptMethod1 == 1
+        guard confirm.encryptMethod2 == 0 else {
+            fail(GatewayUDPError.protocolError("Unsupported second encrypt method \(confirm.encryptMethod2)"))
+            return
+        }
+        udpState.reset()
         gateway = GatewaySession(
             connectCode: connectCode,
             encryptCode: encryptCode,
-            compressionEnabled: true
+            compressionEnabled: userSuppliedCompression
         )
         connectRetry?.cancel()
         connectRetry = nil
@@ -873,40 +965,6 @@ final class GatewayUDPSession: @unchecked Sendable {
             installTimeout(20)
         } catch {
             fail(GatewayUDPError.protocolError("PacketLogin failed: \(error.localizedDescription)"))
-        }
-    }
-
-    private func handleAck(_ data: Data) {
-        guard data.count >= 6, (stage == .login || isActive) else { return }
-        let crc = UInt16(truncatingIfNeeded: CRC32.checksum(Data(data.prefix(4)), encryptCode: encryptCode))
-        guard readBE16(data, offset: 4) == crc else { return }
-        pendingFrames.removeValue(forKey: readBE16(data, offset: 2))
-    }
-
-    private func handleReliable(_ data: Data) {
-        do {
-            let frame = try GatewayFrameCodec.decode(
-                data,
-                encryptCode: encryptCode,
-                compressionEnabled: true
-            )
-            sendAck(for: frame.header)
-            for event in gateway.receive(frame: data) {
-                switch event {
-                case .packet(.loginReply(let reply)) where reply.success:
-                    completeLogin()
-                case .packet(.loginReply(_)):
-                    fail(GatewayUDPError.rejected)
-                case .rejected(let error):
-                    fail(GatewayUDPError.protocolError(error.localizedDescription))
-                default:
-                    break
-                }
-            }
-        } catch {
-            // Ignore malformed datagrams while connected; the handshake timeout
-            // still bounds a failing login.
-            _ = error
         }
     }
 
@@ -935,18 +993,24 @@ final class GatewayUDPSession: @unchecked Sendable {
         )
     }
 
-    private func sendAck(for header: LoginFrameHeader) {
-        let channel = Int(header.type.rawValue - UdpFrameType.reliable1.rawValue)
-        guard channel >= 0, channel < 4 else { return }
-        var packet = Data([0, 17 + UInt8(channel)])
-        appendBE16(header.reliableID, to: &packet)
+    private func sendAck(type: UInt8, reliableID: UInt16) {
+        guard let ackType = UdpLibrary.ackType(for: type) else { return }
+        var packet = Data([0, ackType])
+        appendBE16(reliableID, to: &packet)
         let crc = UInt16(truncatingIfNeeded: CRC32.checksum(packet, encryptCode: encryptCode))
         appendBE16(crc, to: &packet)
         rawSend(packet)
     }
 
     private func enqueue(_ frame: Data) {
-        guard let id = try? LoginFrameHeader(data: frame).reliableID else { return }
+        // With user-supplied compression the flag precedes the reliable id, so
+        // the plain LoginFrameHeader parser cannot locate the id.
+        let idOffset = userSuppliedCompression ? 3 : 2
+        guard frame.count > idOffset + 1, frame[0] == 0,
+              frame[1] >= UdpFrameType.reliable1.rawValue,
+              frame[1] <= UdpFrameType.reliable4.rawValue
+        else { return }
+        let id = (UInt16(frame[idOffset]) << 8) | UInt16(frame[idOffset + 1])
         pendingFrames[id] = frame
         rawSend(frame)
         scheduleRetryIfNeeded()

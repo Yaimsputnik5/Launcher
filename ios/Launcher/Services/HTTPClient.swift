@@ -3,23 +3,33 @@ import Foundation
 final class HTTPClient {
     static let shared = HTTPClient()
 
+    /// API requests use the same 10s timeout and User-Agent format as the C#
+    /// launcher's `HttpHelper.CreateHttpClient`. Downloads use a separate
+    /// client with no overall timeout, matching `CreateDownloadHttpClient`.
     private let session: URLSession
+    private let downloadSession: URLSession
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
     private let userAgent: String
 
     private init() {
         let configuration = URLSessionConfiguration.default
-        configuration.timeoutIntervalForRequest = 20
+        configuration.timeoutIntervalForRequest = 10
         configuration.httpMaximumConnectionsPerHost = max(2, ProcessInfo.processInfo.activeProcessorCount)
         configuration.urlCache = nil
         session = URLSession(configuration: configuration)
+
+        let downloadConfiguration = URLSessionConfiguration.default
+        downloadConfiguration.timeoutIntervalForRequest = .infinity
+        downloadConfiguration.httpMaximumConnectionsPerHost = max(2, ProcessInfo.processInfo.activeProcessorCount)
+        downloadConfiguration.urlCache = nil
+        downloadSession = URLSession(configuration: downloadConfiguration)
 
         decoder = JSONDecoder()
         encoder = JSONEncoder()
         let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "OSFR Launcher"
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
-        userAgent = "\(appName)/\(version) (iOS)"
+        userAgent = "\(appName) v\(version)"
     }
 
     func serverManifest(from url: URL) async throws -> ServerManifest {
@@ -90,7 +100,7 @@ final class HTTPClient {
         var request = URLRequest(url: url)
         request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("*/*", forHTTPHeaderField: "Accept")
-        let (bytes, response) = try await session.bytes(for: request)
+        let (bytes, response) = try await downloadSession.bytes(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw LauncherError.httpStatus(-1)
         }
