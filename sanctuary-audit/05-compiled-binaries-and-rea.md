@@ -255,6 +255,18 @@ decompiled behavior. The `StartingZone`, `ProfileName`, `PlayerName`, `Coins`,
 `StationCash`, `Locale`, `SessionId` and `Server` identifiers remain observed
 strings; their exact use in the shipped client remains unresolved.
 
+A second targeted `strings -a -n 6` pass over the same SHA-256 confirmed that
+the native client links its own `UdpLibrary` implementation. Relevant diagnostic
+and RTTI strings include `ReliablePing=%dms  ZonePing=%dms`,
+`DisconnectReasonReliableOverflow`, `NoCastRecastTimer`,
+`reliableOutgoingId=%lld`, `reliableOutgoingPendingId=%lld`,
+`.?AVUdpConnection@UdpLibrary@@` and
+`.?AVGroupLogicalPacket@UdpLibrary@@`. These corroborate that the shipped client
+tracks separate current/pending outbound reliable IDs and group logical packets,
+matching the field names in Sanctuary's C# `UdpReliableChannel`. They are string
+observations only; the exact native control flow was not recovered because
+auto-analysis timed out before references were created.
+
 ## Ghidra observations: Launcher apphost
 
 The Windows `Launcher.exe` is a standard .NET apphost, not the application

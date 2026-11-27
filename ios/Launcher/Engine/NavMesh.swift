@@ -87,6 +87,55 @@ final class NavMeshSet {
         var isOffMesh: Bool
     }
 
+    private struct OpenEntry {
+        let node: Node
+        let priority: Double
+    }
+
+    /// Binary min-heap for A*. The previous linear scan over the open set was
+    /// quadratic in a burst of gateway-independent waypoint requests.
+    private struct OpenHeap {
+        private var entries: [OpenEntry] = []
+
+        var isEmpty: Bool { entries.isEmpty }
+
+        mutating func push(_ entry: OpenEntry) {
+            entries.append(entry)
+            var child = entries.count - 1
+            while child > 0 {
+                let parent = (child - 1) / 2
+                guard entries[child].priority < entries[parent].priority else { break }
+                entries.swapAt(child, parent)
+                child = parent
+            }
+        }
+
+        mutating func pop() -> OpenEntry? {
+            guard let first = entries.first else { return nil }
+            if entries.count == 1 {
+                entries.removeLast()
+                return first
+            }
+            entries[0] = entries.removeLast()
+            var parent = 0
+            while true {
+                let left = parent * 2 + 1
+                let right = left + 1
+                var smallest = parent
+                if left < entries.count, entries[left].priority < entries[smallest].priority {
+                    smallest = left
+                }
+                if right < entries.count, entries[right].priority < entries[smallest].priority {
+                    smallest = right
+                }
+                guard smallest != parent else { break }
+                entries.swapAt(parent, smallest)
+                parent = smallest
+            }
+            return first
+        }
+    }
+
     private struct Tile {
         let header: TileHeader
         let vertices: [Float]
@@ -355,11 +404,12 @@ final class NavMeshSet {
         var cameFrom: [Node: Node] = [:]
         var bestCost: [Node: Double] = [startNode: 0]
         var closed: Set<Node> = []
-        var open: [(node: Node, priority: Double)] = [(startNode, 0)]
+        var open = OpenHeap()
+        open.push(OpenEntry(node: startNode, priority: 0))
         var expanded = 0
 
-        while let next = open.indices.min(by: { open[$0].priority < open[$1].priority }) {
-            let current = open.remove(at: next).node
+        while let next = open.pop() {
+            let current = next.node
             if closed.contains(current) { continue }
             if current == goalNode {
                 var nodes: [Node] = [current]
@@ -370,6 +420,16 @@ final class NavMeshSet {
                 }
                 nodes.reverse()
                 var result: [Point] = nodes.compactMap { try? centroid(of: $0) }
+                // Detour's straight-path begins at the closest point on the
+                // start polygon, not at that polygon's centroid.
+                if let startPolylineBegin = try? closestPointOnPolygon(startNode, to: start) {
+                    if !result.isEmpty,
+                       Self.distance(result[0], startPolylineBegin) > 0.25 {
+                        result[0] = startPolylineBegin
+                    } else if result.isEmpty {
+                        result.append(startPolylineBegin)
+                    }
+                }
                 if let goalPolylineEnd = try? closestPointOnPolygon(goalNode, to: goal) {
                     if let last = result.last,
                        Self.distance(last, goalPolylineEnd) > 0.25 {
@@ -394,7 +454,10 @@ final class NavMeshSet {
                 guard tentative < (bestCost[neighbor] ?? .infinity) else { continue }
                 bestCost[neighbor] = tentative
                 cameFrom[neighbor] = current
-                open.append((neighbor, tentative + Double(Self.distance(neighborCenter, goal))))
+                open.push(OpenEntry(
+                    node: neighbor,
+                    priority: tentative + Double(Self.distance(neighborCenter, goal))
+                ))
             }
         }
         return nil

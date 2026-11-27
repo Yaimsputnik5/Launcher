@@ -1,6 +1,13 @@
 import Foundation
 import Network
 
+/// Millisecond monotonic clock used by the send-side UdpLibrary state. Both the
+/// login and gateway sessions run on their own serial queues, so no locking is
+/// needed around the state it feeds.
+private func udpClockMilliseconds() -> UInt64 {
+    UInt64(DispatchTime.now().uptimeNanoseconds / 1_000_000)
+}
+
 // Client-side Sanctuary LoginUdp_6 transport.
 //
 // Source-backed behavior (Sanctuary fork at /tmp/opencode/sanctuary/src):
@@ -141,6 +148,8 @@ final class LoginUDPSession: @unchecked Sendable {
     private var udpState = UdpLibraryReassemblyState()
     private var incomingReliable = UdpLibraryIncomingReliableState()
     private var outgoingReliableID: UInt16 = 0
+    private var connectionConfig: UdpLibraryConnectionConfig?
+    private var outgoingReliable: UdpLibraryOutgoingReliableState?
     private var pendingReliableFrame: Data?
     private var flowResult = LoginFlowResult()
     private var continuation: CheckedContinuation<LoginFlowResult, Error>?
@@ -464,9 +473,19 @@ final class LoginUDPSession: @unchecked Sendable {
             for application in ack.applications {
                 handleApplication(application)
             }
-        case .ack(_, let reliableID):
+        case .ack(let type, let reliableID):
+            outgoingReliable?.acknowledge(
+                type: type,
+                stamp: reliableID,
+                now: udpClockMilliseconds()
+            )
             acknowledgeOutgoing(reliableID)
-        case .ackAll(_, let reliableID):
+        case .ackAll(let type, let reliableID):
+            outgoingReliable?.acknowledgeAll(
+                type: type,
+                stamp: reliableID,
+                now: udpClockMilliseconds()
+            )
             acknowledgeOutgoingThrough(reliableID)
         case .application, .internalPacket:
             break
@@ -514,7 +533,29 @@ final class LoginUDPSession: @unchecked Sendable {
             finish(.failure(LoginUDPError.protocolError("Unsupported CRC byte count \(data[10])")))
             return
         }
-        encryptCode = readBE32(data, offset: 6)
+        // LoginUdp_6 does not negotiate a user-supplied pass on the live
+        // server. Refuse one explicitly rather than framing packets without
+        // its flag and silently producing malformed datagrams.
+        guard data[11] == 0, data[12] == 0 else {
+            finish(.failure(LoginUDPError.protocolError(
+                "Unsupported login encrypt methods \(data[11]),\(data[12])"
+            )))
+            return
+        }
+        let config = UdpLibraryConnectionConfig(
+            encryptCode: readBE32(data, offset: 6),
+            crcBytes: Int(data[10]),
+            encryptMethod1: data[11],
+            encryptMethod2: data[12],
+            maxRawPacketSize: Int(Int32(bitPattern: readBE32(data, offset: 13)))
+        )
+        guard config.maxReliablePayloadBytes > 0 else {
+            finish(.failure(LoginUDPError.protocolError("Invalid MaxRawPacketSize")))
+            return
+        }
+        connectionConfig = config
+        outgoingReliable = UdpLibraryOutgoingReliableState(config: config)
+        encryptCode = config.encryptCode
         stage = .session
         connectRetry?.cancel()
         connectRetry = nil
@@ -637,6 +678,12 @@ final class LoginUDPSession: @unchecked Sendable {
             ciphertext: cipher.encryptPacket(packet)
         )
         pendingReliableFrame = frame
+        outgoingReliable?.noteSent(
+            stamp: header.reliableID,
+            channel: 0,
+            length: frame.count,
+            now: udpClockMilliseconds()
+        )
         rawSend(frame)
         scheduleReliableRetry()
     }
@@ -647,19 +694,30 @@ final class LoginUDPSession: @unchecked Sendable {
         pendingReliableFrame = nil
     }
 
-    private func scheduleReliableRetry() {
+    private func scheduleReliableRetry(delay overrideDelay: UInt64? = nil) {
         let item = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.queue.async {
-                guard self.continuation != nil, let frame = self.pendingReliableFrame else { return }
-                self.rawSend(frame)
-                self.scheduleReliableRetry()
+                guard self.continuation != nil,
+                      let frame = self.pendingReliableFrame,
+                      var state = self.outgoingReliable
+                else { return }
+                let tick = state.giveTime(now: udpClockMilliseconds())
+                self.outgoingReliable = state
+                if tick.timedOut {
+                    self.finish(.failure(LoginUDPError.timeout("reliable unacknowledged timeout")))
+                    return
+                }
+                if !tick.resends.isEmpty { self.rawSend(frame) }
+                self.reliableRetry = nil
+                self.scheduleReliableRetry(delay: tick.delay)
             }
         }
         reliableRetry?.cancel()
         reliableRetry = item
+        let milliseconds = max(1, overrideDelay ?? 1_000)
         DispatchQueue.global(qos: .utility).asyncAfter(
-            deadline: .now() + Self.connectAttemptDelay,
+            deadline: .now() + .milliseconds(Int(milliseconds)),
             execute: item
         )
     }
@@ -701,6 +759,7 @@ final class LoginUDPSession: @unchecked Sendable {
         reliableRetry = nil
         timeoutWork = nil
         pendingReliableFrame = nil
+        outgoingReliable?.reset()
         connection.stateUpdateHandler = nil
         connection.cancel()
         switch result {
@@ -770,6 +829,8 @@ final class GatewayUDPSession: @unchecked Sendable {
     /// Ordered inbound reliable channels. Matches Sanctuary's buffering and
     /// duplicate suppression; only packet-backed applications are delivered.
     private var incomingReliable = UdpLibraryIncomingReliableState()
+    private var connectionConfig: UdpLibraryConnectionConfig?
+    private var outgoingReliable: UdpLibraryOutgoingReliableState?
     private var userSuppliedCompression = true
     private var isActive = false
     private var continuation: CheckedContinuation<Void, Error>?
@@ -935,9 +996,19 @@ final class GatewayUDPSession: @unchecked Sendable {
             }
         case .ack(let type, let reliableID):
             record("ack type=\(type) id=\(reliableID)")
+            outgoingReliable?.acknowledge(
+                type: type,
+                stamp: reliableID,
+                now: udpClockMilliseconds()
+            )
             pendingFrames.removeValue(forKey: reliableID)
         case .ackAll(let type, let reliableID):
             record("ack-all type=\(type) id=\(reliableID)")
+            outgoingReliable?.acknowledgeAll(
+                type: type,
+                stamp: reliableID,
+                now: udpClockMilliseconds()
+            )
             acknowledgeAll(through: reliableID)
         case .application(let data):
             record("direct-app len=\(data.count)")
@@ -978,6 +1049,11 @@ final class GatewayUDPSession: @unchecked Sendable {
 
     /// `AckAll` acknowledges every reliable id up to and including its stamp.
     private func acknowledgeAll(through reliableID: UInt16) {
+        if let state = outgoingReliable {
+            let remaining = Set(state.pendingStamps)
+            pendingFrames = pendingFrames.filter { remaining.contains($0.key) }
+            return
+        }
         for pendingID in Array(pendingFrames.keys) {
             let distance = Int(UInt16(truncatingIfNeeded: reliableID &- pendingID))
             if distance < 0x8000 {
@@ -1011,6 +1087,19 @@ final class GatewayUDPSession: @unchecked Sendable {
             fail(GatewayUDPError.protocolError("Unsupported second encrypt method \(confirm.encryptMethod2)"))
             return
         }
+        let config = UdpLibraryConnectionConfig(
+            encryptCode: encryptCode,
+            crcBytes: Int(confirm.crcBytes),
+            encryptMethod1: confirm.encryptMethod1,
+            encryptMethod2: confirm.encryptMethod2,
+            maxRawPacketSize: Int(confirm.maxRawPacketSize)
+        )
+        guard config.maxReliablePayloadBytes > 0 else {
+            fail(GatewayUDPError.protocolError("Invalid MaxRawPacketSize \(confirm.maxRawPacketSize)"))
+            return
+        }
+        connectionConfig = config
+        outgoingReliable = UdpLibraryOutgoingReliableState(config: config)
         udpState.reset()
         incomingReliable.reset()
         gateway = GatewaySession(
@@ -1065,25 +1154,51 @@ final class GatewayUDPSession: @unchecked Sendable {
               frame[1] <= UdpFrameType.reliable4.rawValue
         else { return }
         let id = (UInt16(frame[idOffset]) << 8) | UInt16(frame[idOffset + 1])
+        let channel = frame[1] - UdpFrameType.reliable1.rawValue
         pendingFrames[id] = frame
+        outgoingReliable?.noteSent(
+            stamp: id,
+            channel: channel,
+            length: frame.count,
+            now: udpClockMilliseconds()
+        )
         rawSend(frame)
         scheduleRetryIfNeeded()
     }
 
-    private func scheduleRetryIfNeeded() {
+    private func scheduleRetryIfNeeded(delay overrideDelay: UInt64? = nil) {
         guard retryTimer == nil, !pendingFrames.isEmpty else { return }
         let item = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.queue.async {
                 self.retryTimer = nil
                 guard (self.continuation != nil || self.isActive), !self.pendingFrames.isEmpty else { return }
-                for frame in self.pendingFrames.values { self.rawSend(frame) }
-                self.scheduleRetryIfNeeded()
+                var tick: UdpLibraryOutgoingReliableState.Tick?
+                if var state = self.outgoingReliable {
+                    let computed = state.giveTime(now: udpClockMilliseconds())
+                    self.outgoingReliable = state
+                    tick = computed
+                    if computed.timedOut {
+                        self.fail(GatewayUDPError.timeout("reliable unacknowledged timeout;\(self.diagnosticSuffix)"))
+                        return
+                    }
+                }
+                if let tick {
+                    for resend in tick.resends {
+                        guard let frame = self.pendingFrames[resend.id] else { continue }
+                        self.rawSend(frame)
+                    }
+                    self.scheduleRetryIfNeeded(delay: tick.delay)
+                } else {
+                    for frame in self.pendingFrames.values { self.rawSend(frame) }
+                    self.scheduleRetryIfNeeded()
+                }
             }
         }
         retryTimer = item
+        let milliseconds = max(1, overrideDelay ?? UInt64(Self.retryDelay * 1_000))
         DispatchQueue.global(qos: .utility).asyncAfter(
-            deadline: .now() + Self.retryDelay,
+            deadline: .now() + .milliseconds(Int(milliseconds)),
             execute: item
         )
     }
@@ -1208,8 +1323,10 @@ final class GatewayUDPSession: @unchecked Sendable {
         self.continuation = nil
         isActive = true
         connectRetry?.cancel()
+        retryTimer?.cancel()
         timeoutWork?.cancel()
         connectRetry = nil
+        retryTimer = nil
         timeoutWork = nil
         scheduleKeepAlive()
         pendingContinuation.resume(returning: ())
@@ -1249,6 +1366,8 @@ final class GatewayUDPSession: @unchecked Sendable {
         timeoutWork = nil
         pendingFrames.removeAll()
         incomingReliable.reset()
+        outgoingReliable?.reset()
+        connectionConfig = nil
     }
 
     deinit {

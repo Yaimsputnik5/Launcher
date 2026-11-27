@@ -157,6 +157,272 @@ struct UdpLibraryIncomingReliableState {
     }
 }
 
+/// Negotiated connection facts from a UdpLibrary Confirm packet. The live
+/// gateway uses CRC-2, no second encryption pass and a 512-byte raw packet;
+/// keeping all four values lets the sender reject unsupported peers and size
+/// reliable payloads from the peer's limit instead of our receive buffer.
+struct UdpLibraryConnectionConfig: Equatable, Sendable {
+    var encryptCode: UInt32
+    var crcBytes: Int
+    var encryptMethod1: UInt8
+    var encryptMethod2: UInt8
+    var maxRawPacketSize: Int
+
+    var userSuppliedCompression: Bool { encryptMethod1 == 1 }
+
+    /// `UdpConnection.SetupEncryptModel` counts only user-supplied expansion in
+    /// Sanctuary's external-client configuration; Xor/XorBuffer are in-place.
+    var encryptExpansionBytes: Int { encryptMethod1 == 1 ? 1 : 0 }
+
+    /// `UdpReliableChannel` constructor: MaxRawPacketSize - reliable header (4)
+    /// - CRC bytes - encryption expansion bytes.
+    var maxReliablePayloadBytes: Int {
+        maxRawPacketSize - 4 - crcBytes - encryptExpansionBytes
+    }
+}
+
+/// Send-side state for one UdpLibrary reliable channel. This ports the window,
+/// RTT, congestion and ACK/AckAll transitions of Sanctuary's
+/// `Internal/UdpReliableChannel.cs`; frame encryption and socket writes remain
+/// in the session so the same state works for both Login and Gateway UDP.
+struct UdpLibraryOutgoingReliableState {
+    struct Entry: Equatable, Sendable {
+        let id: UInt64
+        let channel: UInt8
+        let length: Int
+        let firstSend: UInt64
+        var lastSend: UInt64
+        var sendCount: Int
+    }
+
+    struct Resend: Equatable, Sendable {
+        let id: UInt16
+        let channel: UInt8
+    }
+
+    struct Tick: Equatable, Sendable {
+        var resends: [Resend] = []
+        var delay: UInt64 = 0
+        var timedOut = false
+    }
+
+    private static let maximumOutstandingPackets = 400
+    private static let maximumOutstandingBytes = 200 * 1024
+    private static let resendDelayPercent: UInt64 = 125
+    private static let resendDelayAdjust: UInt64 = 300
+    private static let resendDelayCap: UInt64 = 8_000
+    private static let oldestUnacknowledgedTimeout: UInt64 = 120_000
+    private static let toleranceLossCount = 0
+
+    let config: UdpLibraryConnectionConfig
+    private let maximumDataBytes: Int
+    private let congestionWindowMinimum: Int
+    private let congestionWindowStart: Int
+    private let slowStartThreshold: Int
+
+    private var entries: [UInt64: Entry] = [:]
+    private var nextID: UInt64 = 0
+    private var pendingID: UInt64 = 0
+    private var averagePing: UInt64 = 800
+    private var congestionWindowSize: Int
+    private var lastAcknowledgedSend: UInt64 = 0
+    private var windowResetTime: UInt64 = 0
+    private var maxxedOutCurrentWindow = false
+    private var tolerantLosses = 0
+
+    var outstandingCount: Int { entries.count }
+    var outstandingBytes: Int { entries.values.reduce(0) { $0 + $1.length } }
+
+    init(config: UdpLibraryConnectionConfig) {
+        self.config = config
+        let maximum = max(1, config.maxReliablePayloadBytes)
+        self.maximumDataBytes = maximum
+        self.congestionWindowMinimum = maximum
+        let start = min(4 * maximum, max(2 * maximum, 4380))
+        self.congestionWindowStart = max(start, 8 * 1024)
+        self.congestionWindowSize = congestionWindowStart
+        self.slowStartThreshold = min(
+            Self.maximumOutstandingPackets * maximum,
+            Self.maximumOutstandingBytes
+        )
+    }
+
+    mutating func reset() {
+        entries.removeAll()
+        nextID = 0
+        pendingID = 0
+        averagePing = 800
+        congestionWindowSize = congestionWindowStart
+        lastAcknowledgedSend = 0
+        windowResetTime = 0
+        maxxedOutCurrentWindow = false
+        tolerantLosses = 0
+    }
+
+    /// Reconstructs the full 64-bit id from a 16-bit wire stamp exactly as
+    /// `GetReliableOutgoingId` does for the low word of `ReliableOutgoingId`.
+    private func fullID(for stamp: UInt16) -> UInt64 {
+        var id = UInt64(stamp) | (nextID & ~0xffff)
+        if id > nextID, nextID >= 0x10000 { id -= 0x10000 }
+        return id
+    }
+
+    /// Registers a frame the session just encoded and sent. Sessions own frame
+    /// construction; this state only learns the stamp, channel and byte size.
+    mutating func noteSent(
+        stamp: UInt16,
+        channel: UInt8,
+        length: Int,
+        now: UInt64
+    ) {
+        let id = fullID(for: stamp)
+        if var entry = entries[id] {
+            entry.lastSend = now
+            entry.sendCount += 1
+            entries[id] = entry
+        } else {
+            entries[id] = Entry(
+                id: id,
+                channel: channel,
+                length: max(1, length),
+                firstSend: now,
+                lastSend: now,
+                sendCount: 1
+            )
+        }
+        if id >= nextID { nextID = id + 1 }
+    }
+
+    private var resendDelay: UInt64 {
+        min(
+            Self.resendDelayCap,
+            averagePing * Self.resendDelayPercent / 100 + Self.resendDelayAdjust
+        )
+    }
+
+    private mutating func acknowledge(id: UInt64, channel: UInt8, now: UInt64) {
+        guard id >= pendingID, id < nextID,
+              let entry = entries[id], entry.channel == channel
+        else { return }
+
+        if maxxedOutCurrentWindow {
+            if congestionWindowSize < slowStartThreshold {
+                congestionWindowSize += maximumDataBytes
+            } else {
+                let increase = maximumDataBytes * maximumDataBytes / max(1, congestionWindowSize)
+                congestionWindowSize += max(1, increase)
+            }
+        }
+        if entry.sendCount == 1 {
+            let sample = now >= entry.firstSend ? now - entry.firstSend : 0
+            averagePing = (averagePing * 3 + sample) / 4
+        }
+        lastAcknowledgedSend = entry.firstSend
+        entries.removeValue(forKey: id)
+        while pendingID < nextID, entries[pendingID] == nil {
+            pendingID += 1
+        }
+    }
+
+    mutating func acknowledge(type: UInt8, stamp: UInt16, now: UInt64) {
+        guard let channel = UdpLibrary.channel(forAckType: type) else { return }
+        acknowledge(id: fullID(for: stamp), channel: channel, now: now)
+    }
+
+    mutating func acknowledgeAll(type: UInt8, stamp: UInt16, now: UInt64) {
+        guard let channel = UdpLibrary.channel(forAckType: type) else { return }
+        let id = fullID(for: stamp)
+        if pendingID > id {
+            averagePing = min(Self.resendDelayCap, averagePing + 400)
+        }
+        guard id >= pendingID else { return }
+        // The wire id is 16-bit but the loop is over full logical ids; cap the
+        // work at the outstanding window in case a corrupt stamp is accepted.
+        let end = min(id, pendingID + UInt64(Self.maximumOutstandingPackets))
+        var cursor = pendingID
+        while cursor <= end {
+            acknowledge(id: cursor, channel: channel, now: now)
+            cursor += 1
+        }
+    }
+
+    /// Mirrors `GiveTime`: returns the stamps that should be resent now and
+    /// how long the caller should wait before asking again.
+    mutating func giveTime(now: UInt64) -> Tick {
+        let limit = min(Self.maximumOutstandingBytes, congestionWindowSize)
+        guard pendingID < nextID, !entries.isEmpty else {
+            congestionWindowSize = congestionWindowStart
+            return Tick(resends: [], delay: resendDelay)
+        }
+
+        let delay = resendDelay
+        let oldestResendTime = max(now >= delay ? now - delay : 0, lastAcknowledgedSend)
+        var ready: [UInt64] = []
+        var windowSpaceLeft = limit
+        var outstanding = 0
+
+        for id in pendingID..<nextID {
+            guard let entry = entries[id] else { continue }
+            if entry.lastSend < oldestResendTime {
+                ready.append(id)
+            } else {
+                windowSpaceLeft -= entry.length
+                outstanding += entry.length
+            }
+        }
+        maxxedOutCurrentWindow = outstanding >= limit
+
+        var allowWindowReset = now >= windowResetTime
+            ? now - windowResetTime > averagePing
+            : false
+        var losses = 0
+        var resends: [Resend] = []
+        var timedOut = false
+
+        for id in ready {
+            guard var entry = entries[id], outstanding < limit else { continue }
+            if entry.sendCount > 1 {
+                let age = now >= entry.firstSend ? now - entry.firstSend : 0
+                if age > Self.oldestUnacknowledgedTimeout {
+                    timedOut = true
+                    break
+                }
+                if entry.lastSend < lastAcknowledgedSend {
+                    if allowWindowReset, losses > Self.toleranceLossCount {
+                        allowWindowReset = false
+                        windowResetTime = now
+                        congestionWindowSize = max(
+                            congestionWindowMinimum,
+                            congestionWindowSize * 3 / 4
+                        )
+                    }
+                    losses += 1
+                } else if allowWindowReset {
+                    allowWindowReset = false
+                    windowResetTime = now
+                    congestionWindowSize = max(
+                        maximumDataBytes * 2,
+                        congestionWindowSize / 2
+                    )
+                    congestionWindowSize = min(congestionWindowSize, slowStartThreshold)
+                    averagePing = min(Self.resendDelayCap, averagePing + 100)
+                }
+            }
+            entry.lastSend = now
+            entry.sendCount += 1
+            entries[id] = entry
+            outstanding += entry.length
+            resends.append(Resend(id: UInt16(truncatingIfNeeded: id), channel: entry.channel))
+        }
+
+        return Tick(resends: resends, delay: delay, timedOut: timedOut)
+    }
+
+    var pendingStamps: [UInt16] {
+        entries.keys.sorted().map { UInt16(truncatingIfNeeded: $0) }
+    }
+}
+
 enum UdpLibrary {
     static let marker: UInt8 = 0
     static let crcByteCount = 2
@@ -348,6 +614,14 @@ enum UdpLibrary {
     static func channel(for reliableType: UInt8) -> UInt8? {
         guard reliableType >= 9, reliableType <= 16 else { return nil }
         return (reliableType - 9) % 4
+    }
+
+    /// Ack1-4 and AckAll1-4 are routed to the same channel as their reliable
+    /// frames (`UdpConnection.ProcessIncomingPacket`).
+    static func channel(forAckType type: UInt8) -> UInt8? {
+        if type >= 17, type <= 20 { return type - 17 }
+        if type >= 21, type <= 24 { return type - 21 }
+        return nil
     }
 
     /// Wrap-safe ordering for 16-bit reliable stamps, matching C#'s

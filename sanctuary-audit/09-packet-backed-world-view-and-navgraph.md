@@ -117,7 +117,11 @@ DotRecast layouts:
   `DT_EXT_LINK | side`. `DtNavMesh.AddTile` rebuilds those via
   `FindConnectingPolys`, matching overlapping portal slabs in the eight neighbor
   tiles. The Swift reader implements the same portal overlap instead of
-  inventing a separate graph.
+  inventing a separate graph. A* over that graph uses a binary min-heap so a
+  burst of offline click-to-move requests does not degrade into a linear open-set
+  scan. The returned polyline starts and ends at the closest points on the
+  decoded start/goal polygons, matching Detour's straight-path endpoints rather
+  than substituting polygon centroids for the player's actual position.
 
 `WorldSimulation.navigationWaypoints(from:to:)` parses the real SNAV file once
 and returns decoded polygon waypoints for offline clicks. `OSFREngine` follows

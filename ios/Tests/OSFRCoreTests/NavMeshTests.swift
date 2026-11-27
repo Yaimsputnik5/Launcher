@@ -102,6 +102,12 @@ final class NavMeshTests: XCTestCase {
         XCTAssertFalse(path.isEmpty)
         XCTAssertLessThan(path.count, 512)
         XCTAssertTrue(path.allSatisfy { $0.x.isFinite && $0.y.isFinite && $0.z.isFinite })
+        let first = try XCTUnwrap(path.first)
+        let last = try XCTUnwrap(path.last)
+        XCTAssertLessThan(abs(first.x - start.x), 64)
+        XCTAssertLessThan(abs(first.z - start.z), 64)
+        XCTAssertLessThan(abs(last.x - goal.x), 64)
+        XCTAssertLessThan(abs(last.z - goal.z), 64)
     }
 
     func testSimulationUsesShippedNavMeshForOfflineWaypoints() throws {
