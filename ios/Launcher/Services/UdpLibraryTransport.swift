@@ -420,8 +420,8 @@ struct UdpLibraryOutgoingReliableState {
         maxxedOutCurrentWindow = outstanding >= limit
 
         // `GiveTime` returns the time until the next packet becomes due, not a
-        // fresh full resend delay. Entries skipped because the window is full
-        // already have a negative remaining time and request immediate work.
+        // fresh full resend delay. Entries already past their resend time
+        // request immediate work; the rest shrink the wait.
         var delay = optimalResendDelay
         for entry in entries.values {
             let age = now >= entry.lastSend ? now - entry.lastSend : 0

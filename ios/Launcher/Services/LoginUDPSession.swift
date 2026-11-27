@@ -494,7 +494,7 @@ final class LoginUDPSession: @unchecked Sendable {
         let limit = max(
             0,
             (connectionConfig?.maxRawPacketSize ?? 512)
-                - (connectionConfig?.crcBytes ?? Self.crcBytes)
+                - (connectionConfig?.crcBytes ?? Int(Self.crcBytes))
                 - (connectionConfig?.encryptExpansionBytes ?? 0)
         )
         if bufferedAcks.cookedLength + 5 > limit { flushAcks() }
