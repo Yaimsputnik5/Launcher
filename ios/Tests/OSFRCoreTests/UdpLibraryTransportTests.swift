@@ -148,7 +148,44 @@ final class UdpLibraryTransportTests: XCTestCase {
         }
     }
 
+    func testZlibWrapperIsSplitForApplesRawDeflateDecoder() throws {
+        // zlib.compress(b"hello", 6), i.e. RFC 1950 header + RFC 1951 stream
+        // + Adler-32 trailer. Apple's COMPRESSION_ZLIB algorithm decodes only
+        // the middle section; the wrapper used to make every gateway reply fail.
+        let stream = bytes(fromHex: "789ccb48cdc9c90700062c0215")
+        let split = try UdpLibrary.splitZlibStream(stream)
+        XCTAssertEqual(split.deflate, bytes(fromHex: "cb48cdc9c90700"))
+        XCTAssertEqual(split.checksum, 0x062c_0215)
+    }
+
+    func testZlibLengthPrefixIsAccepted() throws {
+        let stream = bytes(fromHex: "a1b2c3d400000005789ccb48cdc9c90700062c0215")
+        let split = try UdpLibrary.splitZlibStream(stream)
+        XCTAssertEqual(split.deflate, bytes(fromHex: "cb48cdc9c90700"))
+        XCTAssertEqual(split.checksum, 0x062c_0215)
+    }
+
+    func testInvalidZlibHeaderIsRejected() {
+        let stream = Data([0, 0, 0, 0, 0, 0])
+        XCTAssertThrowsError(try UdpLibrary.splitZlibStream(stream)) { error in
+            guard case .invalidZlibHeader = error as? UdpLibraryError else {
+                return XCTFail("expected invalid zlib header, got \(String(describing: error))")
+            }
+        }
+    }
+
     // MARK: - Helpers
+
+    private func bytes(fromHex hex: String) -> Data {
+        var result = Data()
+        var cursor = hex.startIndex
+        while cursor < hex.endIndex {
+            let next = hex.index(cursor, offsetBy: 2)
+            result.append(UInt8(hex[cursor..<next], radix: 16)!)
+            cursor = next
+        }
+        return result
+    }
 
     private func withCRC(_ data: Data, encryptCode: UInt32) -> Data {
         var result = data

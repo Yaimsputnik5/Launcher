@@ -190,18 +190,13 @@ final class GatewayProtocolTests: XCTestCase {
         }
 
         // The compression flag is byte 2, not part of the reliable id. A
-        // nonzero flag must be valid zlib; an arbitrary 0x01 payload is rejected.
-        let reCRC = GatewayFrameCodec.encode(
-            GatewayFrame(reliableID: 1, payload: Data([0x01])), encryptCode: 0
-        )
-        XCTAssertGreaterThan(reCRC.count, 6)
-        var compressedWithValidCRC = Array(reCRC)
-        compressedWithValidCRC[2] = 1
-        let signed = Data(compressedWithValidCRC.dropLast(2))
+        // nonzero flag must carry a valid RFC 1950 zlib stream; arbitrary bytes
+        // are rejected instead of being parsed as a reliable frame.
+        var signed = Data([0x00, 0x09, 0x01, 0, 0, 0, 0, 0, 0, 0, 0])
         let crc = UInt16(truncatingIfNeeded: CRC32.checksum(signed, encryptCode: 0))
-        compressedWithValidCRC[compressedWithValidCRC.count - 2] = UInt8(truncatingIfNeeded: crc >> 8)
-        compressedWithValidCRC[compressedWithValidCRC.count - 1] = UInt8(truncatingIfNeeded: crc)
-        XCTAssertThrowsError(try GatewayFrameCodec.decode(Data(compressedWithValidCRC), encryptCode: 0)) { error in
+        signed.append(UInt8(truncatingIfNeeded: crc >> 8))
+        signed.append(UInt8(truncatingIfNeeded: crc))
+        XCTAssertThrowsError(try GatewayFrameCodec.decode(signed, encryptCode: 0)) { error in
             guard case .malformedFrame = error as? GatewayProtocolError else {
                 return XCTFail("expected inflate failure, got \(String(describing: error))")
             }

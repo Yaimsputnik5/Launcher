@@ -27,6 +27,8 @@ enum UdpLibraryError: Error, LocalizedError, Equatable {
     case unsupportedCompression(UInt8)
     case compressionUnavailable
     case decompressionFailed
+    case invalidZlibHeader
+    case zlibChecksumMismatch(expected: UInt32, actual: UInt32)
     case fragmentTooLarge(Int)
     case fragmentOverflow
 
@@ -42,6 +44,10 @@ enum UdpLibraryError: Error, LocalizedError, Equatable {
             return "zlib compression is unavailable in this build."
         case .decompressionFailed:
             return "Failed to inflate a UdpLibrary packet."
+        case .invalidZlibHeader:
+            return "Invalid RFC 1950 zlib header."
+        case .zlibChecksumMismatch(let expected, let actual):
+            return "zlib Adler-32 mismatch: expected 0x\(String(expected, radix: 16)), got 0x\(String(actual, radix: 16))."
         case .fragmentTooLarge(let length):
             return "UdpLibrary fragment declares an oversized packet (\(length) bytes)."
         case .fragmentOverflow:
@@ -350,7 +356,56 @@ enum UdpLibrary {
         (UInt16(bytes[offset]) << 8) | UInt16(bytes[offset + 1])
     }
 
+    private static func readBE32(_ bytes: [UInt8], offset: Int) -> UInt32 {
+        (UInt32(bytes[offset]) << 24) |
+            (UInt32(bytes[offset + 1]) << 16) |
+            (UInt32(bytes[offset + 2]) << 8) |
+            UInt32(bytes[offset + 3])
+    }
+
+    /// Sanctuary's `ZLib.Decompress` consumes an RFC 1950 zlib stream: a
+    /// two-byte CMF/FLG header, raw DEFLATE data, and a four-byte Adler-32
+    /// trailer. Apple's `COMPRESSION_ZLIB` decoder is misleadingly named: the
+    /// SDK implements raw RFC 1951 DEFLATE (`deflateInit2(..., -15, ...)`).
+    /// Feeding it the zlib wrapper produced `decompressionFailed` on device
+    /// for every valid gateway reply. Strip the wrapper here and verify the
+    /// checksum ourselves. Sanctuary's optional `A1B2C3D4` length prefix is
+    /// handled too, although the gateway does not emit it.
+    static func splitZlibStream(_ source: Data) throws -> (deflate: Data, checksum: UInt32) {
+        let bytes = Array(source)
+        var offset = 0
+        if bytes.count > 8, readBE32(bytes, offset: 0) == 0xA1B2_C3D4 {
+            offset = 8
+        }
+        guard bytes.count >= offset + 6 else {
+            throw UdpLibraryError.truncated("zlib stream")
+        }
+
+        let cmf = bytes[offset]
+        let flg = bytes[offset + 1]
+        guard cmf & 0x0f == 8, // DEFLATE method
+              flg & 0x20 == 0, // no preset dictionary
+              (UInt32(cmf) << 8 | UInt32(flg)) % 31 == 0
+        else {
+            throw UdpLibraryError.invalidZlibHeader
+        }
+
+        let deflate = Data(bytes[(offset + 2)..<(bytes.count - 4)])
+        return (deflate, readBE32(bytes, offset: bytes.count - 4))
+    }
+
+    private static func adler32(_ data: Data) -> UInt32 {
+        var a: UInt32 = 1
+        var b: UInt32 = 0
+        for byte in data {
+            a = (a + UInt32(byte)) % 65521
+            b = (b + a) % 65521
+        }
+        return (b << 16) | a
+    }
+
     private static func inflate(_ source: Data) throws -> Data {
+        let zlib = try splitZlibStream(source)
         #if canImport(Compression)
         // The iOS SDK imports these C pointers as non-optional, so neither
         // `nil` nor a no-argument initializer compiles there. Pass harmless
@@ -377,48 +432,51 @@ enum UdpLibrary {
         }
         defer { compression_stream_destroy(&stream) }
 
-        var input = source
-        return try input.withUnsafeMutableBytes { inputBuffer in
+        var input = zlib.deflate
+        return try input.withUnsafeBytes { inputBuffer in
             guard let base = inputBuffer.baseAddress else {
                 throw UdpLibraryError.decompressionFailed
             }
-            stream.src_ptr = UnsafePointer(base.assumingMemoryBound(to: UInt8.self))
+            stream.src_ptr = base.assumingMemoryBound(to: UInt8.self)
             stream.src_size = inputBuffer.count
 
             var output = Data()
             let bufferSize = 64 * 1024
             var scratch = [UInt8](repeating: 0, count: bufferSize)
             while true {
-                let hadInput = stream.src_size > 0
                 let status: compression_status = scratch.withUnsafeMutableBytes { buffer in
                     guard let destination = buffer.baseAddress else {
                         return COMPRESSION_STATUS_ERROR
                     }
                     stream.dst_ptr = destination.assumingMemoryBound(to: UInt8.self)
                     stream.dst_size = buffer.count
-                    // Once the source is exhausted, finalize instead of asking
-                    // the decoder to process another zero-length input forever.
-                    // 1 is COMPRESSION_STREAM_FINALIZE; the SDK imports it as a
-                    // flag type while compression_stream_process takes Int32.
-                    let flags: Int32 = hadInput ? 0 : 1
-                    return compression_stream_process(&stream, flags)
+                    // All input is available in one datagram, so finalize the
+                    // raw DEFLATE stream on every call. The C flag's numeric
+                    // value is 1; the SDK imports it as a flag type, not Int32.
+                    return compression_stream_process(&stream, 1)
                 }
-                if status == COMPRESSION_STATUS_ERROR {
+                guard status == COMPRESSION_STATUS_OK || status == COMPRESSION_STATUS_END else {
                     throw UdpLibraryError.decompressionFailed
                 }
                 let produced = bufferSize - stream.dst_size
                 output.append(contentsOf: scratch.prefix(produced))
-                if status == COMPRESSION_STATUS_END { return output }
-                // A decoder that consumed everything without reaching END or
-                // producing output cannot make progress; surface the error so
-                // the gateway timeout reports decompression instead of hanging.
-                if !hadInput && stream.src_size == 0 && produced == 0 {
+                if status == COMPRESSION_STATUS_END { break }
+                if stream.src_size == 0 && produced == 0 {
                     throw UdpLibraryError.decompressionFailed
                 }
             }
+
+            let actual = adler32(output)
+            guard actual == zlib.checksum else {
+                throw UdpLibraryError.zlibChecksumMismatch(
+                    expected: zlib.checksum,
+                    actual: actual
+                )
+            }
+            return output
         }
         #else
-        _ = source
+        _ = zlib
         throw UdpLibraryError.compressionUnavailable
         #endif
     }

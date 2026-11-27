@@ -820,6 +820,12 @@ enum GatewayFrameCodec {
             return .malformedFrame("zlib compression is unavailable")
         case .decompressionFailed:
             return .malformedFrame("failed to inflate gateway frame")
+        case .invalidZlibHeader:
+            return .malformedFrame("invalid zlib header in gateway frame")
+        case .zlibChecksumMismatch(let expected, let actual):
+            return .malformedFrame(
+                "zlib checksum mismatch in gateway frame: expected 0x\(String(expected, radix: 16)), got 0x\(String(actual, radix: 16))"
+            )
         case .fragmentTooLarge, .fragmentOverflow:
             return .malformedFrame("invalid reliable fragment")
         }
