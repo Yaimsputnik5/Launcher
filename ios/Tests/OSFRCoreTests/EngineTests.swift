@@ -218,6 +218,58 @@ final class EngineTests: XCTestCase {
         XCTAssertTrue(engine.frame.textureStatus?.contains("Embedded client DDS 4x4") == true)
     }
 
+    private func cString(_ value: String) -> Data {
+        Data(value.utf8) + Data([0])
+    }
+
+    /// Minimal GZNE v3 with one material and bounds matching the test zone JSON.
+    private func testZone() -> Data {
+        var data = Data("GZNE".utf8)
+        data.append(le32(3))
+        data.append(le32(0))
+        data.append(le32(0x0002_0000))
+        data.append(le32(128))
+        data.append(le32(Float(100).bitPattern))
+        data.append(le32(8))
+        data.append(le32(4))
+        data.append(le32(UInt32(bitPattern: -32)))
+        data.append(le32(8))
+        data.append(le32(UInt32(bitPattern: -28)))
+        data.append(le32(0x0016_5C59))
+        data.append(le32(1))
+        data.append(le32(0))
+        precondition(data.count == 56)
+        data.append(cString("SG_Dirt"))
+        data.append(cString("sg_dirt.dds"))
+        data.append(le32(8))
+        data.append(le32(0))
+        data.append(le32(1))
+        return data
+    }
+
+    func testEngineTerrainColorsComeFromClientGroundTexture() throws {
+        let root = try makeResourceRoot()
+        let simulation = try WorldSimulation(rootURL: root, zoneID: 1)
+        let payload = testDDS(width: 4, height: 4)
+        let terrainPack = testPack(name: "sg_dirt.dds", payload: payload)
+        let loader = TextureLoader { path in
+            path == "Assets_008.pack" ? terrainPack : nil
+        }
+        let engine = OSFREngine(
+            simulation: simulation,
+            assetPipeline: EngineAssetPipeline(loader: loader),
+            terrainTexturePath: "",
+            zoneManifest: try ClientZoneManifest(data: testZone())
+        )
+
+        XCTAssertTrue(engine.frame.zoneStatus?.contains("confirmed") == true)
+        XCTAssertNotNil(engine.terrainPalette.colorsByEnvironmentID[10])
+        let tile = try XCTUnwrap(engine.frame.drawables.first { $0.kind == .tile && $0.label.contains("SG_Dirt") })
+        XCTAssertEqual(tile.color, engine.terrainPalette.color(environmentID: 10))
+        XCTAssertNotEqual(tile.color, EngineColor(r: 0.18, g: 0.18, b: 0.20, a: 1))
+        XCTAssertTrue(engine.frame.textures["Assets_008.pack#sg_dirt.dds"] != nil)
+    }
+
     func testActiveWorldSessionIdentitySeparatesLoginFromWorld() {
         let login = WorldSessionConfiguration(
             mode: .remote,

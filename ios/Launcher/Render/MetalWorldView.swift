@@ -225,8 +225,9 @@ struct MetalWorldView: UIViewRepresentable {
                 ) else { continue }
                 guard let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: pass) else { continue }
                 encoder.setRenderPipelineState(pipelineState)
-                encoder.setSamplerState(samplerState, index: 0)
-                encoder.setTexture(batch.texture, index: 0)
+                // Render encoders bind fragment resources, unlike compute encoders.
+                encoder.setFragmentSamplerState(samplerState, index: 0)
+                encoder.setFragmentTexture(batch.texture, index: 0)
                 encoder.setVertexBuffer(buffer, offset: 0, index: 0)
                 var viewport = simd_float2(
                     Float(view.drawableSize.width),

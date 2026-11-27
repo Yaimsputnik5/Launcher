@@ -11,25 +11,6 @@ struct EngineColor: Equatable, Sendable {
     let a: Double
 
     static let clear = EngineColor(r: 0, g: 0, b: 0, a: 0)
-
-    static func environment(_ id: Int) -> EngineColor {
-        if id == -1 { return EngineColor(r: 0.04, g: 0.04, b: 0.05, a: 1) }
-        let palette = [
-            EngineColor(r: 0.45, g: 0.30, b: 0.18, a: 1),
-            EngineColor(r: 0.20, g: 0.48, b: 0.24, a: 1),
-            EngineColor(r: 0.18, g: 0.36, b: 0.62, a: 1),
-            EngineColor(r: 0.45, g: 0.28, b: 0.55, a: 1),
-            EngineColor(r: 0.70, g: 0.42, b: 0.20, a: 1),
-            EngineColor(r: 0.16, g: 0.52, b: 0.50, a: 1),
-            EngineColor(r: 0.35, g: 0.72, b: 0.52, a: 1),
-            EngineColor(r: 0.34, g: 0.32, b: 0.68, a: 1),
-            EngineColor(r: 0.78, g: 0.68, b: 0.24, a: 1),
-            EngineColor(r: 0.68, g: 0.34, b: 0.54, a: 1),
-            EngineColor(r: 0.22, g: 0.62, b: 0.70, a: 1),
-            EngineColor(r: 0.66, g: 0.24, b: 0.24, a: 1)
-        ]
-        return palette[abs(id) % palette.count]
-    }
 }
 
 struct EnginePoint: Equatable, Sendable {
@@ -133,6 +114,8 @@ struct EngineFrame: Equatable, Sendable {
     let textures: [String: DecodedImage]
     /// Human-readable status of the first client texture load, if attempted.
     let textureStatus: String?
+    /// Human-readable status of the client zone-definition lookup.
+    let zoneStatus: String?
 
     init(
         zoneID: Int,
@@ -142,7 +125,8 @@ struct EngineFrame: Equatable, Sendable {
         movementTick: Int,
         secondTick: Int,
         textures: [String: DecodedImage] = [:],
-        textureStatus: String? = nil
+        textureStatus: String? = nil,
+        zoneStatus: String? = nil
     ) {
         self.zoneID = zoneID
         self.zoneName = zoneName
@@ -152,6 +136,7 @@ struct EngineFrame: Equatable, Sendable {
         self.secondTick = secondTick
         self.textures = textures
         self.textureStatus = textureStatus
+        self.zoneStatus = zoneStatus
     }
 
     var drawableCount: Int { drawables.count }
@@ -344,6 +329,7 @@ final class OSFREngine {
     let entityRegistry = EngineEntityRegistry()
     let sceneGraph = EngineSceneGraph()
     let assetPipeline: EngineAssetPipeline
+    let terrainPalette: ClientTerrainPalette
 
     private(set) var camera: EngineCamera
     private(set) var frame: EngineFrame
@@ -356,11 +342,19 @@ final class OSFREngine {
     init(
         simulation: WorldSimulation,
         assetPipeline: EngineAssetPipeline? = nil,
-        terrainTexturePath: String? = nil
+        terrainTexturePath: String? = nil,
+        zoneManifest: ClientZoneManifest? = nil
     ) {
         self.simulation = simulation
         self.assetPipeline = assetPipeline ?? EngineAssetPipeline()
         let snapshot = simulation.snapshot
+        let resolvedZone = zoneManifest
+            ?? (try? ClientAssetDataLoader().zoneManifest(forZoneName: snapshot.zoneName))
+        self.terrainPalette = ClientTerrainPalette(
+            zone: resolvedZone,
+            worldMap: simulation.worldMap,
+            assetPipeline: self.assetPipeline
+        )
         let unit = simulation.worldMap.unitPosition(for: Self.vector(snapshot.player)).map(EnginePoint.init)
             ?? EnginePoint(x: 0.5, y: 0.5)
         self.camera = EngineCamera(center: unit, zoom: 1)
@@ -491,7 +485,6 @@ final class OSFREngine {
                 let width = 1.0 / Double(max(map.latitudeCount, 1))
                 let height = 1.0 / Double(max(map.longitudeCount, 1))
                 let environment = map.environmentID(longitude: longitude, latitude: latitude)
-                let color = EngineColor.environment(environment)
                 terrain.append(EngineDrawable(
                     id: tileID,
                     kind: .tile,
@@ -501,9 +494,9 @@ final class OSFREngine {
                         width: width,
                         height: height
                     ),
-                    color: color,
+                    color: terrainPalette.color(environmentID: environment),
                     outline: EngineColor(r: 0, g: 0, b: 0, a: 0.16),
-                    label: map.environmentName(id: environment),
+                    label: terrainPalette.label(environmentID: environment, worldMap: map),
                     layer: 0
                 ))
                 tileID += 1
@@ -614,7 +607,8 @@ final class OSFREngine {
             movementTick: snapshot.movementTicks,
             secondTick: snapshot.secondTicks,
             textures: assetPipeline.cachedImages,
-            textureStatus: terrainTextureStatus
+            textureStatus: terrainTextureStatus,
+            zoneStatus: terrainPalette.status
         )
     }
 

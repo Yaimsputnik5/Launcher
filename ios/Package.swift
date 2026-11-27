@@ -44,6 +44,9 @@ let package = Package(
                 "Engine/CollectionSpawns.swift",
                 "Engine/GameWorld.swift",
                 "Engine/ClientTextureCatalog.swift",
+                "Engine/ClientZoneManifest.swift",
+                "Engine/ClientMaterialCatalog.swift",
+                "Engine/ClientTerrainPalette.swift",
                 "Engine/OSFREngine.swift",
                 "Services/GatewayProtocol.swift",
                 "Services/ImageCodecs.swift"

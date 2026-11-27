@@ -131,15 +131,24 @@ struct GamePlayerView: View {
                                 .padding()
                         }
 
-                        if let textureStatus = controller.frame?.textureStatus {
-                            Text(textureStatus)
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                                .padding(6)
-                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 6))
-                                .padding()
-                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                        VStack(alignment: .leading, spacing: 4) {
+                            if let zoneStatus = controller.frame?.zoneStatus {
+                                Text(zoneStatus)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .padding(6)
+                                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 6))
+                            }
+                            if let textureStatus = controller.frame?.textureStatus {
+                                Text(textureStatus)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .padding(6)
+                                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 6))
+                            }
                         }
+                        .padding()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                     }
                 }
             } else if let errorMessage = controller.errorMessage {
