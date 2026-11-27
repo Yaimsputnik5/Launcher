@@ -901,7 +901,7 @@ final class GatewayUDPSession: @unchecked Sendable {
 
     private func handleApplication(_ application: Data) {
         do {
-            for event in gateway.receiveApplicationData(application) {
+            for event in try gateway.receiveApplicationData(application) {
                 switch event {
                 case .packet(.loginReply(let reply)) where reply.success:
                     completeLogin()
