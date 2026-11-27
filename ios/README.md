@@ -152,16 +152,19 @@ A real unsigned IPA with the full all-in-one UI, the embedded original client
 payload, and the Sanctuary server data was compiled on a free GitHub Actions
 macOS runner:
 
-- Workflow run: <https://github.com/YaimSputnik5/Launcher/actions/runs/46053385412>
-- Built commit: `ba415b9a83115a432ce2d35e153e8f1ab2776993`
+- Workflow run: <https://github.com/YaimSputnik5/Launcher/actions/runs/46081101414>
+- Built commit: `c39369d65865feebdbbb60674d208817408495e0`
 - Release: <https://github.com/YaimSputnik5/Launcher/releases/tag/ios-ipa>
-- Local artifact: `ios/Launcher.ipa` (375,201,080 bytes)
-- SHA-256: `e20cb582d77df157dc4338e69cea6f49342720e095b7403aacd5fad9c8bfdd1d`
+- Local artifact: `ios/Launcher.ipa` (375,200,997 bytes)
+- SHA-256: `e5a48f13bab8da1daa4c9a5c26475f57855cd2e49176665cf251baed7ec21307`
 
-Bundled resources are validated by lexical containment, with symlink resolution
-still required for writable roots. This avoids rejecting real app-bundle files
-when LiveContainer resolves the bundle through `/private/var/...` while leaving
-path-traversal and symlink-escape rejection intact.
+Bundled resources are validated by lexical containment and validated path
+components. Trusted read-only bundle roots explicitly skip symlink resolution
+because LiveContainer can expose those files through a canonical path that no
+longer shares the literal `Bundle.main` prefix. Writable roots still require
+symlink-resolution containment checks, so escape symlinks cannot redirect a
+download or persisted file. Path-traversal and component validation remain
+active for both read-only and writable roots.
 
 Both the IPA build and the release-publishing steps succeeded. The checksum above
 was read from the GitHub release asset digest and verified against a fully
