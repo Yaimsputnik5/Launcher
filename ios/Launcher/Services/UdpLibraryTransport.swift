@@ -328,13 +328,10 @@ enum UdpLibrary {
 
     private static func inflate(_ source: Data) throws -> Data {
         #if canImport(Compression)
-        var stream = compression_stream(
-            dst_ptr: nil,
-            dst_size: 0,
-            src_ptr: nil,
-            src_size: 0,
-            state: nil
-        )
+        // The iOS SDK imports the C pointers as non-optional, so a memberwise
+        // initializer with `nil` does not compile there. A default-init value
+        // zero-fills the struct, which is what compression_stream_init expects.
+        var stream = compression_stream()
         guard compression_stream_init(&stream, COMPRESSION_STREAM_DECODE, COMPRESSION_ZLIB) != COMPRESSION_STATUS_ERROR else {
             throw UdpLibraryError.decompressionFailed
         }
