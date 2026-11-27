@@ -18,6 +18,7 @@ struct LauncherApp: App {
                 .onChange(of: state.hasActiveDownloads) { _, isDownloading in
                     applyDownloadGuard()
                     if !isDownloading {
+                        state.clearNotice("Cannot close the launcher while downloading.")
                         #if canImport(UIKit)
                         DownloadLifecycleGuard.shared.endBackgroundTask()
                         #endif
@@ -40,7 +41,11 @@ struct LauncherApp: App {
                         // exact message. iOS cannot cancel termination, so it
                         // keeps the screen on, asks for background time, and
                         // shows the same warning when the app is foregrounded.
-                        state.notify("Cannot close the launcher while downloading.", isError: true)
+                        state.notify(
+                            "Cannot close the launcher while downloading.",
+                            isError: true,
+                            persistent: true
+                        )
                         #if canImport(UIKit)
                         DownloadLifecycleGuard.shared.beginBackgroundTaskIfNeeded()
                         #endif

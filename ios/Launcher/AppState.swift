@@ -60,6 +60,7 @@ final class AppState: ObservableObject {
             persistSettings()
             Task { await presetRuntime.refresh() }
         }
+        detectInterruptedDownloads()
     }
 
     func runtime(with id: UUID) -> ServerRuntime? {
@@ -304,22 +305,52 @@ final class AppState: ObservableObject {
         persistSettings()
     }
 
-    func notify(_ message: String, isError: Bool = false) {
+    func notify(_ message: String, isError: Bool = false, persistent: Bool = false) {
         if isError {
             Self.logger.error("\(message, privacy: .public)")
         } else {
             Self.logger.info("\(message, privacy: .public)")
         }
-        let notice = AppNotice(message: message, isError: isError)
+        LaunchLog.shared.log(isError ? .error : .info, message)
+        let notice = AppNotice(message: message, isError: isError, persistent: persistent)
         notifications.append(notice)
         if notifications.count > 3 {
             notifications.removeFirst(notifications.count - 3)
         }
+        guard !persistent else { return }
         Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 3_000_000_000)
             guard let self else { return }
             withAnimation { self.notifications.removeAll { $0.id == notice.id } }
         }
+    }
+
+    /// Resolves a lifecycle notice once its condition no longer applies, so a
+    /// background warning is not left on screen after downloads have finished.
+    func clearNotice(_ message: String) {
+        notifications.removeAll { $0.message == message }
+    }
+
+    /// Replaces the C# launcher's ability to keep a window open: a sandboxed iOS
+    /// app cannot cancel termination, so an interrupted `.part` file is kept,
+    /// detected on launch, and resumed by the next Prepare action.
+    private func detectInterruptedDownloads() {
+        let fm = FileManager.default
+        let names = runtimes.compactMap { runtime -> String? in
+            guard let directory = try? AppPaths.serverDirectory(runtime.info),
+                  let enumerator = fm.enumerator(at: directory, includingPropertiesForKeys: nil)
+            else { return nil }
+            while let file = enumerator.nextObject() as? URL {
+                if file.pathExtension == "part" { return runtime.info.name }
+            }
+            return nil
+        }
+        guard !names.isEmpty else { return }
+        notify(
+            "An interrupted client download was found for \(names.joined(separator: ", ")). Reopen Prepare to resume it.",
+            isError: true,
+            persistent: true
+        )
     }
 
     func persistSettings() {
@@ -431,6 +462,7 @@ final class ServerRuntime: ObservableObject, Identifiable {
         isDownloading = true
         lastError = nil
         downloadProgress = 0
+        notifications.removeAll { $0.persistent }
         defer {
             isDownloading = false
             downloadedFileName = ""
@@ -506,13 +538,14 @@ final class ServerRuntime: ObservableObject, Identifiable {
             if failures.isEmpty {
                 taskStatusMessage = "Client files are ready. The native world engine uses these files."
                 state?.notify("Downloaded \(planned.count) client files.")
+                clearNotice("Cannot close the launcher while downloading.")
                 return true
             }
 
             let names = failures.prefix(10).map(\.name).joined(separator: ", ")
             let suffix = failures.count > 10 ? " …and \(failures.count - 10) more" : ""
             taskStatusMessage = "\(failures.count) file(s) failed: \(names)\(suffix)"
-            state?.notify(taskStatusMessage, isError: true)
+            state?.notify(taskStatusMessage, isError: true, persistent: true)
             return false
         } catch {
             lastError = error.localizedDescription

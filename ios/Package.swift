@@ -33,6 +33,8 @@ let package = Package(
                 "Services/ManifestParser.swift",
                 "Services/URLHelper.swift",
                 "Services/LaunchArguments.swift",
+                "Services/LaunchLog.swift",
+                "Services/DownloadResume.swift",
                 "Services/ProtocolPrimitives.swift",
                 "Services/LoginProtocol.swift",
                 "Services/UdpLibraryTransport.swift",

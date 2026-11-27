@@ -338,10 +338,14 @@ struct AppNotice: Identifiable, Equatable {
     let id: UUID
     let message: String
     let isError: Bool
+    /// A download-interruption notice stays visible until the download is
+    /// retried; ordinary notices expire after three seconds.
+    let persistent: Bool
 
-    init(id: UUID = UUID(), message: String, isError: Bool = false) {
+    init(id: UUID = UUID(), message: String, isError: Bool = false, persistent: Bool = false) {
         self.id = id
         self.message = message
         self.isError = isError
+        self.persistent = persistent
     }
 }

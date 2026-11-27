@@ -97,35 +97,71 @@ final class HTTPClient {
         let directory = destination.deletingLastPathComponent()
         try fm.createDirectory(at: directory, withIntermediateDirectories: true)
 
-        let temp = directory.appendingPathComponent(".\(destination.lastPathComponent).\(UUID().uuidString).part")
-        var succeeded = false
-        defer {
-            if !succeeded { try? fm.removeItem(at: temp) }
-        }
+        // A stable `.part` name survives app termination. The C# launcher uses
+        // the same convention; verification still happens before replacement.
+        let temp = directory.appendingPathComponent(".\(destination.lastPathComponent).part")
+        let existingBytes: UInt64 = {
+            guard let attributes = try? fm.attributesOfItem(atPath: temp.path),
+                  let size = (attributes[.size] as? NSNumber)?.uint64Value
+            else { return 0 }
+            return size
+        }()
 
         var request = URLRequest(url: url)
         request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("*/*", forHTTPHeaderField: "Accept")
+        if let size = expectedSize, existingBytes > 0, existingBytes < size {
+            request.setValue("bytes=\(existingBytes)-", forHTTPHeaderField: "Range")
+        }
+
+        var succeeded = false
+        var discardPartial = false
+        defer {
+            if !succeeded && (discardPartial || existingBytes == 0) {
+                try? fm.removeItem(at: temp)
+            }
+        }
+
         let (bytes, response) = try await downloadSession.bytes(for: request)
         guard let http = response as? HTTPURLResponse else {
+            discardPartial = true
             throw LauncherError.httpStatus(-1)
         }
         guard (200..<300).contains(http.statusCode) else {
+            discardPartial = true
+            LaunchLog.shared.log(.warning, "HTTP \(http.statusCode) for \(url.host ?? "unknown")\(url.path)")
             throw LauncherError.httpStatus(http.statusCode)
         }
 
-        let expectedBytes = http.expectedContentLength >= 0 ? UInt64(http.expectedContentLength) : nil
+        let plan = DownloadResume.plan(
+            existingBytes: existingBytes,
+            expectedSize: expectedSize,
+            statusCode: http.statusCode,
+            contentRange: http.value(forHTTPHeaderField: "Content-Range"),
+            contentLength: http.expectedContentLength
+        )
 
         // FileHandle(forWritingTo:) requires the file to exist.
-        fm.createFile(atPath: temp.path, contents: nil)
+        if !fm.fileExists(atPath: temp.path) {
+            fm.createFile(atPath: temp.path, contents: nil)
+        }
         let handle = try FileHandle(forWritingTo: temp)
+        defer { try? handle.close() }
+        if plan.shouldTruncate {
+            try handle.truncate(atOffset: 0)
+            try handle.seek(toOffset: 0)
+        } else {
+            try handle.seekToEnd()
+        }
         try await write(
             bytes,
             using: handle,
-            expectedBytes: expectedBytes ?? expectedSize,
+            startingBytes: plan.startingBytes,
+            expectedBytes: plan.totalBytes ?? expectedSize,
             progress: progress
         )
 
+        discardPartial = true
         try verify(temp, size: expectedSize, hash: expectedHash)
         if fm.fileExists(atPath: destination.path) {
             let replacement = try fm.replaceItemAt(
@@ -145,10 +181,10 @@ final class HTTPClient {
 
     private func write(_ bytes: URLSession.AsyncBytes,
                        using handle: FileHandle,
+                       startingBytes: UInt64,
                        expectedBytes: UInt64?,
                        progress: @escaping (Double) -> Void) async throws {
-        defer { try? handle.close() }
-        var received: UInt64 = 0
+        var received: UInt64 = startingBytes
         let chunkSize = 64 * 1024
         var buffer = Data()
         buffer.reserveCapacity(chunkSize)
@@ -203,7 +239,10 @@ final class HTTPClient {
         guard let status = (response as? HTTPURLResponse)?.statusCode else {
             throw LauncherError.httpStatus(-1)
         }
-        guard (200..<300).contains(status) else { throw LauncherError.httpStatus(status) }
+        guard (200..<300).contains(status) else {
+            LaunchLog.shared.log(.warning, "HTTP \(status) for \(url.host ?? "unknown")\(url.path)")
+            throw LauncherError.httpStatus(status)
+        }
 
         let rawType = response.mimeType?.lowercased() ?? ""
         let looksLikeXML = data.prefix(5) == Data("<?xml".utf8)

@@ -34,6 +34,23 @@ struct DiagnosticsView: View {
                     LabeledContent("OS", value: ProcessInfo.processInfo.operatingSystemVersionString)
                     LabeledContent("Servers", value: "\(state.runtimes.count)")
                 }
+
+                Section("Log") {
+                    if let log = LaunchLog.shared.read(), !log.isEmpty {
+                        ScrollView {
+                            Text(log)
+                                .font(.footnote.monospaced())
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .frame(maxHeight: 200)
+                    } else {
+                        Text("No log entries yet.")
+                            .foregroundStyle(.secondary)
+                    }
+                    ShareLink("Share Logs", items: LaunchLog.shared.exportURLs())
+                        .disabled(LaunchLog.shared.exportURLs().isEmpty)
+                }
             }
             .navigationTitle("Diagnostics")
             .task {
