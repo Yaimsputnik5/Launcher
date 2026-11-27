@@ -15,6 +15,8 @@ final class AppState: ObservableObject {
     @Published private(set) var localSession: LocalSession?
     @Published private(set) var gatewaySession: GatewayUDPSession?
     @Published private(set) var gatewayStatus = "Not connected"
+    /// Updated only by decoded gateway world packets; never seeded locally.
+    @Published private(set) var worldObservation = GatewayWorldObservation.empty
     @Published var notifications: [AppNotice] = []
 
     /// The World tab requires a real entered session. This gate prevents a
@@ -128,6 +130,7 @@ final class AppState: ObservableObject {
         remoteSession = configuration
         gatewaySession = nil
         gatewayStatus = "Not connected"
+        worldObservation = .empty
         if activeSession?.mode == .remote { activeSession = nil }
     }
 
@@ -164,6 +167,7 @@ final class AppState: ObservableObject {
         character: LocalCharacter
     ) {
         disconnectGateway()
+        worldObservation = .empty
         localSession = session
         var world = WorldSessionConfiguration(
             mode: .offline,
@@ -216,6 +220,12 @@ final class AppState: ObservableObject {
                 version: session.gatewayVersion ?? GatewayUDPSession.defaultClientVersion
             )
             try gateway.sendInitialPackets(locale: session.locale)
+            gateway.setWorldEventHandler { [weak self] packet in
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.worldObservation.apply(packet)
+                }
+            }
             gatewaySession = gateway
             gatewayStatus = "Connected as \(session.characterName ?? "character")"
             // The World tab activates only after the gateway handshake succeeds.
@@ -236,6 +246,7 @@ final class AppState: ObservableObject {
         gatewaySession?.close()
         gatewaySession = nil
         gatewayStatus = "Not connected"
+        worldObservation = .empty
         if activeSession?.mode == .remote { activeSession = nil }
     }
 

@@ -1448,6 +1448,84 @@ enum GatewayWorldCodec {
     }
 }
 
+/// Packet-backed view state. Every value here comes from a decoded gateway
+/// world packet; it is deliberately empty until the server sends something.
+struct GatewayWorldObservation: Equatable, Sendable {
+    struct Position: Equatable, Identifiable, Sendable {
+        let guid: UInt64
+        var position: ZoneVector
+        var rotation: ZoneVector
+        var state: UInt8
+        var teleportSequence: UInt8
+        var receivedAt: Date
+
+        var id: UInt64 { guid }
+    }
+
+    struct ChatMessage: Equatable, Identifiable, Sendable {
+        let id: UInt64
+        let channel: Int16
+        let fromName: String
+        let message: String
+        let receivedAt: Date
+    }
+
+    var positions: [UInt64: Position] = [:]
+    var chatMessages: [ChatMessage] = []
+    var lastEvent: String?
+
+    private var nextChatID: UInt64 = 1
+
+    static let empty = GatewayWorldObservation()
+
+    var positionCount: Int { positions.count }
+    var chatCount: Int { chatMessages.count }
+
+    mutating func apply(_ packet: GatewayWorldPacket, now: Date = Date()) {
+        switch packet {
+        case .positionUpdate(let update):
+            positions[update.guid] = Position(
+                guid: update.guid,
+                position: ZoneVector(
+                    x: Double(update.position.x),
+                    y: Double(update.position.y),
+                    z: Double(update.position.z),
+                    w: 0
+                ),
+                rotation: ZoneVector(
+                    x: Double(update.rotation.x),
+                    y: Double(update.rotation.y),
+                    z: Double(update.rotation.z),
+                    w: 0
+                ),
+                state: update.state,
+                teleportSequence: update.teleportSequence,
+                receivedAt: now
+            )
+            lastEvent = "Position update · GUID \(update.guid)"
+        case .chat(let chat):
+            let message = ChatMessage(
+                id: nextChatID,
+                channel: chat.channel.rawValue,
+                fromName: Self.displayName(chat.fromName),
+                message: chat.message,
+                receivedAt: now
+            )
+            nextChatID = nextChatID &+ 1
+            chatMessages.append(message)
+            if chatMessages.count > 32 { chatMessages.removeFirst(chatMessages.count - 32) }
+            lastEvent = "Chat · \(message.fromName)"
+        case .unknown(let opcode, _):
+            lastEvent = "Unparsed world opcode \(opcode)"
+        }
+    }
+
+    private static func displayName(_ name: GatewayName) -> String {
+        let parts = [name.firstName, name.lastName].filter { !$0.isEmpty }
+        return parts.isEmpty ? "Unknown" : parts.joined(separator: " ")
+    }
+}
+
 // MARK: - Typed events and session
 
 enum GatewayPacket: Equatable {

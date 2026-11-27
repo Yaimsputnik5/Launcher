@@ -769,6 +769,7 @@ final class GatewayUDPSession: @unchecked Sendable {
     private var retryTimer: DispatchWorkItem?
     private var timeoutWork: DispatchWorkItem?
     private var trace: [String] = []
+    private var worldEventHandler: ((GatewayWorldPacket) -> Void)?
 
     private init(endpoint: NWEndpoint, ticket: String, hello: GatewaySessionHello) {
         self.connection = NWConnection(to: endpoint, using: .udp)
@@ -937,6 +938,9 @@ final class GatewayUDPSession: @unchecked Sendable {
                 case .rejected(let error):
                     record("decode-error=\(error.localizedDescription)")
                     fail(GatewayUDPError.protocolError(error.localizedDescription + diagnosticSuffix))
+                case .world(let packet):
+                    record("world-event=\(packet)")
+                    worldEventHandler?(packet)
                 default:
                     break
                 }
@@ -1131,6 +1135,12 @@ final class GatewayUDPSession: @unchecked Sendable {
         queue.sync { gateway.state }
     }
 
+    /// Installs a callback for decoded world packets. It is invoked on the
+    /// gateway receive queue; callers must hop to their own UI queue.
+    func setWorldEventHandler(_ handler: @escaping (GatewayWorldPacket) -> Void) {
+        queue.sync { worldEventHandler = handler }
+    }
+
     // MARK: - Lifecycle
 
     private func installTimeout(_ timeout: TimeInterval) {
@@ -1170,6 +1180,7 @@ final class GatewayUDPSession: @unchecked Sendable {
         queue.async {
             self.isActive = false
             self.cancelTimersAndPendingFrames()
+            self.worldEventHandler = nil
             self.connection.stateUpdateHandler = nil
             self.connection.cancel()
         }
@@ -1180,6 +1191,7 @@ final class GatewayUDPSession: @unchecked Sendable {
         continuation = nil
         isActive = false
         cancelTimersAndPendingFrames()
+        worldEventHandler = nil
         connection.stateUpdateHandler = nil
         connection.cancel()
         pendingContinuation?.resume(throwing: error)

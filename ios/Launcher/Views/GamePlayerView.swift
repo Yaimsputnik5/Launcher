@@ -39,6 +39,38 @@ final class GameEngineController: ObservableObject {
         }
     }
 
+    /// Attaches a packet-driven remote presentation. The underlying simulation
+    /// is used only for the real Sanctuary zone grid; its local player, NPCs and
+    /// collection nodes are never published in remote mode.
+    func attachRemote(session: ActiveWorldSession) {
+        guard !isLoaded else { return }
+        guard let root = AppPaths.bundledSanctuaryResources else {
+            errorMessage = "Sanctuary resources are not bundled in this build."
+            return
+        }
+        do {
+            let simulation = try WorldSimulation(rootURL: root, zoneName: "FabledRealms")
+            let engine = OSFREngine(
+                simulation: simulation,
+                presentationMode: .remote,
+                selfGUID: session.configuration.gatewayGUID
+            )
+            self.simulation = nil
+            self.snapshot = nil
+            self.frame = engine.frame
+            self.engine = engine
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func applyRemoteObservation(_ observation: GatewayWorldObservation) {
+        guard let engine else { return }
+        engine.applyRemoteObservation(observation)
+        publish(engine)
+    }
+
     func reset() {
         engine = nil
         simulation = nil
@@ -61,7 +93,7 @@ final class GameEngineController: ObservableObject {
 
     private func publish(_ engine: OSFREngine) {
         frame = engine.frame
-        snapshot = engine.simulation.snapshot
+        snapshot = engine.presentationMode == .remote ? nil : engine.simulation.snapshot
     }
 }
 
@@ -440,37 +472,108 @@ struct GamePlayerView: View {
     }
 }
 
-/// Remote worlds are real gateway connections, not local simulations. Show only
-/// server-supplied session facts so no fake character or zone can be injected.
+/// Remote worlds are real gateway connections, not local simulations. The map
+/// grid comes from Sanctuary resources; every marker and chat row comes from a
+/// decoded gateway world packet.
 private struct RemoteWorldView: View {
     @EnvironmentObject private var state: AppState
+    @StateObject private var controller = GameEngineController()
+    @State private var loadedSessionID: UUID?
     let session: ActiveWorldSession
 
+    private var observation: GatewayWorldObservation { state.worldObservation }
+
     var body: some View {
-        VStack(spacing: 18) {
-            Image(systemName: "network")
-                .font(.system(size: 54))
-                .foregroundStyle(.blue)
-            Text("Connected Server World")
-                .font(.title2.weight(.semibold))
-            VStack(alignment: .leading, spacing: 8) {
-                LabeledContent("Character", value: session.displayName)
-                LabeledContent("Server", value: session.configuration.host ?? "unknown")
-                LabeledContent("Gateway", value: session.configuration.gatewayAddress ?? "unknown")
-                LabeledContent("Status", value: state.gatewayStatus)
-                LabeledContent("Locale", value: session.configuration.locale.displayName)
+        ScrollView {
+            VStack(spacing: 14) {
+                packetMap
+                VStack(alignment: .leading, spacing: 8) {
+                    LabeledContent("Character", value: session.displayName)
+                    LabeledContent("Server", value: session.configuration.host ?? "unknown")
+                    LabeledContent("Gateway", value: session.configuration.gatewayAddress ?? "unknown")
+                    LabeledContent("Status", value: state.gatewayStatus)
+                    LabeledContent("Locale", value: session.configuration.locale.displayName)
+                }
+                .padding()
+                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Gateway packet view")
+                        .font(.headline)
+                    Text(controller.frame?.worldStatus
+                         ?? observation.lastEvent
+                         ?? "Waiting for the first world packet.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text("\(observation.positionCount) position updates · \(observation.chatCount) chat messages")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    if observation.chatMessages.isEmpty {
+                        Text("No server chat received yet.")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    } else {
+                        ForEach(observation.chatMessages.suffix(4)) { message in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(message.fromName)
+                                    .font(.caption2.weight(.semibold))
+                                Text(message.message)
+                                    .font(.caption)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding()
+                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
+
+                Text("Markers appear only after position packets arrive. Local simulation entities are deliberately hidden.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+
+                Button("Leave World", role: .destructive) {
+                    state.disconnectGateway()
+                }
+                .buttonStyle(.borderedProminent)
             }
             .padding()
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
-            Text("This session uses the live Sanctuary gateway. Local simulation data is deliberately not shown.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-            Button("Leave World", role: .destructive) {
-                state.disconnectGateway()
-            }
-            .buttonStyle(.borderedProminent)
         }
-        .padding()
+        .task {
+            guard loadedSessionID != session.id else { return }
+            controller.attachRemote(session: session)
+            controller.applyRemoteObservation(observation)
+            loadedSessionID = session.id
+        }
+        .onReceive(state.$worldObservation) { observation in
+            controller.applyRemoteObservation(observation)
+        }
+    }
+
+    @ViewBuilder
+    private var packetMap: some View {
+        if let frame = controller.frame {
+            MetalWorldView(frame: frame)
+                .frame(height: 320)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .overlay {
+                    if let error = controller.errorMessage {
+                        Text(error)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
+                }
+        } else if let error = controller.errorMessage {
+            ContentUnavailableView(
+                "Packet Map Unavailable",
+                systemImage: "network.slash",
+                description: Text(error)
+            )
+            .frame(height: 320)
+        } else {
+            ProgressView("Loading packet map…")
+                .frame(height: 320)
+        }
     }
 }

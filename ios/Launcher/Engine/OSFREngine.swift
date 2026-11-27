@@ -116,6 +116,8 @@ struct EngineFrame: Equatable, Sendable {
     let textureStatus: String?
     /// Human-readable status of the client zone-definition lookup.
     let zoneStatus: String?
+    /// Packet-backed world status. Nil until a gateway packet is applied.
+    let worldStatus: String?
 
     init(
         zoneID: Int,
@@ -126,7 +128,8 @@ struct EngineFrame: Equatable, Sendable {
         secondTick: Int,
         textures: [String: DecodedImage] = [:],
         textureStatus: String? = nil,
-        zoneStatus: String? = nil
+        zoneStatus: String? = nil,
+        worldStatus: String? = nil
     ) {
         self.zoneID = zoneID
         self.zoneName = zoneName
@@ -137,6 +140,7 @@ struct EngineFrame: Equatable, Sendable {
         self.textures = textures
         self.textureStatus = textureStatus
         self.zoneStatus = zoneStatus
+        self.worldStatus = worldStatus
     }
 
     var drawableCount: Int { drawables.count }
@@ -322,6 +326,12 @@ final class EngineAssetPipeline {
 
 // MARK: - Engine
 
+enum OSFREnginePresentationMode: Equatable, Sendable {
+    case offline
+    /// Renders only gateway packet data over the real Sanctuary zone grid.
+    case remote
+}
+
 /// Owns fixed-step advancement, input, the entity registry, the camera, and the
 /// scene graph. SwiftUI/Metal only supply wall-clock time and draw `EngineFrame`.
 final class OSFREngine {
@@ -330,6 +340,10 @@ final class OSFREngine {
     let sceneGraph = EngineSceneGraph()
     let assetPipeline: EngineAssetPipeline
     let terrainPalette: ClientTerrainPalette
+    let presentationMode: OSFREnginePresentationMode
+
+    private(set) var remoteObservation: GatewayWorldObservation
+    private let selfGUID: UInt64?
 
     private(set) var camera: EngineCamera
     private(set) var frame: EngineFrame
@@ -343,10 +357,16 @@ final class OSFREngine {
         simulation: WorldSimulation,
         assetPipeline: EngineAssetPipeline? = nil,
         terrainTexturePath: String? = nil,
-        zoneManifest: ClientZoneManifest? = nil
+        zoneManifest: ClientZoneManifest? = nil,
+        presentationMode: OSFREnginePresentationMode = .offline,
+        selfGUID: UInt64? = nil,
+        remoteObservation: GatewayWorldObservation = .empty
     ) {
         self.simulation = simulation
         self.assetPipeline = assetPipeline ?? EngineAssetPipeline()
+        self.presentationMode = presentationMode
+        self.selfGUID = selfGUID
+        self.remoteObservation = remoteObservation
         let snapshot = simulation.snapshot
         let resolvedZone = zoneManifest
             ?? (try? ClientAssetDataLoader().zoneManifest(forZoneName: snapshot.zoneName))
@@ -385,6 +405,10 @@ final class OSFREngine {
     // MARK: Input
 
     func handle(_ input: EngineInputEvent) {
+        guard presentationMode == .offline
+                || input.kind == .zoom
+                || input.kind == .recenter
+        else { return }
         switch input.kind {
         case .moveTo:
             let target = simulation.worldMap.worldPosition(unitX: input.unitX, unitY: input.unitY)
@@ -418,12 +442,21 @@ final class OSFREngine {
             let proposed = min(max(camera.zoom * factor, 0.5), 3)
             camera.zoom = proposed
         case .recenter:
-            let spawn = simulation.worldMap.zone.spawnPosition
-            if simulation.movePlayer(to: spawn) {
-                if let unit = simulation.worldMap.unitPosition(for: spawn) {
+            if presentationMode == .remote {
+                let target = selfGUID
+                    .flatMap { remoteObservation.positions[$0]?.position }
+                    ?? simulation.worldMap.zone.spawnPosition
+                if let unit = simulation.worldMap.unitPosition(for: target) {
                     camera.center = EnginePoint(unit)
                 }
-                destination = nil
+            } else {
+                let spawn = simulation.worldMap.zone.spawnPosition
+                if simulation.movePlayer(to: spawn) {
+                    if let unit = simulation.worldMap.unitPosition(for: spawn) {
+                        camera.center = EnginePoint(unit)
+                    }
+                    destination = nil
+                }
             }
         }
         rebuildScene()
@@ -433,12 +466,25 @@ final class OSFREngine {
         handle(.moveTo(unitX: unitX, unitY: unitY))
     }
 
+    /// Applies decoded gateway packets. Remote presentation never mutates the
+    /// local simulation, so a packet is the only source of remote entity data.
+    func applyRemoteObservation(_ observation: GatewayWorldObservation) {
+        guard presentationMode == .remote else { return }
+        remoteObservation = observation
+        rebuildScene()
+    }
+
     // MARK: Tick ownership
 
     /// Supplied by the UI display timer, but all fixed-step accumulation lives
     /// here. Passing the same elapsed time twice is idempotent within a frame.
     @discardableResult
     func advance(now: Date = Date()) -> EngineFrame {
+        guard presentationMode == .offline else {
+            lastAdvance = now
+            rebuildScene()
+            return frame
+        }
         let delta: TimeInterval
         if let lastAdvance {
             delta = min(max(now.timeIntervalSince(lastAdvance), 0), WorldSimulation.maxUpdateDelta)
@@ -471,7 +517,11 @@ final class OSFREngine {
 
     private func rebuildScene() {
         let snapshot = simulation.snapshot
-        entityRegistry.upsert(snapshot.visibleEntities.map(EngineEntity.init))
+        if presentationMode == .offline {
+            entityRegistry.upsert(snapshot.visibleEntities.map(EngineEntity.init))
+        } else {
+            entityRegistry.clear()
+        }
 
         let map = simulation.worldMap
         var terrain: [EngineDrawable] = []
@@ -504,71 +554,94 @@ final class OSFREngine {
         }
 
         var entities: [EngineDrawable] = []
-        for poi in snapshot.nearbyPOIs {
-            guard let unit = map.unitPosition(for: poi.position) else { continue }
-            entities.append(Self.marker(
-                id: UInt64(1_000 + poi.id),
-                kind: .pointOfInterest,
-                unit: EnginePoint(unit),
-                radius: 0.006,
-                color: EngineColor(r: 0.98, g: 0.82, b: 0.22, a: 1),
-                label: poi.name,
-                layer: 1
-            ))
-        }
-        for node in snapshot.collectionNodes where node.available {
-            guard let unit = map.unitPosition(for: node.position) else { continue }
-            entities.append(Self.marker(
-                id: UInt64(100_000 + node.id),
-                kind: .collection,
-                unit: EnginePoint(unit),
-                radius: 0.005,
-                color: EngineColor(r: 0.20, g: 0.78, b: 0.38, a: 1),
-                label: node.name.isEmpty ? node.poolKey : node.name,
-                layer: 2
-            ))
-        }
-        for entity in snapshot.visibleEntities where entity.kind == .npc {
-            guard let unit = map.unitPosition(for: entity.position) else { continue }
-            entities.append(Self.marker(
-                id: entity.id,
-                kind: .npc,
-                unit: EnginePoint(unit),
-                radius: 0.006,
-                color: EngineColor(r: 0.62, g: 0.40, b: 0.82, a: 0.92),
-                outline: entity.isInferredPosition
-                    ? EngineColor(r: 0.98, g: 0.86, b: 0.28, a: 1)
-                    : EngineColor(r: 1, g: 1, b: 1, a: 1),
-                label: entity.name,
-                layer: 3
-            ))
+        if presentationMode == .remote {
+            // Every remote marker requires a decoded position packet. Nothing
+            // from the local offline simulation is drawn in this mode.
+            for position in remoteObservation.positions.values.sorted(by: { $0.guid < $1.guid }) {
+                guard let unit = map.unitPosition(for: position.position) else { continue }
+                let isSelf = position.guid == selfGUID
+                entities.append(Self.marker(
+                    id: position.guid,
+                    kind: .player,
+                    unit: EnginePoint(unit),
+                    radius: isSelf ? 0.009 : 0.006,
+                    color: isSelf
+                        ? EngineColor(r: 0.24, g: 0.54, b: 1, a: 1)
+                        : EngineColor(r: 0.94, g: 0.45, b: 0.32, a: 0.95),
+                    outline: EngineColor(r: 1, g: 1, b: 1, a: 1),
+                    label: isSelf ? "Packet you · \(position.guid)" : "Packet \(position.guid)",
+                    layer: 3
+                ))
+            }
+        } else {
+            for poi in snapshot.nearbyPOIs {
+                guard let unit = map.unitPosition(for: poi.position) else { continue }
+                entities.append(Self.marker(
+                    id: UInt64(1_000 + poi.id),
+                    kind: .pointOfInterest,
+                    unit: EnginePoint(unit),
+                    radius: 0.006,
+                    color: EngineColor(r: 0.98, g: 0.82, b: 0.22, a: 1),
+                    label: poi.name,
+                    layer: 1
+                ))
+            }
+            for node in snapshot.collectionNodes where node.available {
+                guard let unit = map.unitPosition(for: node.position) else { continue }
+                entities.append(Self.marker(
+                    id: UInt64(100_000 + node.id),
+                    kind: .collection,
+                    unit: EnginePoint(unit),
+                    radius: 0.005,
+                    color: EngineColor(r: 0.20, g: 0.78, b: 0.38, a: 1),
+                    label: node.name.isEmpty ? node.poolKey : node.name,
+                    layer: 2
+                ))
+            }
+            for entity in snapshot.visibleEntities where entity.kind == .npc {
+                guard let unit = map.unitPosition(for: entity.position) else { continue }
+                entities.append(Self.marker(
+                    id: entity.id,
+                    kind: .npc,
+                    unit: EnginePoint(unit),
+                    radius: 0.006,
+                    color: EngineColor(r: 0.62, g: 0.40, b: 0.82, a: 0.92),
+                    outline: entity.isInferredPosition
+                        ? EngineColor(r: 0.98, g: 0.86, b: 0.28, a: 1)
+                        : EngineColor(r: 1, g: 1, b: 1, a: 1),
+                    label: entity.name,
+                    layer: 3
+                ))
+            }
         }
 
         var overlays: [EngineDrawable] = []
-        if let playerUnit = map.unitPosition(for: Self.vector(snapshot.player)) {
-            overlays.append(Self.marker(
-                id: UInt64.max,
-                kind: .player,
-                unit: EnginePoint(playerUnit),
-                radius: 0.009,
-                color: EngineColor(r: 0.24, g: 0.54, b: 1, a: 1),
-                outline: EngineColor(r: 1, g: 1, b: 1, a: 1),
-                label: snapshot.playerName,
-                layer: 4
-            ))
-        }
-        if let destination,
-           let unit = map.unitPosition(for: destination) {
-            overlays.append(Self.marker(
-                id: UInt64.max - 1,
-                kind: .destination,
-                unit: EnginePoint(unit),
-                radius: 0.012,
-                color: EngineColor.clear,
-                outline: EngineColor(r: 0.20, g: 0.92, b: 0.96, a: 1),
-                label: "Destination",
-                layer: 5
-            ))
+        if presentationMode == .offline {
+            if let playerUnit = map.unitPosition(for: Self.vector(snapshot.player)) {
+                overlays.append(Self.marker(
+                    id: UInt64.max,
+                    kind: .player,
+                    unit: EnginePoint(playerUnit),
+                    radius: 0.009,
+                    color: EngineColor(r: 0.24, g: 0.54, b: 1, a: 1),
+                    outline: EngineColor(r: 1, g: 1, b: 1, a: 1),
+                    label: snapshot.playerName,
+                    layer: 4
+                ))
+            }
+            if let destination,
+               let unit = map.unitPosition(for: destination) {
+                overlays.append(Self.marker(
+                    id: UInt64.max - 1,
+                    kind: .destination,
+                    unit: EnginePoint(unit),
+                    radius: 0.012,
+                    color: EngineColor.clear,
+                    outline: EngineColor(r: 0.20, g: 0.92, b: 0.96, a: 1),
+                    label: "Destination",
+                    layer: 5
+                ))
+            }
         }
         if let terrainTexturePath,
            assetPipeline.cachedImage(relativePath: terrainTexturePath) != nil {
@@ -608,8 +681,15 @@ final class OSFREngine {
             secondTick: snapshot.secondTicks,
             textures: assetPipeline.cachedImages,
             textureStatus: terrainTextureStatus,
-            zoneStatus: terrainPalette.status
+            zoneStatus: terrainPalette.status,
+            worldStatus: currentWorldStatus
         )
+    }
+
+    private var currentWorldStatus: String? {
+        guard presentationMode == .remote else { return nil }
+        let event = remoteObservation.lastEvent ?? "Awaiting gateway world packets"
+        return "\(event) · \(remoteObservation.positionCount) positions · \(remoteObservation.chatCount) chat"
     }
 
     private static func marker(

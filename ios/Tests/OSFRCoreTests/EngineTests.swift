@@ -270,6 +270,74 @@ final class EngineTests: XCTestCase {
         XCTAssertTrue(engine.frame.textures["Assets_008.pack#sg_dirt.dds"] != nil)
     }
 
+    func testGatewayWorldObservationDrivesRemoteEngineWithoutOfflineEntities() throws {
+        let root = try makeResourceRoot()
+        let simulation = try WorldSimulation(rootURL: root, zoneID: 1)
+        let guid: UInt64 = 42
+        var observation = GatewayWorldObservation.empty
+        observation.apply(
+            .positionUpdate(WorldPositionUpdate(
+                guid: guid,
+                position: GatewayVector3(x: -1904, y: 0, z: 412),
+                rotation: GatewayVector3(x: 0, y: 0, z: 0),
+                state: 0,
+                teleportSequence: 0
+            )),
+            now: Date(timeIntervalSince1970: 1)
+        )
+        XCTAssertEqual(observation.positionCount, 1)
+
+        let engine = OSFREngine(
+            simulation: simulation,
+            terrainTexturePath: "",
+            presentationMode: .remote,
+            selfGUID: guid,
+            remoteObservation: observation
+        )
+        let marker = try XCTUnwrap(engine.frame.drawables.first { $0.kind == .player })
+        XCTAssertEqual(marker.label, "Packet you · 42")
+        XCTAssertFalse(engine.frame.drawables.contains { $0.kind == .npc })
+        XCTAssertFalse(engine.frame.drawables.contains { $0.kind == .collection })
+        XCTAssertTrue(engine.frame.worldStatus?.contains("1 positions") == true)
+
+        engine.applyRemoteObservation(.empty)
+        XCTAssertFalse(engine.frame.drawables.contains { $0.kind == .player })
+        XCTAssertEqual(engine.frame.worldStatus?.contains("0 positions"), true)
+    }
+
+    func testGatewayWorldObservationStoresDecodedChatOnly() {
+        var observation = GatewayWorldObservation.empty
+        let chat = GatewayChatMessage(
+            channel: .worldSay,
+            fromGUID: 7,
+            toGUID: 0,
+            fromName: GatewayName(
+                firstNameID: 0,
+                lastNamePrefixID: 0,
+                lastNameSuffixID: 0,
+                firstName: "Ada",
+                lastName: "Lovelace"
+            ),
+            toName: GatewayName(
+                firstNameID: 0,
+                lastNamePrefixID: 0,
+                lastNameSuffixID: 0,
+                firstName: "",
+                lastName: ""
+            ),
+            message: "packet-backed hello",
+            position: GatewayVector4(x: 0, y: 0, z: 0, w: 0),
+            guildGUID: 0,
+            languageID: 0
+        )
+        observation.apply(.chat(chat), now: Date(timeIntervalSince1970: 2))
+
+        XCTAssertEqual(observation.chatCount, 1)
+        XCTAssertEqual(observation.chatMessages.first?.fromName, "Ada Lovelace")
+        XCTAssertEqual(observation.chatMessages.first?.message, "packet-backed hello")
+        XCTAssertEqual(observation.chatMessages.first?.id, 1)
+    }
+
     func testActiveWorldSessionIdentitySeparatesLoginFromWorld() {
         let login = WorldSessionConfiguration(
             mode: .remote,
