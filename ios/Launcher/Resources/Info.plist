@@ -18,6 +18,9 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<!-- Servers are user-supplied, so exception domains cannot be enumerated at
+	     build time. HTTP is permitted for manifests and UDP status probes only;
+	     credential requests are separately restricted to HTTPS/localhost. -->
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>

@@ -708,16 +708,19 @@ struct GatewayConfirmPacket: Equatable {
 
     init(data: Data) throws {
         let bytes = Array(data)
-        guard bytes.count == 17 || bytes.count == 21 else {
-            if bytes.count < 17 {
-                throw GatewayProtocolError.frameTooShort(expected: 17, available: bytes.count)
-            }
-            throw GatewayProtocolError.trailingBytes(max(0, bytes.count - 21))
+        guard bytes.count >= 17 else {
+            throw GatewayProtocolError.frameTooShort(expected: 17, available: bytes.count)
         }
         guard bytes[0] == 0x00 else { throw GatewayProtocolError.invalidFrameMarker(bytes[0]) }
         guard bytes[1] == UdpFrameType.confirm.rawValue else {
             throw GatewayProtocolError.unexpectedFrameType(
                 expected: UdpFrameType.confirm.rawValue, actual: bytes[1])
+        }
+        // `UdpConnection.cs` reads the optional version whenever any bytes
+        // remain after the mandatory 17. A partial Int32 is malformed; trailing
+        // bytes after a complete version are ignored.
+        if bytes.count > 17 && bytes.count < 21 {
+            throw GatewayProtocolError.frameTooShort(expected: 21, available: bytes.count)
         }
 
         var reader = PacketReader(Data(bytes[2..<17]))
@@ -727,7 +730,7 @@ struct GatewayConfirmPacket: Equatable {
         encryptMethod1 = try reader.readUInt8()
         encryptMethod2 = try reader.readUInt8()
         maxRawPacketSize = Int32(bitPattern: try GatewayWire.readBE32(&reader))
-        if bytes.count == 21 {
+        if bytes.count >= 21 {
             var versionReader = PacketReader(Data(bytes[17..<21]))
             protocolVersion = Int32(bitPattern: try GatewayWire.readBE32(&versionReader))
         } else {
@@ -832,8 +835,16 @@ enum GatewayFrameCodec {
             return .malformedFrame(
                 "zlib checksum mismatch in gateway frame: expected 0x\(String(expected, radix: 16)), got 0x\(String(actual, radix: 16))"
             )
+        case .crcMismatch32(let expected, let actual, let width):
+            return .malformedFrame(
+                "CRC-\(width) mismatch: expected 0x\(String(expected, radix: 16)), got 0x\(String(actual, radix: 16))"
+            )
         case .fragmentTooLarge, .fragmentOverflow:
             return .malformedFrame("invalid reliable fragment")
+        case .unsupportedEncryptMethod(let method):
+            return .malformedFrame("unsupported encrypt method \(method)")
+        case .unsupportedCRCWidth(let width):
+            return .malformedFrame("unsupported CRC width \(width)")
         }
     }
 }
@@ -1291,6 +1302,49 @@ struct WorldPositionUpdate: Equatable {
     }
 }
 
+/// `Sanctuary.Packet.PlayerUpdatePacketJump` (opcode 164). The server accepts
+/// this companion to a position update while a jump/vertical move is predicted.
+struct GatewayJumpUpdate: Equatable {
+    static let opcode: Int16 = 164
+
+    var guid: UInt64
+    var position: GatewayVector3
+    var rotation: GatewayVector3
+    var state: UInt8
+    var teleportSequence: UInt8
+    var verticalVelocity: Float
+
+    func encoded() -> Data {
+        var writer = PacketWriter()
+        GatewayWire.appendInt16(Self.opcode, to: &writer.data)
+        writer.writeUInt64(guid)
+        position.append(to: &writer)
+        rotation.append(to: &writer)
+        writer.writeUInt8(state)
+        writer.writeUInt8(teleportSequence)
+        writer.writeFloat(verticalVelocity)
+        return writer.data
+    }
+}
+
+/// `Sanctuary.Packet.PlayerUpdatePacketCameraUpdate` (opcode 126). Sanctuary
+/// parses it and currently ignores the values, but the original client sends it
+/// with movement updates.
+struct GatewayCameraUpdate: Equatable {
+    static let opcode: Int16 = 126
+
+    var position: GatewayVector3
+    var rotation: GatewayVector3
+
+    func encoded() -> Data {
+        var writer = PacketWriter()
+        GatewayWire.appendInt16(Self.opcode, to: &writer.data)
+        position.append(to: &writer)
+        rotation.append(to: &writer)
+        return writer.data
+    }
+}
+
 /// `Sanctuary.Packet.BasePlayerUpdatePacket` (35) entity spawns.
 ///
 /// Only the fields needed to place a packet-backed marker are decoded: the
@@ -1348,11 +1402,589 @@ struct GatewayEntityAddition: Equatable {
     }
 }
 
+/// `Sanctuary.Packet.Common.CharacterAttachmentData`, used by the equipment
+/// packets below. All three strings use the standard Int32 byte-count prefix.
+struct GatewayAttachment: Equatable, Sendable {
+    var modelName: String
+    var textureAlias: String
+    var tintAlias: String
+    var tintID: Int32
+    var compositeEffectID: Int32
+    var slot: Int32
+
+    init(
+        modelName: String,
+        textureAlias: String,
+        tintAlias: String,
+        tintID: Int32,
+        compositeEffectID: Int32,
+        slot: Int32
+    ) {
+        self.modelName = modelName
+        self.textureAlias = textureAlias
+        self.tintAlias = tintAlias
+        self.tintID = tintID
+        self.compositeEffectID = compositeEffectID
+        self.slot = slot
+    }
+
+    init(reader: inout PacketReader) throws {
+        modelName = try reader.readString()
+        textureAlias = try reader.readString()
+        tintAlias = try reader.readString()
+        tintID = try reader.readInt32()
+        compositeEffectID = try reader.readInt32()
+        slot = try reader.readInt32()
+    }
+}
+
+/// `BasePlayerUpdatePacket` sub 6 (`PlayerUpdatePacketEquipItemChange`).
+struct GatewayEquipItemChange: Equatable, Sendable {
+    static let opcode: Int16 = 35
+    static let subOpcode: Int16 = 6
+
+    var guid: UInt64
+    var id: Int32
+    var attachment: GatewayAttachment
+    var profileID: Int32
+    var itemClassID: Int32
+    var wieldType: Int32
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        do {
+            let opcode = try GatewayWire.readInt16(&reader)
+            guard opcode == Self.opcode else {
+                throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+            }
+            let sub = try GatewayWire.readInt16(&reader)
+            guard sub == Self.subOpcode else {
+                throw GatewayProtocolError.unexpectedOpcode(expected: Self.subOpcode, actual: sub)
+            }
+            guid = try reader.readUInt64()
+            id = try reader.readInt32()
+            attachment = try GatewayAttachment(reader: &reader)
+            profileID = try reader.readInt32()
+            itemClassID = try reader.readInt32()
+            wieldType = try reader.readInt32()
+        } catch let error as ProtocolError {
+            throw GatewayProtocolError.wire(error)
+        }
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `BasePlayerUpdatePacket` sub 7 (`PlayerUpdatePacketEquippedItemsChange`).
+struct GatewayEquippedItemsChange: Equatable, Sendable {
+    static let opcode: Int16 = 35
+    static let subOpcode: Int16 = 7
+
+    var guid: UInt64
+    var attachments: [GatewayAttachment]
+    var unknown: Int32
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        do {
+            let opcode = try GatewayWire.readInt16(&reader)
+            guard opcode == Self.opcode else {
+                throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+            }
+            let sub = try GatewayWire.readInt16(&reader)
+            guard sub == Self.subOpcode else {
+                throw GatewayProtocolError.unexpectedOpcode(expected: Self.subOpcode, actual: sub)
+            }
+            guid = try reader.readUInt64()
+            let count = try reader.readInt32()
+            guard count >= 0, count <= 1_024 else {
+                throw GatewayProtocolError.malformedFrame("implausible attachment count \(count)")
+            }
+            var decoded: [GatewayAttachment] = []
+            decoded.reserveCapacity(Int(count))
+            for _ in 0..<Int(count) {
+                decoded.append(try GatewayAttachment(reader: &reader))
+            }
+            attachments = decoded
+            unknown = try reader.readInt32()
+        } catch let error as ProtocolError {
+            throw GatewayProtocolError.wire(error)
+        }
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `BasePlayerUpdatePacket` sub 14. The C# writer emits the appearance ID
+/// before the GUID, unlike most player-update packets.
+struct GatewayTemporaryAppearance: Equatable, Sendable {
+    static let opcode: Int16 = 35
+    static let subOpcode: Int16 = 14
+
+    var temporaryAppearance: Int32
+    var guid: UInt64
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        do {
+            let opcode = try GatewayWire.readInt16(&reader)
+            guard opcode == Self.opcode else {
+                throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+            }
+            let sub = try GatewayWire.readInt16(&reader)
+            guard sub == Self.subOpcode else {
+                throw GatewayProtocolError.unexpectedOpcode(expected: Self.subOpcode, actual: sub)
+            }
+            temporaryAppearance = try reader.readInt32()
+            guid = try reader.readUInt64()
+        } catch let error as ProtocolError {
+            throw GatewayProtocolError.wire(error)
+        }
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `BasePlayerUpdatePacket` sub 15.
+struct GatewayRemoveTemporaryAppearance: Equatable, Sendable {
+    static let opcode: Int16 = 35
+    static let subOpcode: Int16 = 15
+
+    var guid: UInt64
+    var unused: Int32
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        do {
+            let opcode = try GatewayWire.readInt16(&reader)
+            guard opcode == Self.opcode else {
+                throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+            }
+            let sub = try GatewayWire.readInt16(&reader)
+            guard sub == Self.subOpcode else {
+                throw GatewayProtocolError.unexpectedOpcode(expected: Self.subOpcode, actual: sub)
+            }
+            guid = try reader.readUInt64()
+            unused = try reader.readInt32()
+        } catch let error as ProtocolError {
+            throw GatewayProtocolError.wire(error)
+        }
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `BasePlayerUpdatePacket` sub 31 (weapon-flair slot override).
+struct GatewaySlotCompositeEffectOverride: Equatable, Sendable {
+    static let opcode: Int16 = 35
+    static let subOpcode: Int16 = 31
+
+    var guid: UInt64
+    var slot: Int32
+    var compositeEffect: Int32
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        do {
+            let opcode = try GatewayWire.readInt16(&reader)
+            guard opcode == Self.opcode else {
+                throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+            }
+            let sub = try GatewayWire.readInt16(&reader)
+            guard sub == Self.subOpcode else {
+                throw GatewayProtocolError.unexpectedOpcode(expected: Self.subOpcode, actual: sub)
+            }
+            guid = try reader.readUInt64()
+            slot = try reader.readInt32()
+            compositeEffect = try reader.readInt32()
+        } catch let error as ProtocolError {
+            throw GatewayProtocolError.wire(error)
+        }
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `BasePlayerUpdatePacket` sub 61 (active wield stance).
+struct GatewayActiveWieldType: Equatable, Sendable {
+    static let opcode: Int16 = 35
+    static let subOpcode: Int16 = 61
+
+    var guid: UInt64
+    var wieldType: Int32
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        do {
+            let opcode = try GatewayWire.readInt16(&reader)
+            guard opcode == Self.opcode else {
+                throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+            }
+            let sub = try GatewayWire.readInt16(&reader)
+            guard sub == Self.subOpcode else {
+                throw GatewayProtocolError.unexpectedOpcode(expected: Self.subOpcode, actual: sub)
+            }
+            guid = try reader.readUInt64()
+            wieldType = try reader.readInt32()
+        } catch let error as ProtocolError {
+            throw GatewayProtocolError.wire(error)
+        }
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `Sanctuary.Packet.PacketClientBeginZoning` (opcode 31). The server sends
+/// this before a zone change; `teleportSequence` must be echoed by movement.
+struct GatewayClientBeginZoning: Equatable, Sendable {
+    static let opcode: Int16 = 31
+
+    var name: String
+    var type: Int32
+    var position: GatewayVector4
+    var rotation: GatewayVector4
+    var sky: String
+    var tutorial: Bool
+    var teleportSequence: UInt8
+    var id: Int32
+    var updateRadius: Float
+    var geometryID: Int32
+    var overrideUpdateRadius: Bool
+    var waitForZoneReadyPacket: Bool
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        do {
+            let opcode = try GatewayWire.readInt16(&reader)
+            guard opcode == Self.opcode else {
+                throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+            }
+            name = try reader.readString()
+            type = try reader.readInt32()
+            position = try GatewayVector4(reader: &reader)
+            rotation = try GatewayVector4(reader: &reader)
+            sky = try reader.readString()
+            tutorial = try reader.readBool()
+            teleportSequence = try reader.readUInt8()
+            id = try reader.readInt32()
+            updateRadius = try reader.readFloat()
+            geometryID = try reader.readInt32()
+            overrideUpdateRadius = try reader.readBool()
+            waitForZoneReadyPacket = try reader.readBool()
+        } catch let error as ProtocolError {
+            throw GatewayProtocolError.wire(error)
+        }
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `BaseClientUpdatePacket` sub 12 (`ClientUpdatePacketUpdateLocation`).
+struct GatewayUpdateLocation: Equatable, Sendable {
+    static let opcode: Int16 = 38
+    static let subOpcode: Int16 = 12
+
+    var position: GatewayVector4
+    var rotation: GatewayVector4
+    var teleport: Bool
+    var teleportSequence: UInt8
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        do {
+            let opcode = try GatewayWire.readInt16(&reader)
+            guard opcode == Self.opcode else {
+                throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+            }
+            let sub = try GatewayWire.readInt16(&reader)
+            guard sub == Self.subOpcode else {
+                throw GatewayProtocolError.unexpectedOpcode(expected: Self.subOpcode, actual: sub)
+            }
+            position = try GatewayVector4(reader: &reader)
+            rotation = try GatewayVector4(reader: &reader)
+            teleport = try reader.readBool()
+            teleportSequence = try reader.readUInt8()
+        } catch let error as ProtocolError {
+            throw GatewayProtocolError.wire(error)
+        }
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// The nested payload of `PacketSendSelfToClient` is a raw `ClientPcData` in
+/// Sanctuary.Packet.Common. The fields through `Name` are decoded exactly so
+/// the remote view can use server-provided identity and placement. The rest of
+/// the record is retained verbatim rather than approximated.
+struct ClientPcData: Equatable {
+    var launchTicket: UInt64
+    var guid: UInt64
+    var model: Int32
+    var head: String
+    var hair: String
+    var hairColor: Int32
+    var eyeColor: Int32
+    var skinTone: String
+    var facePaint: String
+    var modelCustomization: String
+    var headID: Int32
+    var hairID: Int32
+    var skinToneID: Int32
+    var facePaintID: Int32
+    var modelCustomizationID: Int32
+    var position: GatewayVector4
+    var rotation: GatewayVector4
+    var name: GatewayName
+    var rawPayload: Data
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        do {
+            launchTicket = try reader.readUInt64()
+            guid = try reader.readUInt64()
+            model = try reader.readInt32()
+            head = try reader.readString()
+            hair = try reader.readString()
+            hairColor = try reader.readInt32()
+            eyeColor = try reader.readInt32()
+            skinTone = try reader.readString()
+            facePaint = try reader.readString()
+            modelCustomization = try reader.readString()
+            headID = try reader.readInt32()
+            hairID = try reader.readInt32()
+            skinToneID = try reader.readInt32()
+            facePaintID = try reader.readInt32()
+            modelCustomizationID = try reader.readInt32()
+            position = try GatewayVector4(reader: &reader)
+            rotation = try GatewayVector4(reader: &reader)
+            name = try GatewayName(reader: &reader)
+        } catch let error as ProtocolError {
+            throw GatewayProtocolError.wire(error)
+        }
+        rawPayload = data
+    }
+}
+
 /// `Sanctuary.Packet.PacketSendSelfToClient` (opcode 12): an Int32-prefixed
 /// nested world packet. The server uses this to deliver the authenticated
 /// player's own spawn data through the tunnel.
 struct GatewaySendSelf: Equatable {
     static let opcode: Int16 = 12
+
+    var payload: Data
+    var client: ClientPcData
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        do {
+            let opcode = try GatewayWire.readInt16(&reader)
+            guard opcode == Self.opcode else {
+                throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+            }
+            payload = try reader.readData()
+        } catch let error as ProtocolError {
+            throw GatewayProtocolError.wire(error)
+        }
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+        client = try ClientPcData(data: payload)
+    }
+}
+
+/// `Sanctuary.Packet.PacketSendZoneDetails` (opcode 43).
+struct GatewayZoneDetails: Equatable {
+    static let opcode: Int16 = 43
+
+    var name: String
+    var type: Int32
+    var tutorial: Bool
+    var unknown2: Bool
+    var sky: String
+    var isInArena: Bool
+    var id: Int32
+    var geometryID: Int32
+    var isInStartingSocialZone: Bool
+    var unknown6: Bool
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        do {
+            let opcode = try GatewayWire.readInt16(&reader)
+            guard opcode == Self.opcode else {
+                throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+            }
+            name = try reader.readString()
+            type = try reader.readInt32()
+            tutorial = try reader.readBool()
+            unknown2 = try reader.readBool()
+            sky = try reader.readString()
+            isInArena = try reader.readBool()
+            id = try reader.readInt32()
+            geometryID = try reader.readInt32()
+            isInStartingSocialZone = try reader.readBool()
+            unknown6 = try reader.readBool()
+        } catch let error as ProtocolError {
+            throw GatewayProtocolError.wire(error)
+        }
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `Sanctuary.Packet.PacketGameTimeSync` (opcode 52). The same packet is used
+/// for the client request and the server reply; the handler ignores the request
+/// values and answers with authoritative server time.
+struct GatewayGameTimeSync: Equatable {
+    static let opcode: Int16 = 52
+
+    var time: Int64
+    var serverRate: Int32
+    var useClientTime: Bool
+
+    init(time: Int64, serverRate: Int32, useClientTime: Bool) {
+        self.time = time
+        self.serverRate = serverRate
+        self.useClientTime = useClientTime
+    }
+
+    func encoded() -> Data {
+        var writer = PacketWriter()
+        GatewayWire.appendInt16(Self.opcode, to: &writer.data)
+        writer.writeInt64(time)
+        writer.writeInt32(serverRate)
+        writer.writeBool(useClientTime)
+        return writer.data
+    }
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        do {
+            let opcode = try GatewayWire.readInt16(&reader)
+            guard opcode == Self.opcode else {
+                throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+            }
+            time = try reader.readInt64()
+            serverRate = try reader.readInt32()
+            useClientTime = try reader.readBool()
+        } catch let error as ProtocolError {
+            throw GatewayProtocolError.wire(error)
+        }
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `Sanctuary.Packet.PacketInitializationParameters` (opcode 166). The C#
+/// writer caps the UTF-8 byte count at 64 but still uses a length prefix.
+struct GatewayInitializationParameters: Equatable {
+    static let opcode: Int16 = 166
+
+    var environment: String
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        do {
+            let opcode = try GatewayWire.readInt16(&reader)
+            guard opcode == Self.opcode else {
+                throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+            }
+            environment = try reader.readString()
+        } catch let error as ProtocolError {
+            throw GatewayProtocolError.wire(error)
+        }
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `Sanctuary.Packet.PacketClientGameSettings` (opcode 144).
+struct GatewayClientGameSettings: Equatable {
+    static let opcode: Int16 = 144
+
+    var unknown: Int32
+    var unknown2: Int32
+    var powerHourEffectTag: Int32
+    var unknown4: Bool
+    var gameTimeScalar: Float
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        do {
+            let opcode = try GatewayWire.readInt16(&reader)
+            guard opcode == Self.opcode else {
+                throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+            }
+            unknown = try reader.readInt32()
+            unknown2 = try reader.readInt32()
+            powerHourEffectTag = try reader.readInt32()
+            unknown4 = try reader.readBool()
+            gameTimeScalar = try reader.readFloat()
+        } catch let error as ProtocolError {
+            throw GatewayProtocolError.wire(error)
+        }
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `Sanctuary.Packet.PacketZoneDoneSendingInitialData` (opcode 14).
+struct GatewayZoneDoneSendingInitialData: Equatable {
+    static let opcode: Int16 = 14
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `ClientUpdatePacketDoneSendingPreloadCharacters` (base 38, sub 26).
+struct GatewayPreloadCharactersDone: Equatable {
+    static let opcode: Int16 = 38
+    static let subOpcode: Int16 = 26
+
+    var preload: Bool
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        do {
+            let opcode = try GatewayWire.readInt16(&reader)
+            guard opcode == Self.opcode else {
+                throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+            }
+            let sub = try GatewayWire.readInt16(&reader)
+            guard sub == Self.subOpcode else {
+                throw GatewayProtocolError.unexpectedOpcode(expected: Self.subOpcode, actual: sub)
+            }
+            preload = try reader.readBool()
+        } catch let error as ProtocolError {
+            throw GatewayProtocolError.wire(error)
+        }
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `EncounterOverworldCombatPacket` (base 41, sub 132).
+struct GatewayOverworldCombat: Equatable {
+    static let opcode: Int16 = 41
+    static let subOpcode: Int16 = 132
+
+    var inWorldCombat: Bool
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        do {
+            let opcode = try GatewayWire.readInt16(&reader)
+            guard opcode == Self.opcode else {
+                throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+            }
+            let sub = try GatewayWire.readInt16(&reader)
+            guard sub == Self.subOpcode else {
+                throw GatewayProtocolError.unexpectedOpcode(expected: Self.subOpcode, actual: sub)
+            }
+            inWorldCombat = try reader.readBool()
+        } catch let error as ProtocolError {
+            throw GatewayProtocolError.wire(error)
+        }
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `PlayerUpdatePacketItemDefinitions` (base 35, sub 37). The payload is an
+/// Int32-prefixed byte array whose contents are `ClientItemDefinition` records.
+struct GatewayItemDefinitions: Equatable {
+    static let opcode: Int16 = 35
+    static let subOpcode: Int16 = 37
 
     var payload: Data
 
@@ -1363,7 +1995,112 @@ struct GatewaySendSelf: Equatable {
             guard opcode == Self.opcode else {
                 throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
             }
+            let sub = try GatewayWire.readInt16(&reader)
+            guard sub == Self.subOpcode else {
+                throw GatewayProtocolError.unexpectedOpcode(expected: Self.subOpcode, actual: sub)
+            }
             payload = try reader.readData()
+        } catch let error as ProtocolError {
+            throw GatewayProtocolError.wire(error)
+        }
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `PlayerUpdatePacketRemovePlayer` (base 35, sub 3). Graceful removals carry
+/// an extra sub-sub-opcode and animation fields.
+struct GatewayEntityRemoval: Equatable {
+    static let opcode: Int16 = 35
+    static let subOpcode: Int16 = 3
+
+    var subSubOpcode: Int16
+    var guid: UInt64
+    var graceful: Bool?
+    var animate: Bool?
+    var delay: Int32?
+    var effectDelay: Int32?
+    var compositeEffectID: Int32?
+    var duration: Int32?
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        do {
+            let opcode = try GatewayWire.readInt16(&reader)
+            guard opcode == Self.opcode else {
+                throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+            }
+            let sub = try GatewayWire.readInt16(&reader)
+            guard sub == Self.subOpcode else {
+                throw GatewayProtocolError.unexpectedOpcode(expected: Self.subOpcode, actual: sub)
+            }
+            subSubOpcode = try GatewayWire.readInt16(&reader)
+            guid = try reader.readUInt64()
+            if subSubOpcode == 1 {
+                graceful = true
+                animate = try reader.readBool()
+                delay = try reader.readInt32()
+                effectDelay = try reader.readInt32()
+                compositeEffectID = try reader.readInt32()
+                duration = try reader.readInt32()
+            } else {
+                graceful = false
+            }
+        } catch let error as ProtocolError {
+            throw GatewayProtocolError.wire(error)
+        }
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `PlayerUpdatePacketUpdateCharacterState` (base 35, sub 20).
+struct GatewayCharacterState: Equatable {
+    static let opcode: Int16 = 35
+    static let subOpcode: Int16 = 20
+
+    var guid: UInt64
+    var state: Int32
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        do {
+            let opcode = try GatewayWire.readInt16(&reader)
+            guard opcode == Self.opcode else {
+                throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+            }
+            let sub = try GatewayWire.readInt16(&reader)
+            guard sub == Self.subOpcode else {
+                throw GatewayProtocolError.unexpectedOpcode(expected: Self.subOpcode, actual: sub)
+            }
+            guid = try reader.readUInt64()
+            state = try reader.readInt32()
+        } catch let error as ProtocolError {
+            throw GatewayProtocolError.wire(error)
+        }
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `PlayerUpdatePacketUpdateScale` (base 35, sub 13).
+struct GatewayScaleUpdate: Equatable {
+    static let opcode: Int16 = 35
+    static let subOpcode: Int16 = 13
+
+    var guid: UInt64
+    var scale: Float
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        do {
+            let opcode = try GatewayWire.readInt16(&reader)
+            guard opcode == Self.opcode else {
+                throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+            }
+            let sub = try GatewayWire.readInt16(&reader)
+            guard sub == Self.subOpcode else {
+                throw GatewayProtocolError.unexpectedOpcode(expected: Self.subOpcode, actual: sub)
+            }
+            guid = try reader.readUInt64()
+            scale = try reader.readFloat()
         } catch let error as ProtocolError {
             throw GatewayProtocolError.wire(error)
         }
@@ -1412,7 +2149,7 @@ struct GatewayName: Equatable {
 /// Channel values come from `Sanctuary.Packet.Common.Chat.ChatChannel`
 /// (`short`): WorldArea == 8 adds a trailing AreaNameId.
 struct GatewayChatMessage: Equatable {
-    enum Channel: Int16 {
+    enum Channel: Int16, CaseIterable, Identifiable {
         case worldSay = 0
         case tell = 1
         case system = 2
@@ -1424,6 +2161,24 @@ struct GatewayChatMessage: Equatable {
         case worldArea = 8
         case guildSay = 9
         case worldMembersOnly = 10
+
+        var id: Int16 { rawValue }
+
+        var displayName: String {
+            switch self {
+            case .worldSay: return "Say"
+            case .tell: return "Tell"
+            case .system: return "System"
+            case .whisper: return "Whisper"
+            case .groupSay: return "Group"
+            case .worldShout: return "Shout"
+            case .worldTrade: return "Trade"
+            case .worldLfg: return "LFG"
+            case .worldArea: return "Area"
+            case .guildSay: return "Guild"
+            case .worldMembersOnly: return "Members"
+            }
+        }
     }
 
     static let opcode: Int16 = 15
@@ -1517,7 +2272,26 @@ enum GatewayWorldPacket: Equatable {
     case positionUpdate(WorldPositionUpdate)
     case chat(GatewayChatMessage)
     case entityAdded(GatewayEntityAddition)
+    case entityRemoved(GatewayEntityRemoval)
+    case characterState(GatewayCharacterState)
+    case scaleUpdate(GatewayScaleUpdate)
+    case itemDefinitions(GatewayItemDefinitions)
     case sendSelf(GatewaySendSelf)
+    case zoneDetails(GatewayZoneDetails)
+    case initializationParameters(GatewayInitializationParameters)
+    case clientGameSettings(GatewayClientGameSettings)
+    case gameTimeSync(GatewayGameTimeSync)
+    case zoneDoneSendingInitialData
+    case preloadCharactersDone(GatewayPreloadCharactersDone)
+    case overworldCombat(GatewayOverworldCombat)
+    case equipItemChange(GatewayEquipItemChange)
+    case equippedItemsChange(GatewayEquippedItemsChange)
+    case temporaryAppearance(GatewayTemporaryAppearance)
+    case removeTemporaryAppearance(GatewayRemoveTemporaryAppearance)
+    case slotCompositeEffectOverride(GatewaySlotCompositeEffectOverride)
+    case activeWieldType(GatewayActiveWieldType)
+    case beginZoning(GatewayClientBeginZoning)
+    case updateLocation(GatewayUpdateLocation)
     case unknown(Int16, Data)
 }
 
@@ -1529,11 +2303,67 @@ enum GatewayWorldCodec {
         case WorldPositionUpdate.opcode:
             return .positionUpdate(try WorldPositionUpdate(data: data))
         case GatewayChatMessage.opcode:
-            return .chat(try GatewayChatMessage(data: data))
+            let sub = try GatewayWire.readInt16(&reader)
+            return sub == GatewayChatMessage.subOpcode
+                ? .chat(try GatewayChatMessage(data: data))
+                : .unknown(opcode, data)
         case GatewayEntityAddition.opcode:
-            return .entityAdded(try GatewayEntityAddition(data: data))
+            let sub = try GatewayWire.readInt16(&reader)
+            switch sub {
+            case 1, 2:
+                return .entityAdded(try GatewayEntityAddition(data: data))
+            case GatewayEntityRemoval.subOpcode:
+                return .entityRemoved(try GatewayEntityRemoval(data: data))
+            case GatewayCharacterState.subOpcode:
+                return .characterState(try GatewayCharacterState(data: data))
+            case GatewayScaleUpdate.subOpcode:
+                return .scaleUpdate(try GatewayScaleUpdate(data: data))
+            case GatewayItemDefinitions.subOpcode:
+                return .itemDefinitions(try GatewayItemDefinitions(data: data))
+            case GatewayEquipItemChange.subOpcode:
+                return .equipItemChange(try GatewayEquipItemChange(data: data))
+            case GatewayEquippedItemsChange.subOpcode:
+                return .equippedItemsChange(try GatewayEquippedItemsChange(data: data))
+            case GatewayTemporaryAppearance.subOpcode:
+                return .temporaryAppearance(try GatewayTemporaryAppearance(data: data))
+            case GatewayRemoveTemporaryAppearance.subOpcode:
+                return .removeTemporaryAppearance(try GatewayRemoveTemporaryAppearance(data: data))
+            case GatewaySlotCompositeEffectOverride.subOpcode:
+                return .slotCompositeEffectOverride(try GatewaySlotCompositeEffectOverride(data: data))
+            case GatewayActiveWieldType.subOpcode:
+                return .activeWieldType(try GatewayActiveWieldType(data: data))
+            default:
+                return .unknown(opcode, data)
+            }
         case GatewaySendSelf.opcode:
             return .sendSelf(try GatewaySendSelf(data: data))
+        case GatewayZoneDetails.opcode:
+            return .zoneDetails(try GatewayZoneDetails(data: data))
+        case GatewayInitializationParameters.opcode:
+            return .initializationParameters(try GatewayInitializationParameters(data: data))
+        case GatewayClientGameSettings.opcode:
+            return .clientGameSettings(try GatewayClientGameSettings(data: data))
+        case GatewayGameTimeSync.opcode:
+            return .gameTimeSync(try GatewayGameTimeSync(data: data))
+        case GatewayZoneDoneSendingInitialData.opcode:
+            return .zoneDoneSendingInitialData
+        case GatewayClientBeginZoning.opcode:
+            return .beginZoning(try GatewayClientBeginZoning(data: data))
+        case 38:
+            let sub = try GatewayWire.readInt16(&reader)
+            switch sub {
+            case GatewayPreloadCharactersDone.subOpcode:
+                return .preloadCharactersDone(try GatewayPreloadCharactersDone(data: data))
+            case GatewayUpdateLocation.subOpcode:
+                return .updateLocation(try GatewayUpdateLocation(data: data))
+            default:
+                return .unknown(opcode, data)
+            }
+        case 41:
+            let sub = try GatewayWire.readInt16(&reader)
+            return sub == GatewayOverworldCombat.subOpcode
+                ? .overworldCombat(try GatewayOverworldCombat(data: data))
+                : .unknown(opcode, data)
         default:
             return .unknown(opcode, data)
         }
@@ -1563,10 +2393,35 @@ struct GatewayWorldObservation: Equatable, Sendable {
     }
 
     var positions: [UInt64: Position] = [:]
-    /// Names are only populated by decoded spawn packets. Position-only updates
-    /// must never fabricate a name.
+    /// Names are only populated by decoded spawn or self packets. Position-only
+    /// updates must never fabricate a name.
     var names: [UInt64: String] = [:]
     var chatMessages: [ChatMessage] = []
+    var playerGUID: UInt64?
+    var zoneName: String?
+    var zoneID: Int32?
+    var geometryID: Int32?
+    var environment: String?
+    var gameTime: Int64?
+    var serverRate: Int32?
+    var useClientTime: Bool?
+    var powerHourEffectTag: Int32?
+    var clientSettingsUnknown4: Bool?
+    var gameTimeScalar: Float?
+    var scales: [UInt64: Float] = [:]
+    var equipment: [UInt64: [GatewayAttachment]] = [:]
+    var temporaryAppearances: [UInt64: Int32] = [:]
+    var compositeEffectOverrides: [UInt64: [Int32: Int32]] = [:]
+    var activeWieldTypes: [UInt64: Int32] = [:]
+    var teleportSequences: [UInt64: UInt8] = [:]
+    var ownTeleportSequence: UInt8?
+    var pendingZoneName: String?
+    var pendingZoneID: Int32?
+    var pendingZoneGeometryID: Int32?
+    var inWorldCombat: Bool?
+    var itemDefinitionCount: Int?
+    var preloadCharactersDone = false
+    var zoneDataComplete = false
     var lastEvent: String?
 
     private var nextChatID: UInt64 = 1
@@ -1597,6 +2452,7 @@ struct GatewayWorldObservation: Equatable, Sendable {
                 teleportSequence: update.teleportSequence,
                 receivedAt: now
             )
+            if update.teleportSequence != 0 { scales[update.guid] = nil }
             lastEvent = "Position update · GUID \(update.guid)"
         case .chat(let chat):
             let message = ChatMessage(
@@ -1631,10 +2487,162 @@ struct GatewayWorldObservation: Equatable, Sendable {
                 receivedAt: now
             )
             lastEvent = "Spawn · \(addition.name)"
+        case .entityRemoved(let removal):
+            positions.removeValue(forKey: removal.guid)
+            names.removeValue(forKey: removal.guid)
+            scales.removeValue(forKey: removal.guid)
+            lastEvent = "Remove · GUID \(removal.guid)"
+        case .characterState(let state):
+            if var position = positions[state.guid] {
+                position.state = UInt8(truncatingIfNeeded: state.state)
+                position.receivedAt = now
+                positions[state.guid] = position
+            }
+            lastEvent = "State \(state.state) · GUID \(state.guid)"
+        case .scaleUpdate(let scale):
+            scales[scale.guid] = scale.scale
+            lastEvent = "Scale \(scale.scale) · GUID \(scale.guid)"
+        case .itemDefinitions(let definitions):
+            var reader = PacketReader(definitions.payload)
+            let count = (try? reader.readInt32()) ?? 0
+            itemDefinitionCount = count >= 0 ? Int(count) : 0
+            lastEvent = "Item definitions · \(itemDefinitionCount ?? 0)"
         case .sendSelf(let wrapped):
-            // The nested payload is decoded by GatewaySession.decodeWorld; the
-            // wrapper itself is never treated as an entity or fabricated state.
-            lastEvent = "Self packet · \(wrapped.payload.count) bytes"
+            let client = wrapped.client
+            playerGUID = client.guid
+            let name = Self.displayName(client.name)
+            names[client.guid] = name
+            positions[client.guid] = Position(
+                guid: client.guid,
+                position: ZoneVector(
+                    x: Double(client.position.x),
+                    y: Double(client.position.y),
+                    z: Double(client.position.z),
+                    w: Double(client.position.w)
+                ),
+                rotation: ZoneVector(
+                    x: Double(client.rotation.x),
+                    y: Double(client.rotation.y),
+                    z: Double(client.rotation.z),
+                    w: Double(client.rotation.w)
+                ),
+                state: 0,
+                teleportSequence: 0,
+                receivedAt: now
+            )
+            lastEvent = "Self · \(name)"
+        case .zoneDetails(let zone):
+            zoneName = zone.name
+            zoneID = zone.id
+            geometryID = zone.geometryID
+            lastEvent = "Zone · \(zone.name)"
+        case .initializationParameters(let parameters):
+            environment = parameters.environment
+            lastEvent = "Environment · \(parameters.environment)"
+        case .clientGameSettings(let settings):
+            powerHourEffectTag = settings.powerHourEffectTag
+            gameTimeScalar = settings.gameTimeScalar
+            clientSettingsUnknown4 = settings.unknown4
+            lastEvent = "Game settings · scalar \(settings.gameTimeScalar)"
+        case .gameTimeSync(let sync):
+            gameTime = sync.time
+            serverRate = sync.serverRate
+            useClientTime = sync.useClientTime
+            lastEvent = "Game time · \(sync.time)"
+        case .zoneDoneSendingInitialData:
+            zoneDataComplete = true
+            lastEvent = "Zone initial data complete"
+        case .preloadCharactersDone(let done):
+            preloadCharactersDone = done.preload
+            lastEvent = "Preload characters · \(done.preload)"
+        case .overworldCombat(let combat):
+            inWorldCombat = combat.inWorldCombat
+            lastEvent = "World combat · \(combat.inWorldCombat)"
+        case .equipItemChange(let change):
+            var slots = equipment[change.guid] ?? []
+            if let index = slots.firstIndex(where: { $0.slot == change.attachment.slot }) {
+                if change.attachment.modelName.isEmpty {
+                    slots.remove(at: index)
+                } else {
+                    slots[index] = change.attachment
+                }
+            } else if !change.attachment.modelName.isEmpty {
+                slots.append(change.attachment)
+            }
+            equipment[change.guid] = slots
+            lastEvent = "Equip \(change.id) · GUID \(change.guid)"
+        case .equippedItemsChange(let change):
+            equipment[change.guid] = change.attachments
+            lastEvent = "Equipment · \(change.attachments.count) slots · GUID \(change.guid)"
+        case .temporaryAppearance(let appearance):
+            temporaryAppearances[appearance.guid] = appearance.temporaryAppearance
+            lastEvent = "Appearance \(appearance.temporaryAppearance) · GUID \(appearance.guid)"
+        case .removeTemporaryAppearance(let removal):
+            temporaryAppearances.removeValue(forKey: removal.guid)
+            lastEvent = "Appearance restored · GUID \(removal.guid)"
+        case .slotCompositeEffectOverride(let override):
+            var slots = compositeEffectOverrides[override.guid] ?? [:]
+            if override.compositeEffect == 0 {
+                slots.removeValue(forKey: override.slot)
+            } else {
+                slots[override.slot] = override.compositeEffect
+            }
+            compositeEffectOverrides[override.guid] = slots
+            lastEvent = "Flair \(override.compositeEffect) · slot \(override.slot) · GUID \(override.guid)"
+        case .activeWieldType(let wield):
+            activeWieldTypes[wield.guid] = wield.wieldType
+            lastEvent = "Wield \(wield.wieldType) · GUID \(wield.guid)"
+        case .beginZoning(let zoning):
+            pendingZoneName = zoning.name
+            pendingZoneID = zoning.id
+            pendingZoneGeometryID = zoning.geometryID
+            ownTeleportSequence = zoning.teleportSequence
+            if let guid = playerGUID {
+                teleportSequences[guid] = zoning.teleportSequence
+                scales[guid] = nil
+                if var current = positions[guid] {
+                    current.position = ZoneVector(
+                        x: Double(zoning.position.x),
+                        y: Double(zoning.position.y),
+                        z: Double(zoning.position.z),
+                        w: Double(zoning.position.w)
+                    )
+                    current.rotation = ZoneVector(
+                        x: Double(zoning.rotation.x),
+                        y: Double(zoning.rotation.y),
+                        z: Double(zoning.rotation.z),
+                        w: Double(zoning.rotation.w)
+                    )
+                    current.teleportSequence = zoning.teleportSequence
+                    current.receivedAt = now
+                    positions[guid] = current
+                }
+            }
+            lastEvent = "Zoning · \(zoning.name) · seq \(zoning.teleportSequence)"
+        case .updateLocation(let location):
+            ownTeleportSequence = location.teleportSequence
+            if let guid = playerGUID {
+                teleportSequences[guid] = location.teleportSequence
+                if location.teleport { scales[guid] = nil }
+                if var current = positions[guid] {
+                    current.position = ZoneVector(
+                        x: Double(location.position.x),
+                        y: Double(location.position.y),
+                        z: Double(location.position.z),
+                        w: Double(location.position.w)
+                    )
+                    current.rotation = ZoneVector(
+                        x: Double(location.rotation.x),
+                        y: Double(location.rotation.y),
+                        z: Double(location.rotation.z),
+                        w: Double(location.rotation.w)
+                    )
+                    current.teleportSequence = location.teleportSequence
+                    current.receivedAt = now
+                    positions[guid] = current
+                }
+            }
+            lastEvent = "Location · seq \(location.teleportSequence) · teleport \(location.teleport)"
         case .unknown(let opcode, _):
             lastEvent = "Unparsed world opcode \(opcode)"
         }
@@ -1823,14 +2831,14 @@ struct GatewaySession {
         return events
     }
 
-    private func decodeWorld(_ payload: Data, depth: Int = 0) -> [GatewaySessionEvent] {
+    private func decodeWorld(_ payload: Data) -> [GatewaySessionEvent] {
+        // A tunneled payload is one world packet. `PacketSendSelfToClient` is
+        // terminal: its nested payload is a raw ClientPcData record, not
+        // another framed world packet, so it must not be reinterpreted by
+        // opcode 125/35 etc.
         guard let decoded = try? GatewayWorldCodec.decodeAny(payload) else {
             return []
         }
-        var events: [GatewaySessionEvent] = [.world(decoded)]
-        if case .sendSelf(let wrapped) = decoded, depth < 4 {
-            events.append(contentsOf: decodeWorld(wrapped.payload, depth: depth + 1))
-        }
-        return events
+        return [.world(decoded)]
     }
 }

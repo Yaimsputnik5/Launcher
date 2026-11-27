@@ -43,6 +43,9 @@ final class HTTPClient {
     }
 
     func login(webAPI: URL, username: String, password: String) async throws -> LoginResponse {
+        guard URLHelper.credentialsAllowed(for: webAPI) else {
+            throw LauncherError.insecureCredentials(webAPI.host ?? "unknown host")
+        }
         let endpoint = URLHelper.joining(webAPI, "login")
         let request = try jsonRequest(endpoint, body: LoginRequest(username: username, password: password))
         let (data, response) = try await session.data(for: request)
@@ -72,6 +75,9 @@ final class HTTPClient {
     }
 
     func register(webAPI: URL, username: String, password: String) async throws {
+        guard URLHelper.credentialsAllowed(for: webAPI) else {
+            throw LauncherError.insecureCredentials(webAPI.host ?? "unknown host")
+        }
         let endpoint = URLHelper.joining(webAPI, "register")
         let request = try jsonRequest(endpoint, body: RegisterRequest(username: username, password: password))
         let (_, response) = try await session.data(for: request)

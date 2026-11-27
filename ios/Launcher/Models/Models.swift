@@ -78,6 +78,12 @@ struct ServerInfo: Codable, Identifiable, Equatable {
     var rememberUsername: Bool
     var rememberPassword: Bool
     var locale: GameLocale
+    /// Optional per-server overrides. Sanctuary's bundled gateway publishes its
+    /// required client version in gateway.json, not in servermanifest.xml, so a
+    /// server with a different build must be configurable without a code change.
+    var gatewayVersion: String?
+    /// Sent in the login request. Sanctuary logs it but does not validate it.
+    var loginFingerprint: String?
     /// True until a live servermanifest.xml has supplied real endpoints. The
     /// C# launcher never persists a bootstrap record; iOS keeps one so the
     /// public server is visible offline, but must not present it as live data.
@@ -88,6 +94,7 @@ struct ServerInfo: Codable, Identifiable, Equatable {
         case descriptionText = "description"
         case webAPIURL = "webApiUrl"
         case loginServer, savePath, username, rememberUsername, rememberPassword, locale
+        case gatewayVersion, loginFingerprint
         case isBootstrapOnly
     }
 
@@ -286,6 +293,7 @@ struct RegisterRequest: Codable {
 enum LauncherError: LocalizedError {
     case invalidURL(String)
     case unsupportedScheme(String)
+    case insecureCredentials(String)
     case httpStatus(Int)
     case unauthorized
     case malformedLoginResponse(String)
@@ -305,6 +313,8 @@ enum LauncherError: LocalizedError {
         switch self {
         case .invalidURL(let value): return "Invalid URL: \(value)"
         case .unsupportedScheme(let scheme): return "Unsupported URL scheme: \(scheme)"
+        case .insecureCredentials(let host):
+            return "Refusing to send credentials over plain HTTP to \(host). Use HTTPS or a localhost server."
         case .httpStatus(let code): return "Server returned HTTP \(code)."
         case .unauthorized: return "Incorrect username or password."
         case .malformedLoginResponse(let detail):

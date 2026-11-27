@@ -126,6 +126,9 @@ final class LoginUDPSession: @unchecked Sendable {
     private static let maxRawPacketSize: Int32 = 512
     private static let crcBytes: UInt8 = 2
     private static let connectAttemptDelay: TimeInterval = 1
+    /// `UdpParams.MaxDataHoldTime`, used for both ACKs and out-bound reliable
+    /// frames that enter the shared Multi buffer.
+    private static let maxDataHoldMilliseconds = 50
     private static let maximumDatagramSize: Int = 2048
 
     private enum Stage: String {
@@ -147,10 +150,9 @@ final class LoginUDPSession: @unchecked Sendable {
     private var cipher = LoginCipher()
     private var udpState = UdpLibraryReassemblyState()
     private var incomingReliable = UdpLibraryIncomingReliableState()
-    private var outgoingReliableID: UInt16 = 0
     private var connectionConfig: UdpLibraryConnectionConfig?
-    private var outgoingReliable: UdpLibraryOutgoingReliableState?
-    private var pendingReliableFrame: Data?
+    private var outgoingQueue: UdpLibraryOutboundQueue?
+    private var pendingReliableFrames: [UInt16: Data] = [:]
     private var bufferedAcks = UdpLibraryBufferedAcks()
     private var ackFlushTimer: DispatchWorkItem?
     private var flowResult = LoginFlowResult()
@@ -438,16 +440,21 @@ final class LoginUDPSession: @unchecked Sendable {
             return
         }
 
-        // LoginUdp_6 negotiated methods [0,0], so there is no user-supplied
-        // pass. The shared decoder still validates the CRC, expands Multi and
-        // Group containers, and reassembles reliable fragments.
+        // The Confirm supplies CRC width and both encrypt passes. Use the full
+        // negotiated config so a non-default peer is framed correctly instead
+        // of being rejected or silently misparsed.
         do {
-            let cooked = try UdpLibrary.cook(
-                data,
-                encryptCode: encryptCode,
-                userSuppliedCompression: false
-            )
-            for packet in UdpLibrary.parse(cooked, state: &udpState) {
+            let cooked: Data
+            if let config = connectionConfig {
+                cooked = try UdpLibrary.cook(data, config: config)
+            } else {
+                cooked = try UdpLibrary.cook(
+                    data,
+                    encryptCode: encryptCode,
+                    userSuppliedCompression: false
+                )
+            }
+            for packet in UdpLibrary.parseTransport(cooked) {
                 handleUdpPacket(packet)
             }
         } catch {
@@ -459,52 +466,66 @@ final class LoginUDPSession: @unchecked Sendable {
 
     private func handleUdpPacket(_ packet: UdpLibraryPacket) {
         switch packet {
-        case .reliable(let type, let reliableID, _, let applications):
-            guard let ack = incomingReliable.receive(
+        case .frame(let type, let reliableID, let body, let isFragment):
+            guard let ack = incomingReliable.receiveFrame(
                 type: type,
                 reliableID: reliableID,
-                applications: applications
+                body: body,
+                isFragment: isFragment,
+                maxReassemblyLength: UdpLibrary.maximumReassemblyLength
             ) else { return }
             enqueueAck(type: ack.type, reliableID: ack.reliableID)
+            guard !ack.wasCorrupt else { return }
             for application in ack.applications {
                 handleApplication(application)
             }
+        case .reliable(_, _, _, let applications):
+            // Standalone decoder path; ordering was already applied by the
+            // caller. Kept for tests and local packet inspection.
+            for application in applications { handleApplication(application) }
         case .ack(let type, let reliableID):
-            outgoingReliable?.acknowledge(
+            outgoingQueue?.reliable.acknowledge(
                 type: type,
                 stamp: reliableID,
                 now: udpClockMilliseconds()
             )
-            acknowledgeOutgoing(reliableID)
+            prunePendingFrames()
         case .ackAll(let type, let reliableID):
-            outgoingReliable?.acknowledgeAll(
+            outgoingQueue?.reliable.acknowledgeAll(
                 type: type,
                 stamp: reliableID,
                 now: udpClockMilliseconds()
             )
-            acknowledgeOutgoingThrough(reliableID)
+            prunePendingFrames()
         case .application, .internalPacket:
             break
         }
     }
 
-    /// Sanctuary buffers ACKs for `MaxDataHoldTime` (50 ms) and coalesces them
-    /// into one CRC-protected Multi datagram when possible.
+    /// Sanctuary buffers ACKs and small reliable frames for `MaxDataHoldTime`
+    /// (50 ms) and coalesces them into one CRC-protected Multi datagram.
     private func enqueueAck(type: UInt8, reliableID: UInt16) {
-        let limit = max(
-            0,
-            (connectionConfig?.maxRawPacketSize ?? 512)
-                - (connectionConfig?.crcBytes ?? Int(Self.crcBytes))
-                - (connectionConfig?.encryptExpansionBytes ?? 0)
+        let config = connectionConfig ?? UdpLibraryConnectionConfig(
+            encryptCode: encryptCode,
+            crcBytes: Int(Self.crcBytes),
+            encryptMethod1: 0,
+            encryptMethod2: 0,
+            maxRawPacketSize: Int(Self.maxRawPacketSize)
         )
+        let limit = config.maxRawPacketSize - config.crcBytes - config.encryptExpansionBytes
         if bufferedAcks.cookedLength + 5 > limit { flushAcks() }
         bufferedAcks.enqueue(
             type: type,
             reliableID: reliableID,
             isAckAll: type >= 21 && type <= 24,
-            deduping: true
+            deduping: true,
+            channel: UdpLibrary.channel(forAckType: type)
         )
-        guard ackFlushTimer == nil else { return }
+        scheduleBufferFlush()
+    }
+
+    private func scheduleBufferFlush() {
+        guard ackFlushTimer == nil, bufferedAcks.count > 0 else { return }
         let item = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.queue.async {
@@ -513,7 +534,7 @@ final class LoginUDPSession: @unchecked Sendable {
         }
         ackFlushTimer = item
         DispatchQueue.global(qos: .utility).asyncAfter(
-            deadline: .now() + .milliseconds(50),
+            deadline: .now() + .milliseconds(Self.maxDataHoldMilliseconds),
             execute: item
         )
     }
@@ -521,10 +542,14 @@ final class LoginUDPSession: @unchecked Sendable {
     private func flushAcks() {
         ackFlushTimer?.cancel()
         ackFlushTimer = nil
-        guard let frame = bufferedAcks.flush(
+        let config = connectionConfig ?? UdpLibraryConnectionConfig(
             encryptCode: encryptCode,
-            userSuppliedCompression: false
-        ) else { return }
+            crcBytes: Int(Self.crcBytes),
+            encryptMethod1: 0,
+            encryptMethod2: 0,
+            maxRawPacketSize: Int(Self.maxRawPacketSize)
+        )
+        guard let frame = bufferedAcks.flush(config: config) else { return }
         rawSend(frame)
     }
 
@@ -543,17 +568,16 @@ final class LoginUDPSession: @unchecked Sendable {
         }
     }
 
-    /// Stops resending the one outstanding request once the peer ACKs it.
-    private func acknowledgeOutgoing(_ reliableID: UInt16) {
-        guard reliableID == (outgoingReliableID &- 1) else { return }
-        loginRetryStop()
-    }
-
-    private func acknowledgeOutgoingThrough(_ reliableID: UInt16) {
-        let distance = Int(UInt16(truncatingIfNeeded: reliableID &- (outgoingReliableID &- 1)))
-        if distance < 0x8000 {
-            loginRetryStop()
+    /// Removes cooked frames whose reliable entries have all been ACKed. The
+    /// state owns full 64-bit ids, so wrap-around is handled there rather than
+    /// by comparing 16-bit stamps here.
+    private func prunePendingFrames() {
+        guard let state = outgoingQueue?.reliable else {
+            pendingReliableFrames.removeAll()
+            return
         }
+        let remaining = Set(state.pendingStamps)
+        pendingReliableFrames = pendingReliableFrames.filter { remaining.contains($0.key) }
     }
 
     private func handleConfirm(_ data: Data) {
@@ -565,19 +589,6 @@ final class LoginUDPSession: @unchecked Sendable {
             return
         }
         guard readBE32(data, offset: 2) == connectCode else { return }
-        guard data[10] == Self.crcBytes else {
-            finish(.failure(LoginUDPError.protocolError("Unsupported CRC byte count \(data[10])")))
-            return
-        }
-        // LoginUdp_6 does not negotiate a user-supplied pass on the live
-        // server. Refuse one explicitly rather than framing packets without
-        // its flag and silently producing malformed datagrams.
-        guard data[11] == 0, data[12] == 0 else {
-            finish(.failure(LoginUDPError.protocolError(
-                "Unsupported login encrypt methods \(data[11]),\(data[12])"
-            )))
-            return
-        }
         let config = UdpLibraryConnectionConfig(
             encryptCode: readBE32(data, offset: 6),
             crcBytes: Int(data[10]),
@@ -585,12 +596,19 @@ final class LoginUDPSession: @unchecked Sendable {
             encryptMethod2: data[12],
             maxRawPacketSize: Int(Int32(bitPattern: readBE32(data, offset: 13)))
         )
+        guard config.isValid else {
+            let detail = (1...4).contains(config.crcBytes)
+                ? "encrypt methods \(data[11]),\(data[12])"
+                : "CRC byte count \(data[10])"
+            finish(.failure(LoginUDPError.protocolError("Unsupported login \(detail)")))
+            return
+        }
         guard config.maxReliablePayloadBytes > 0 else {
             finish(.failure(LoginUDPError.protocolError("Invalid MaxRawPacketSize")))
             return
         }
         connectionConfig = config
-        outgoingReliable = UdpLibraryOutgoingReliableState(config: config)
+        outgoingQueue = UdpLibraryOutboundQueue(config: config)
         encryptCode = config.encryptCode
         stage = .session
         connectRetry?.cancel()
@@ -602,7 +620,6 @@ final class LoginUDPSession: @unchecked Sendable {
 
     private func handleSessionReply(_ reply: LoginProtocol.SessionReply) {
         guard stage == .session else { return }
-        loginRetryStop()
         guard reply.loggedIn else {
             finish(.failure(LoginUDPError.loginRejected(reply.status)))
             return
@@ -619,7 +636,6 @@ final class LoginUDPSession: @unchecked Sendable {
 
     private func handleCharacterSelectReply(_ reply: LoginProtocol.CharacterSelectReply) {
         guard stage == .characters else { return }
-        loginRetryStop()
         guard reply.status == 1 else {
             finish(.failure(LoginUDPError.protocolError("Character list unavailable (status \(reply.status))")))
             return
@@ -649,7 +665,6 @@ final class LoginUDPSession: @unchecked Sendable {
 
     private func handleCharacterLoginReply(_ reply: LoginProtocol.CharacterLoginReply) {
         guard stage == .characterLogin else { return }
-        loginRetryStop()
         guard reply.status == 1 else {
             finish(.failure(LoginUDPError.invalidCharacterReply(reply.status)))
             return
@@ -703,51 +718,54 @@ final class LoginUDPSession: @unchecked Sendable {
     }
 
     private func sendReliable<Message: LoginMessage>(_ message: Message) {
-        guard continuation != nil else { return }
-        loginRetryStop()
-        let packet = LoginPacket.encode(message)
-        let header = LoginFrameHeader(type: .reliable1, reliableID: outgoingReliableID)
-        outgoingReliableID = outgoingReliableID &+ 1
-        let frame = LoginFrame.encode(
-            header: header,
-            encryptCode: encryptCode,
-            ciphertext: cipher.encryptPacket(packet)
-        )
-        pendingReliableFrame = frame
-        outgoingReliable?.noteSent(
-            stamp: header.reliableID,
-            channel: 0,
-            length: frame.count,
-            now: udpClockMilliseconds()
-        )
-        flushAcks()
-        rawSend(frame)
-        scheduleReliableRetry()
+        guard continuation != nil,
+              connectionConfig != nil,
+              var queue = outgoingQueue
+        else { return }
+        // Sanctuary does not send reliable data directly from `Send`; the
+        // logical packet is queued and only leaves during `GiveTime`, which
+        // enforces coalescing and the congestion window.
+        queue.enqueue(cipher.encryptPacket(LoginPacket.encode(message)))
+        outgoingQueue = queue
+        scheduleReliablePump(delay: 0)
     }
 
-    private func loginRetryStop() {
-        reliableRetry?.cancel()
-        reliableRetry = nil
-        pendingReliableFrame = nil
+    private func sendCookedReliable(_ cooked: Data, config: UdpLibraryConnectionConfig) {
+        for frame in bufferedAcks.offer(cooked: cooked, config: config) {
+            rawSend(frame)
+        }
+        scheduleBufferFlush()
     }
 
-    private func scheduleReliableRetry(delay overrideDelay: UInt64? = nil) {
+    private func pumpOutgoing() {
+        guard let config = connectionConfig, var queue = outgoingQueue else { return }
+        let result = queue.pump(now: udpClockMilliseconds())
+        outgoingQueue = queue
+
+        for frame in result.newFrames {
+            pendingReliableFrames[frame.stamp] = frame.cooked
+            sendCookedReliable(frame.cooked, config: config)
+        }
+        if result.tick.timedOut {
+            finish(.failure(LoginUDPError.timeout("reliable unacknowledged timeout")))
+            return
+        }
+        for resend in result.tick.resends {
+            guard let cooked = pendingReliableFrames[resend.id] else { continue }
+            sendCookedReliable(cooked, config: config)
+        }
+        prunePendingFrames()
+        guard outgoingQueue?.hasPendingWork == true || !pendingReliableFrames.isEmpty else { return }
+        scheduleReliablePump(delay: result.tick.delay)
+    }
+
+    private func scheduleReliablePump(delay overrideDelay: UInt64? = nil) {
         let item = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.queue.async {
-                guard self.continuation != nil,
-                      let frame = self.pendingReliableFrame,
-                      var state = self.outgoingReliable
-                else { return }
-                let tick = state.giveTime(now: udpClockMilliseconds())
-                self.outgoingReliable = state
-                if tick.timedOut {
-                    self.finish(.failure(LoginUDPError.timeout("reliable unacknowledged timeout")))
-                    return
-                }
-                if !tick.resends.isEmpty { self.rawSend(frame) }
                 self.reliableRetry = nil
-                self.scheduleReliableRetry(delay: tick.delay)
+                guard self.continuation != nil else { return }
+                self.pumpOutgoing()
             }
         }
         reliableRetry?.cancel()
@@ -797,14 +815,19 @@ final class LoginUDPSession: @unchecked Sendable {
         timeoutWork = nil
         ackFlushTimer?.cancel()
         ackFlushTimer = nil
-        if let frame = bufferedAcks.flush(
+        let config = connectionConfig ?? UdpLibraryConnectionConfig(
             encryptCode: encryptCode,
-            userSuppliedCompression: false
-        ) {
+            crcBytes: Int(Self.crcBytes),
+            encryptMethod1: 0,
+            encryptMethod2: 0,
+            maxRawPacketSize: Int(Self.maxRawPacketSize)
+        )
+        if let frame = bufferedAcks.flush(config: config) {
             rawSend(frame)
         }
-        pendingReliableFrame = nil
-        outgoingReliable?.reset()
+        pendingReliableFrames.removeAll()
+        outgoingQueue?.reliable.reset()
+        outgoingQueue = nil
         connection.stateUpdateHandler = nil
         connection.cancel()
         switch result {
@@ -852,9 +875,12 @@ final class GatewayUDPSession: @unchecked Sendable {
     static let defaultClientVersion = "1.910.1.530630"
 
     private static let retryDelay: TimeInterval = 1
-    /// Sanctuary's external-client `UdpParams` default. The public gateway's
-    /// own server side uses 29 s, which is close to its 30 s no-data timeout.
-    private static let keepAliveDelay: TimeInterval = 10
+    /// `UdpParams.MaxDataHoldTime`, used for buffered ACKs and reliable frames.
+    private static let maxDataHoldMilliseconds = 50
+    /// Sanctuary's external-client `UdpParams` default is 30 s. Sending just
+    /// before the 30 s no-data deadline avoids a race with packet jitter.
+    private static let keepAliveDelay: TimeInterval = 29
+    private static let noDataTimeout: TimeInterval = 30
     private static let maximumDatagramSize = 8192
 
     private enum Stage: String {
@@ -876,19 +902,31 @@ final class GatewayUDPSession: @unchecked Sendable {
     /// duplicate suppression; only packet-backed applications are delivered.
     private var incomingReliable = UdpLibraryIncomingReliableState()
     private var connectionConfig: UdpLibraryConnectionConfig?
-    private var outgoingReliable: UdpLibraryOutgoingReliableState?
+    private var outgoingQueue: UdpLibraryOutboundQueue?
     private var userSuppliedCompression = true
     private var isActive = false
+    private var lastReceiveTime = Date()
+    private var lastSendTime = Date()
     private var continuation: CheckedContinuation<Void, Error>?
-    private var pendingFrames: [UInt16: Data] = [:]
+    /// Sanctuary keeps an independent 64-bit reliable ring per channel, so a
+    /// 16-bit ack stamp is only unambiguous together with its channel.
+    private struct PendingFrameKey: Hashable {
+        let channel: UInt8
+        let stamp: UInt16
+    }
+    private var pendingFrames: [PendingFrameKey: Data] = [:]
     private var bufferedAcks = UdpLibraryBufferedAcks()
     private var ackFlushTimer: DispatchWorkItem?
     private var connectRetry: DispatchWorkItem?
     private var retryTimer: DispatchWorkItem?
     private var keepAliveTimer: DispatchWorkItem?
+    private var noDataTimer: DispatchWorkItem?
     private var timeoutWork: DispatchWorkItem?
     private var trace: [String] = []
     private var worldEventHandler: ((GatewayWorldPacket) -> Void)?
+    /// Sanctuary can deliver zone packets immediately after login. Keep them
+    /// until the caller installs its handler; no packet is discarded.
+    private var pendingWorldEvents: [GatewayWorldPacket] = []
 
     private init(endpoint: NWEndpoint, ticket: String, hello: GatewaySessionHello) {
         self.connection = NWConnection(to: endpoint, using: .udp)
@@ -973,6 +1011,7 @@ final class GatewayUDPSession: @unchecked Sendable {
                     return
                 }
                 guard let data, !data.isEmpty else { return }
+                self.lastReceiveTime = Date()
                 self.handle(datagram: data)
                 self.receiveLoop()
             }
@@ -1003,13 +1042,20 @@ final class GatewayUDPSession: @unchecked Sendable {
         }
 
         do {
-            let cooked = try UdpLibrary.cook(
-                data,
-                encryptCode: encryptCode,
-                userSuppliedCompression: userSuppliedCompression
-            )
+            let cooked: Data
+            if let config = connectionConfig {
+                cooked = try UdpLibrary.cook(data, config: config)
+            } else {
+                cooked = try UdpLibrary.cook(
+                    data,
+                    encryptCode: encryptCode,
+                    userSuppliedCompression: userSuppliedCompression
+                )
+            }
             record("datagram type=\(data[1]) cooked=\(cooked.count)")
-            for packet in UdpLibrary.parse(cooked, state: &udpState) {
+            // parseTransport leaves reliable frames and fragments unreassembled
+            // so incomingReliable can order each channel before delivery.
+            for packet in UdpLibrary.parseTransport(cooked) {
                 handleUdpPacket(packet)
             }
         } catch {
@@ -1021,37 +1067,46 @@ final class GatewayUDPSession: @unchecked Sendable {
 
     private func handleUdpPacket(_ packet: UdpLibraryPacket) {
         switch packet {
-        case .reliable(let type, let reliableID, let body, let applications):
-            record("reliable type=\(type) id=\(reliableID) body=\(body.count) apps=\(applications.count)")
-            guard let ack = incomingReliable.receive(
+        case .frame(let type, let reliableID, let body, let isFragment):
+            record("frame type=\(type) id=\(reliableID) body=\(body.count) fragment=\(isFragment)")
+            guard let ack = incomingReliable.receiveFrame(
                 type: type,
                 reliableID: reliableID,
-                applications: applications
+                body: body,
+                isFragment: isFragment,
+                maxReassemblyLength: UdpLibrary.maximumReassemblyLength
             ) else { return }
             enqueueAck(type: ack.type, reliableID: ack.reliableID)
             record(
                 "ack type=\(ack.type) id=\(ack.reliableID) " +
-                "delivered=\(ack.applications.count) duplicate=\(ack.wasDuplicate)"
+                "delivered=\(ack.applications.count) duplicate=\(ack.wasDuplicate) corrupt=\(ack.wasCorrupt)"
             )
+            guard !ack.wasCorrupt else { return }
             for application in ack.applications {
                 handleApplication(application)
             }
+        case .reliable(_, _, _, let applications):
+            for application in applications { handleApplication(application) }
         case .ack(let type, let reliableID):
             record("ack type=\(type) id=\(reliableID)")
-            outgoingReliable?.acknowledge(
+            outgoingQueue?.reliable.acknowledge(
                 type: type,
                 stamp: reliableID,
                 now: udpClockMilliseconds()
             )
-            pendingFrames.removeValue(forKey: reliableID)
+            let channel = UdpLibrary.channel(forAckType: type) ?? 0
+            pendingFrames.removeValue(forKey: PendingFrameKey(channel: channel, stamp: reliableID))
         case .ackAll(let type, let reliableID):
             record("ack-all type=\(type) id=\(reliableID)")
-            outgoingReliable?.acknowledgeAll(
+            outgoingQueue?.reliable.acknowledgeAll(
                 type: type,
                 stamp: reliableID,
                 now: udpClockMilliseconds()
             )
-            acknowledgeAll(through: reliableID)
+            acknowledgeAll(
+                through: reliableID,
+                channel: UdpLibrary.channel(forAckType: type) ?? 0
+            )
         case .application(let data):
             record("direct-app len=\(data.count)")
         case .internalPacket(let type):
@@ -1063,20 +1118,26 @@ final class GatewayUDPSession: @unchecked Sendable {
     /// coalesced into a Multi datagram. A later AckAll replaces the earliest
     /// buffered selective ACK so cumulative progress is processed first.
     private func enqueueAck(type: UInt8, reliableID: UInt16) {
-        let limit = max(
-            0,
-            (connectionConfig?.maxRawPacketSize ?? 512)
-                - (connectionConfig?.crcBytes ?? 2)
-                - (connectionConfig?.encryptExpansionBytes ?? 1)
+        let config = connectionConfig ?? UdpLibraryConnectionConfig(
+            encryptCode: encryptCode,
+            crcBytes: 2,
+            encryptMethod1: userSuppliedCompression ? 1 : 0,
+            encryptMethod2: 0,
+            maxRawPacketSize: 512
         )
-        if bufferedAcks.cookedLength + 5 > limit { flushAcks() }
+        if bufferedAcks.cookedLength + 5 > config.maxReliablePayloadBytes { flushAcks() }
         bufferedAcks.enqueue(
             type: type,
             reliableID: reliableID,
             isAckAll: type >= 21 && type <= 24,
-            deduping: true
+            deduping: true,
+            channel: UdpLibrary.channel(forAckType: type)
         )
-        guard ackFlushTimer == nil else { return }
+        scheduleBufferFlush()
+    }
+
+    private func scheduleBufferFlush() {
+        guard ackFlushTimer == nil, bufferedAcks.count > 0 else { return }
         let item = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.queue.async {
@@ -1085,7 +1146,7 @@ final class GatewayUDPSession: @unchecked Sendable {
         }
         ackFlushTimer = item
         DispatchQueue.global(qos: .utility).asyncAfter(
-            deadline: .now() + .milliseconds(50),
+            deadline: .now() + .milliseconds(Self.maxDataHoldMilliseconds),
             execute: item
         )
     }
@@ -1093,10 +1154,14 @@ final class GatewayUDPSession: @unchecked Sendable {
     private func flushAcks() {
         ackFlushTimer?.cancel()
         ackFlushTimer = nil
-        guard let frame = bufferedAcks.flush(
+        let config = connectionConfig ?? UdpLibraryConnectionConfig(
             encryptCode: encryptCode,
-            userSuppliedCompression: userSuppliedCompression
-        ) else { return }
+            crcBytes: 2,
+            encryptMethod1: userSuppliedCompression ? 1 : 0,
+            encryptMethod2: 0,
+            maxRawPacketSize: 512
+        )
+        guard let frame = bufferedAcks.flush(config: config) else { return }
         rawSend(frame)
     }
 
@@ -1119,7 +1184,11 @@ final class GatewayUDPSession: @unchecked Sendable {
                     fail(GatewayUDPError.protocolError(error.localizedDescription + diagnosticSuffix))
                 case .world(let packet):
                     record("world-event=\(packet)")
-                    worldEventHandler?(packet)
+                    if let handler = worldEventHandler {
+                        handler(packet)
+                    } else {
+                        pendingWorldEvents.append(packet)
+                    }
                 default:
                     break
                 }
@@ -1130,17 +1199,23 @@ final class GatewayUDPSession: @unchecked Sendable {
         }
     }
 
-    /// `AckAll` acknowledges every reliable id up to and including its stamp.
-    private func acknowledgeAll(through reliableID: UInt16) {
-        if let state = outgoingReliable {
-            let remaining = Set(state.pendingStamps)
-            pendingFrames = pendingFrames.filter { remaining.contains($0.key) }
+    /// `AckAll` acknowledges every reliable id on its channel up to and
+    /// including its stamp. The 16-bit stamps are compared wrap-aware.
+    private func acknowledgeAll(through reliableID: UInt16, channel: UInt8) {
+        if let state = outgoingQueue?.reliable {
+            // The channel state has already applied the cumulative ACK. Prune
+            // every acknowledged frame while preserving other channels whose
+            // 16-bit stamps are still outstanding.
+            let remaining = state.pendingIdentities
+            pendingFrames = pendingFrames.filter {
+                remaining.contains(.init(channel: $0.key.channel, stamp: $0.key.stamp))
+            }
             return
         }
-        for pendingID in Array(pendingFrames.keys) {
-            let distance = Int(UInt16(truncatingIfNeeded: reliableID &- pendingID))
+        for key in Array(pendingFrames.keys) where key.channel == channel {
+            let distance = Int(UInt16(truncatingIfNeeded: reliableID &- key.stamp))
             if distance < 0x8000 {
-                pendingFrames.removeValue(forKey: pendingID)
+                pendingFrames.removeValue(forKey: key)
             }
         }
     }
@@ -1155,34 +1230,33 @@ final class GatewayUDPSession: @unchecked Sendable {
             return
         }
         guard confirm.connectCode == connectCode else { return }
-        guard confirm.crcBytes == LoginFrame.crcByteCount else {
-            fail(GatewayUDPError.protocolError("Unsupported CRC byte count \(confirm.crcBytes)"))
-            return
-        }
-        stage = .login
-        encryptCode = UInt32(bitPattern: confirm.encryptCode)
-        userSuppliedCompression = confirm.encryptMethod1 == 1
-        record(
-            "confirm methods=[\(confirm.encryptMethod1),\(confirm.encryptMethod2)] " +
-            "crc=\(confirm.crcBytes) max=\(confirm.maxRawPacketSize) compress=\(userSuppliedCompression)"
-        )
-        guard confirm.encryptMethod2 == 0 else {
-            fail(GatewayUDPError.protocolError("Unsupported second encrypt method \(confirm.encryptMethod2)"))
-            return
-        }
         let config = UdpLibraryConnectionConfig(
-            encryptCode: encryptCode,
+            encryptCode: UInt32(bitPattern: confirm.encryptCode),
             crcBytes: Int(confirm.crcBytes),
             encryptMethod1: confirm.encryptMethod1,
             encryptMethod2: confirm.encryptMethod2,
             maxRawPacketSize: Int(confirm.maxRawPacketSize)
         )
+        guard config.isValid else {
+            let detail = (0...4).contains(config.crcBytes)
+                ? "encrypt methods \(confirm.encryptMethod1),\(confirm.encryptMethod2)"
+                : "CRC byte count \(confirm.crcBytes)"
+            fail(GatewayUDPError.protocolError("Unsupported gateway \(detail)"))
+            return
+        }
         guard config.maxReliablePayloadBytes > 0 else {
             fail(GatewayUDPError.protocolError("Invalid MaxRawPacketSize \(confirm.maxRawPacketSize)"))
             return
         }
+        stage = .login
+        encryptCode = config.encryptCode
+        userSuppliedCompression = config.encryptMethod1 == UInt8(UdpLibraryEncryptMethod.userSupplied.rawValue)
+        record(
+            "confirm methods=[\(confirm.encryptMethod1),\(confirm.encryptMethod2)] " +
+            "crc=\(confirm.crcBytes) max=\(confirm.maxRawPacketSize) compress=\(userSuppliedCompression)"
+        )
         connectionConfig = config
-        outgoingReliable = UdpLibraryOutgoingReliableState(config: config)
+        outgoingQueue = UdpLibraryOutboundQueue(config: config)
         udpState.reset()
         incomingReliable.reset()
         gateway = GatewaySession(
@@ -1228,7 +1302,11 @@ final class GatewayUDPSession: @unchecked Sendable {
         )
     }
 
+    /// The plaintext `PacketLogin` frame is built and stamped by
+    /// `GatewaySession`. Reserve its id in the transport queue so gameplay
+    /// frames cannot reuse the stamp while it is still outstanding.
     private func enqueue(_ frame: Data) {
+        guard let config = connectionConfig else { return }
         // With user-supplied compression the flag precedes the reliable id, so
         // the plain LoginFrameHeader parser cannot locate the id.
         let idOffset = userSuppliedCompression ? 3 : 2
@@ -1237,92 +1315,86 @@ final class GatewayUDPSession: @unchecked Sendable {
               frame[1] <= UdpFrameType.reliable4.rawValue
         else { return }
         let id = (UInt16(frame[idOffset]) << 8) | UInt16(frame[idOffset + 1])
-        let channel = frame[1] - UdpFrameType.reliable1.rawValue
-        pendingFrames[id] = frame
-        outgoingReliable?.noteSent(
+        let channel = UdpLibrary.channel(for: frame[1]) ?? (frame[1] - UdpFrameType.reliable1.rawValue)
+        let bodyBytes = max(
+            1,
+            frame.count - 4 - config.crcBytes - config.encryptExpansionBytes
+        )
+        var queue = outgoingQueue ?? UdpLibraryOutboundQueue(config: config)
+        queue.noteExternalSend(
             stamp: id,
             channel: channel,
-            length: frame.count,
+            length: bodyBytes,
             now: udpClockMilliseconds()
         )
+        outgoingQueue = queue
+        pendingFrames[PendingFrameKey(channel: channel, stamp: id)] = frame
         flushAcks()
         rawSend(frame)
-        scheduleRetryIfNeeded()
+        scheduleReliablePump(delay: UInt64(Self.retryDelay * 1_000))
     }
 
-    /// Wraps and fragments one secure gateway application packet exactly as
-    /// `UdpConnection.Send` -> `UdpReliableChannel.PullDown` would: the cipher
-    /// and wrapper are applied once, then each physical frame gets its own
-    /// reliable stamp and retransmission entry.
+    /// Wraps one secure gateway application packet, then lets the shared
+    /// outbound queue coalesce, fragment, window-gate and stamp it exactly as
+    /// `UdpConnection.Send` -> `UdpReliableChannel.GiveTime` would.
     private func enqueueSecureApplication(_ packet: Data) throws {
-        guard let config = connectionConfig, var state = outgoingReliable else {
+        guard let config = connectionConfig, var queue = outgoingQueue else {
             throw GatewayUDPError.protocolError("Gateway reliable channel is not ready")
         }
         let body = try gateway.wrapPayload(packet, secure: true)
-        let fragments = UdpLibraryFragmenter.split(
-            applicationPayload: body,
-            maxPayloadBytes: config.maxReliablePayloadBytes
-        )
-        guard !fragments.isEmpty else {
+        guard config.maxReliablePayloadBytes > 4 else {
             throw GatewayUDPError.protocolError("Negotiated reliable packet size is too small")
         }
-
-        // Reliable payloads are not placed in the Multi buffer by this client;
-        // flushing first keeps the ACK stream ordered before new data.
-        flushAcks()
-        for fragment in fragments {
-            let stamp = state.nextStamp
-            let frame = UdpLibrary.encodeReliableBody(
-                type: fragment.type,
-                reliableID: stamp,
-                encryptCode: encryptCode,
-                userSuppliedCompression: userSuppliedCompression,
-                body: fragment.body
-            )
-            pendingFrames[stamp] = frame
-            var updated = state
-            updated.noteSent(
-                stamp: stamp,
-                channel: UdpLibrary.channel(for: fragment.type) ?? 0,
-                length: max(1, fragment.outstandingBytes),
-                now: udpClockMilliseconds()
-            )
-            outgoingReliable = updated
-            state = updated
-            rawSend(frame)
-        }
-        scheduleRetryIfNeeded()
+        queue.enqueue(body)
+        outgoingQueue = queue
+        scheduleReliablePump(delay: 0)
     }
 
-    private func scheduleRetryIfNeeded(delay overrideDelay: UInt64? = nil) {
-        guard retryTimer == nil, !pendingFrames.isEmpty else { return }
+    private func sendCookedReliable(_ cooked: Data, config: UdpLibraryConnectionConfig) {
+        for frame in bufferedAcks.offer(cooked: cooked, config: config) {
+            rawSend(frame)
+        }
+        scheduleBufferFlush()
+    }
+
+    private func pumpOutgoing() {
+        guard let config = connectionConfig, var queue = outgoingQueue else { return }
+        let result = queue.pump(now: udpClockMilliseconds())
+        outgoingQueue = queue
+
+        for frame in result.newFrames {
+            pendingFrames[PendingFrameKey(channel: frame.channel, stamp: frame.stamp)] = frame.cooked
+            sendCookedReliable(frame.cooked, config: config)
+        }
+        if result.tick.timedOut {
+            fail(GatewayUDPError.timeout("reliable unacknowledged timeout;\(self.diagnosticSuffix)"))
+            return
+        }
+        for resend in result.tick.resends {
+            let key = PendingFrameKey(channel: resend.channel, stamp: resend.id)
+            guard let cooked = pendingFrames[key] else { continue }
+            sendCookedReliable(cooked, config: config)
+        }
+        if let state = outgoingQueue?.reliable {
+            let remaining = state.pendingIdentities
+            pendingFrames = pendingFrames.filter {
+                remaining.contains(.init(channel: $0.key.channel, stamp: $0.key.stamp))
+            }
+        }
+        guard outgoingQueue?.hasPendingWork == true || !pendingFrames.isEmpty else { return }
+        scheduleReliablePump(delay: result.tick.delay)
+    }
+
+    private func scheduleReliablePump(delay overrideDelay: UInt64? = nil) {
         let item = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.queue.async {
                 self.retryTimer = nil
-                guard (self.continuation != nil || self.isActive), !self.pendingFrames.isEmpty else { return }
-                var tick: UdpLibraryOutgoingReliableState.Tick?
-                if var state = self.outgoingReliable {
-                    let computed = state.giveTime(now: udpClockMilliseconds())
-                    self.outgoingReliable = state
-                    tick = computed
-                    if computed.timedOut {
-                        self.fail(GatewayUDPError.timeout("reliable unacknowledged timeout;\(self.diagnosticSuffix)"))
-                        return
-                    }
-                }
-                if let tick {
-                    for resend in tick.resends {
-                        guard let frame = self.pendingFrames[resend.id] else { continue }
-                        self.rawSend(frame)
-                    }
-                    self.scheduleRetryIfNeeded(delay: tick.delay)
-                } else {
-                    for frame in self.pendingFrames.values { self.rawSend(frame) }
-                    self.scheduleRetryIfNeeded()
-                }
+                guard self.continuation != nil || self.isActive else { return }
+                self.pumpOutgoing()
             }
         }
+        retryTimer?.cancel()
         retryTimer = item
         let milliseconds = max(1, overrideDelay ?? UInt64(Self.retryDelay * 1_000))
         DispatchQueue.global(qos: .utility).asyncAfter(
@@ -1341,11 +1413,18 @@ final class GatewayUDPSession: @unchecked Sendable {
             guard let self else { return }
             self.queue.async {
                 guard self.isActive else { return }
-                let packet = UdpLibrary.encodeKeepAlive(
-                    encryptCode: self.encryptCode,
-                    userSuppliedCompression: self.userSuppliedCompression
-                )
-                self.rawSend(packet)
+                // C# suppresses a keep-alive when other traffic recently reset
+                // LastSendTime, then schedules the next check.
+                if Date().timeIntervalSince(self.lastSendTime) >= Self.keepAliveDelay {
+                    let config = self.connectionConfig ?? UdpLibraryConnectionConfig(
+                        encryptCode: self.encryptCode,
+                        crcBytes: 2,
+                        encryptMethod1: self.userSuppliedCompression ? 1 : 0,
+                        encryptMethod2: 0,
+                        maxRawPacketSize: 512
+                    )
+                    self.rawSend(UdpLibrary.encodeKeepAlive(config: config))
+                }
                 self.scheduleKeepAlive()
             }
         }
@@ -1356,7 +1435,32 @@ final class GatewayUDPSession: @unchecked Sendable {
         )
     }
 
+    /// Sanctuary disconnects a connection that receives no datagram for
+    /// `NoDataTimeout`. Keep-alives normally prevent this, but a silent peer
+    /// must still fail instead of leaving the world screen alive forever.
+    private func scheduleNoDataCheck() {
+        guard isActive else { return }
+        noDataTimer?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.queue.async {
+                guard self.isActive else { return }
+                if Date().timeIntervalSince(self.lastReceiveTime) >= Self.noDataTimeout {
+                    self.fail(GatewayUDPError.timeout("no data received;\(self.diagnosticSuffix)"))
+                    return
+                }
+                self.scheduleNoDataCheck()
+            }
+        }
+        noDataTimer = item
+        DispatchQueue.global(qos: .utility).asyncAfter(
+            deadline: .now() + Self.noDataTimeout,
+            execute: item
+        )
+    }
+
     private func rawSend(_ packet: Data) {
+        lastSendTime = Date()
         connection.send(content: packet, completion: .contentProcessed { [weak self] error in
             guard let self, let error else { return }
             self.queue.async {
@@ -1414,6 +1518,110 @@ final class GatewayUDPSession: @unchecked Sendable {
         }
     }
 
+    /// Sends the player's own movement update through Sanctuary's gameplay
+    /// tunnel. The server replaces `guid` with `connection.Player.Guid`, but the
+    /// original client still writes it, so the wire layout is kept exact.
+    func sendPositionUpdate(
+        guid: UInt64,
+        position: GatewayVector3,
+        rotation: GatewayVector3,
+        state: UInt8,
+        teleportSequence: UInt8
+    ) throws {
+        let update = WorldPositionUpdate(
+            guid: guid,
+            position: position,
+            rotation: rotation,
+            state: state,
+            teleportSequence: teleportSequence
+        )
+        try sendGameplayPacket(update.encoded())
+    }
+
+    func sendJumpUpdate(
+        guid: UInt64,
+        position: GatewayVector3,
+        rotation: GatewayVector3,
+        state: UInt8,
+        teleportSequence: UInt8,
+        verticalVelocity: Float
+    ) throws {
+        let update = GatewayJumpUpdate(
+            guid: guid,
+            position: position,
+            rotation: rotation,
+            state: state,
+            teleportSequence: teleportSequence,
+            verticalVelocity: verticalVelocity
+        )
+        try sendGameplayPacket(update.encoded())
+    }
+
+    func sendCameraUpdate(position: GatewayVector3, rotation: GatewayVector3) throws {
+        try sendGameplayPacket(GatewayCameraUpdate(position: position, rotation: rotation).encoded())
+    }
+
+    /// Sends free-text chat using the exact `BaseChatPacket`/`PacketChat` layout.
+    /// `fromGUID`, `fromName` and `guildGUID` are overwritten by the gateway, but
+    /// they are written because C# deserialization requires their byte ranges.
+    func sendChat(
+        channel: GatewayChatMessage.Channel,
+        message: String,
+        toGUID: UInt64 = 0,
+        toName: GatewayName = GatewayName(
+            firstNameID: 0,
+            lastNamePrefixID: 0,
+            lastNameSuffixID: 0,
+            firstName: "",
+            lastName: ""
+        ),
+        position: GatewayVector4,
+        languageID: Int32 = 0,
+        areaNameID: Int32? = nil
+    ) throws {
+        let chat = GatewayChatMessage(
+            channel: channel,
+            fromGUID: 0,
+            toGUID: toGUID,
+            fromName: GatewayName(
+                firstNameID: 0,
+                lastNamePrefixID: 0,
+                lastNameSuffixID: 0,
+                firstName: "",
+                lastName: ""
+            ),
+            toName: toName,
+            message: message,
+            position: position,
+            guildGUID: 0,
+            languageID: languageID,
+            areaNameID: areaNameID
+        )
+        try sendGameplayPacket(chat.encoded())
+    }
+
+    /// The C2S game-time packet is a request: Sanctuary ignores these values and
+    /// replies with authoritative time generated by `GameTimeHelper`.
+    func sendGameTimeSync(time: Int64, serverRate: Int32 = 8, useClientTime: Bool = false) throws {
+        try sendGameplayPacket(GatewayGameTimeSync(
+            time: time,
+            serverRate: serverRate,
+            useClientTime: useClientTime
+        ).encoded())
+    }
+
+    private func sendGameplayPacket(_ payload: Data) throws {
+        try queue.sync {
+            guard gateway.state == .authenticated else {
+                throw GatewayUDPError.protocolError("Gateway is not authenticated")
+            }
+            let wrapped = GatewayPacketCodec.encode(
+                GatewayTunneledPacket(reliable: true, payload: payload)
+            )
+            try enqueueSecureApplication(wrapped)
+        }
+    }
+
     func currentState() -> GatewaySessionState {
         queue.sync { gateway.state }
     }
@@ -1421,7 +1629,12 @@ final class GatewayUDPSession: @unchecked Sendable {
     /// Installs a callback for decoded world packets. It is invoked on the
     /// gateway receive queue; callers must hop to their own UI queue.
     func setWorldEventHandler(_ handler: @escaping (GatewayWorldPacket) -> Void) {
-        queue.sync { worldEventHandler = handler }
+        queue.sync {
+            worldEventHandler = handler
+            let early = pendingWorldEvents
+            pendingWorldEvents.removeAll()
+            for packet in early { handler(packet) }
+        }
     }
 
     // MARK: - Lifecycle
@@ -1457,7 +1670,10 @@ final class GatewayUDPSession: @unchecked Sendable {
         connectRetry = nil
         retryTimer = nil
         timeoutWork = nil
+        lastReceiveTime = Date()
+        lastSendTime = Date()
         scheduleKeepAlive()
+        scheduleNoDataCheck()
         pendingContinuation.resume(returning: ())
     }
 
@@ -1488,17 +1704,21 @@ final class GatewayUDPSession: @unchecked Sendable {
         connectRetry?.cancel()
         retryTimer?.cancel()
         keepAliveTimer?.cancel()
+        noDataTimer?.cancel()
         timeoutWork?.cancel()
         ackFlushTimer?.cancel()
         connectRetry = nil
         retryTimer = nil
         keepAliveTimer = nil
+        noDataTimer = nil
         timeoutWork = nil
         ackFlushTimer = nil
         bufferedAcks.reset()
         pendingFrames.removeAll()
+        pendingWorldEvents.removeAll()
         incomingReliable.reset()
-        outgoingReliable?.reset()
+        outgoingQueue?.reliable.reset()
+        outgoingQueue = nil
         connectionConfig = nil
     }
 
