@@ -206,6 +206,25 @@ enum UdpLibrary {
         return data
     }
 
+    /// Build the ACK frame Sanctuary emits from `UdpReliableChannel`. The
+    /// user-supplied pass applies to ACKs too: it inserts its 0/1 flag at byte 2,
+    /// so the reliable id moves to bytes 3-4 whenever compression is negotiated.
+    static func encodeAck(
+        type: UInt8,
+        reliableID: UInt16,
+        encryptCode: UInt32,
+        userSuppliedCompression: Bool
+    ) -> Data {
+        var data = Data([marker, type])
+        if userSuppliedCompression {
+            data.append(0) // raw; this client never compresses outbound packets
+        }
+        appendBE16(reliableID, to: &data)
+        let crc = UInt16(truncatingIfNeeded: CRC32.checksum(data, encryptCode: encryptCode))
+        appendBE16(crc, to: &data)
+        return data
+    }
+
     /// Ack channel for a reliable or fragment packet type.
     static func ackType(for reliableType: UInt8) -> UInt8? {
         guard reliableType >= 9, reliableType <= 16 else { return nil }
@@ -320,6 +339,11 @@ enum UdpLibrary {
             pointer += length
         }
         return result
+    }
+
+    private static func appendBE16(_ value: UInt16, to data: inout Data) {
+        data.append(UInt8(truncatingIfNeeded: value >> 8))
+        data.append(UInt8(truncatingIfNeeded: value))
     }
 
     private static func readBE16(_ bytes: [UInt8], offset: Int) -> UInt16 {

@@ -65,6 +65,28 @@ final class UdpLibraryTransportTests: XCTestCase {
         XCTAssertEqual(ackAll, [.ackAll(type: 21, reliableID: 7)])
     }
 
+    func testEncodedAckIncludesNegotiatedUserSuppliedFlag() throws {
+        let compressed = UdpLibrary.encodeAck(
+            type: 17,
+            reliableID: 0x1234,
+            encryptCode: 0,
+            userSuppliedCompression: true
+        )
+        XCTAssertEqual(Array(compressed.prefix(5)), [0x00, 0x11, 0x00, 0x12, 0x34])
+        XCTAssertEqual(
+            try UdpLibrary.cook(compressed, encryptCode: 0, userSuppliedCompression: true),
+            Data([0x00, 0x11, 0x12, 0x34])
+        )
+
+        let raw = UdpLibrary.encodeAck(
+            type: 17,
+            reliableID: 7,
+            encryptCode: 0,
+            userSuppliedCompression: false
+        )
+        XCTAssertEqual(Array(raw.prefix(4)), [0x00, 0x11, 0x00, 0x07])
+    }
+
     func testReliableFragmentsAreReassembledBeforeRouting() throws {
         let application = Data([0xA9, 0xB7, 0xB9, 0x43])
         let total = UInt32(application.count)

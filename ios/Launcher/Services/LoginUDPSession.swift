@@ -768,6 +768,7 @@ final class GatewayUDPSession: @unchecked Sendable {
     private var connectRetry: DispatchWorkItem?
     private var retryTimer: DispatchWorkItem?
     private var timeoutWork: DispatchWorkItem?
+    private var trace: [String] = []
 
     private init(endpoint: NWEndpoint, ticket: String, hello: GatewaySessionHello) {
         self.connection = NWConnection(to: endpoint, using: .udp)
@@ -858,6 +859,20 @@ final class GatewayUDPSession: @unchecked Sendable {
         }
     }
 
+    // MARK: - Diagnostics
+
+    /// Keep a small, non-secret trace so a timeout names the exact stage that
+    /// failed instead of collapsing every receive/parse/decode error into one
+    /// generic 20-second wait.
+    private func record(_ event: String) {
+        trace.append(event)
+        if trace.count > 12 { trace.removeFirst(trace.count - 12) }
+    }
+
+    private var diagnosticSuffix: String {
+        trace.isEmpty ? "" : " trace=\(trace.joined(separator: " | "))"
+    }
+
     // MARK: - Inbound frames
 
     private func handle(datagram data: Data) {
@@ -873,48 +888,62 @@ final class GatewayUDPSession: @unchecked Sendable {
                 encryptCode: encryptCode,
                 userSuppliedCompression: userSuppliedCompression
             )
+            record("datagram type=\(data[1]) cooked=\(cooked.count)")
             for packet in UdpLibrary.parse(cooked, state: &udpState) {
                 handleUdpPacket(packet)
             }
         } catch {
-            // Keep the session alive for later packets; the login timeout still
-            // bounds a peer that only sends corrupt data.
-            _ = error
+            // Keep the session alive for later packets, but remember why this
+            // one was dropped so the timeout can report the real failure.
+            record("cook-error=\(String(describing: error))")
         }
     }
 
     private func handleUdpPacket(_ packet: UdpLibraryPacket) {
         switch packet {
-        case .reliable(let type, let reliableID, _, let applications):
+        case .reliable(let type, let reliableID, let body, let applications):
+            record("reliable type=\(type) id=\(reliableID) body=\(body.count) apps=\(applications.count)")
             sendAck(type: type, reliableID: reliableID)
             for application in applications {
                 handleApplication(application)
             }
-        case .ack(_, let reliableID):
+        case .ack(let type, let reliableID):
+            record("ack type=\(type) id=\(reliableID)")
             pendingFrames.removeValue(forKey: reliableID)
-        case .ackAll(_, let reliableID):
+        case .ackAll(let type, let reliableID):
+            record("ack-all type=\(type) id=\(reliableID)")
             acknowledgeAll(through: reliableID)
-        case .application, .internalPacket:
-            break
+        case .application(let data):
+            record("direct-app len=\(data.count)")
+        case .internalPacket(let type):
+            record("internal type=\(type)")
         }
     }
 
     private func handleApplication(_ application: Data) {
         do {
+            let opcode = application.count >= 2
+                ? Int16(bitPattern: UInt16(application[0]) | (UInt16(application[1]) << 8))
+                : -1
+            record("app opcode=\(opcode) len=\(application.count)")
             for event in try gateway.receiveApplicationData(application) {
                 switch event {
                 case .packet(.loginReply(let reply)) where reply.success:
+                    record("login-reply=success")
                     completeLogin()
                 case .packet(.loginReply(_)):
+                    record("login-reply=rejected")
                     fail(GatewayUDPError.rejected)
                 case .rejected(let error):
-                    fail(GatewayUDPError.protocolError(error.localizedDescription))
+                    record("decode-error=\(error.localizedDescription)")
+                    fail(GatewayUDPError.protocolError(error.localizedDescription + diagnosticSuffix))
                 default:
                     break
                 }
             }
         } catch {
-            fail(GatewayUDPError.protocolError(error.localizedDescription))
+            record("decode-error=\(error.localizedDescription)")
+            fail(GatewayUDPError.protocolError(error.localizedDescription + diagnosticSuffix))
         }
     }
 
@@ -945,6 +974,10 @@ final class GatewayUDPSession: @unchecked Sendable {
         stage = .login
         encryptCode = UInt32(bitPattern: confirm.encryptCode)
         userSuppliedCompression = confirm.encryptMethod1 == 1
+        record(
+            "confirm methods=[\(confirm.encryptMethod1),\(confirm.encryptMethod2)] " +
+            "crc=\(confirm.crcBytes) max=\(confirm.maxRawPacketSize) compress=\(userSuppliedCompression)"
+        )
         guard confirm.encryptMethod2 == 0 else {
             fail(GatewayUDPError.protocolError("Unsupported second encrypt method \(confirm.encryptMethod2)"))
             return
@@ -995,10 +1028,12 @@ final class GatewayUDPSession: @unchecked Sendable {
 
     private func sendAck(type: UInt8, reliableID: UInt16) {
         guard let ackType = UdpLibrary.ackType(for: type) else { return }
-        var packet = Data([0, ackType])
-        appendBE16(reliableID, to: &packet)
-        let crc = UInt16(truncatingIfNeeded: CRC32.checksum(packet, encryptCode: encryptCode))
-        appendBE16(crc, to: &packet)
+        let packet = UdpLibrary.encodeAck(
+            type: ackType,
+            reliableID: reliableID,
+            encryptCode: encryptCode,
+            userSuppliedCompression: userSuppliedCompression
+        )
         rawSend(packet)
     }
 
@@ -1103,7 +1138,8 @@ final class GatewayUDPSession: @unchecked Sendable {
             guard let self else { return }
             self.queue.async {
                 guard self.continuation != nil else { return }
-                self.fail(GatewayUDPError.timeout("\(self.stage) reply"))
+                self.record("timeout stage=\(self.stage)")
+                self.fail(GatewayUDPError.timeout("\(self.stage) reply;\(self.diagnosticSuffix)"))
             }
         }
         timeoutWork?.cancel()
