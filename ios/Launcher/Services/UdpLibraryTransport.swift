@@ -389,20 +389,30 @@ enum UdpLibrary {
             let bufferSize = 64 * 1024
             var scratch = [UInt8](repeating: 0, count: bufferSize)
             while true {
+                let hadInput = stream.src_size > 0
                 let status: compression_status = scratch.withUnsafeMutableBytes { buffer in
                     guard let destination = buffer.baseAddress else {
                         return COMPRESSION_STATUS_ERROR
                     }
                     stream.dst_ptr = destination.assumingMemoryBound(to: UInt8.self)
                     stream.dst_size = buffer.count
-                    return compression_stream_process(&stream, 0)
+                    // Once the source is exhausted, finalize instead of asking
+                    // the decoder to process another zero-length input forever.
+                    return compression_stream_process(
+                        &stream,
+                        hadInput ? 0 : COMPRESSION_STREAM_FINALIZE
+                    )
                 }
                 if status == COMPRESSION_STATUS_ERROR {
                     throw UdpLibraryError.decompressionFailed
                 }
-                output.append(contentsOf: scratch.prefix(bufferSize - stream.dst_size))
+                let produced = bufferSize - stream.dst_size
+                output.append(contentsOf: scratch.prefix(produced))
                 if status == COMPRESSION_STATUS_END { return output }
-                if stream.src_size == 0 && stream.dst_size == bufferSize {
+                // A decoder that consumed everything without reaching END or
+                // producing output cannot make progress; surface the error so
+                // the gateway timeout reports decompression instead of hanging.
+                if !hadInput && stream.src_size == 0 && produced == 0 {
                     throw UdpLibraryError.decompressionFailed
                 }
             }
