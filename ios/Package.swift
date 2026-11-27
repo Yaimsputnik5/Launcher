@@ -47,6 +47,7 @@ let package = Package(
                 "Engine/CollectionSpawns.swift",
                 "Engine/GameWorld.swift",
                 "Engine/ClientTextureCatalog.swift",
+                "Engine/ClientMinimapAtlas.swift",
                 "Engine/ClientZoneManifest.swift",
                 "Engine/ClientMaterialCatalog.swift",
                 "Engine/ClientChunkCatalog.swift",

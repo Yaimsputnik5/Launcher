@@ -462,7 +462,7 @@ final class ServerRuntime: ObservableObject, Identifiable {
         isDownloading = true
         lastError = nil
         downloadProgress = 0
-        notifications.removeAll { $0.persistent }
+        state?.notifications.removeAll { $0.persistent }
         defer {
             isDownloading = false
             downloadedFileName = ""
@@ -538,7 +538,7 @@ final class ServerRuntime: ObservableObject, Identifiable {
             if failures.isEmpty {
                 taskStatusMessage = "Client files are ready. The native world engine uses these files."
                 state?.notify("Downloaded \(planned.count) client files.")
-                clearNotice("Cannot close the launcher while downloading.")
+                state?.clearNotice("Cannot close the launcher while downloading.")
                 return true
             }
 

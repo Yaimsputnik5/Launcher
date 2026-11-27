@@ -288,10 +288,18 @@ not a full decompilation of all 134,650 discovered functions.
 
 `FUN_00d834a7` is the Microsoft C runtime startup path: it calls
 `GetStartupInfoA`, `GetProcessHeap`, `HeapAlloc`, `GetVersionExA`, and
-`HeapFree` before entering the application. The import table includes the
-expected Win32 and GFx/Scaleform surface (for example `GetStartupInfoA`,
-`GetVersionExA`, `RenderMovie`, and `TCGetGuiGfxParam`). No application-level
-argument parser was proven by this entry-point run: `SessionId=`,
+`HeapFree` before entering the application. Its decompiled tail stores
+`GetCommandLineA()` in `_DAT_01cc00c8` and calls
+`FUN_00403340(0x400000, 0, commandLine, uVar4)`; this establishes where the
+process command line enters the startup path, but the direct-callee evidence
+does not decompile `FUN_00403340`, so no application-level argument parser or
+argument-to-setting mapping was proven. The other direct entry-point callee,
+`FUN_00d95820`, decompiles as MSVC runtime random-seed initialization: it reads
+`GetSystemTimeAsFileTime`, `GetCurrentProcessId`, `GetCurrentThreadId`,
+`GetTickCount` and `QueryPerformanceCounter`, XORs them into `_DAT_01b839d8`,
+and writes the bitwise complement to `_DAT_01b839dc`. The import table includes
+the expected Win32 and GFx/Scaleform surface (for example `GetStartupInfoA`,
+`GetVersionExA`, `RenderMovie`, and `TCGetGuiGfxParam`). `SessionId=`,
 `Internationalization:Locale=`, `FabledRealms`, `UDPLibrary` and `LoginApiUrl`
 were not found as contiguous `.rdata` strings, while the launch argument names
 that are present have no code references in the partially analyzed project.

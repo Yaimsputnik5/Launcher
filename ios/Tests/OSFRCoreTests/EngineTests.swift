@@ -218,6 +218,68 @@ final class EngineTests: XCTestCase {
         XCTAssertTrue(engine.frame.textureStatus?.contains("Embedded client DDS 4x4") == true)
     }
 
+    func testEngineDrawsShippedMinimapTilesAtTileInfoWorldRectangles() throws {
+        let root = try makeResourceRoot()
+        let simulation = try WorldSimulation(rootURL: root, zoneID: 1)
+        let name = "FabledRealms_Tile_005_-32_0_0.dds"
+        let payload = testDDS(width: 4, height: 4)
+        let tilePack = testPack(name: name, payload: payload)
+        let row = "\(name)\t-2048.000000\t0.000000\t320.000000\t128.000000\t128.000000\n"
+        let infoPack = testPack(name: "FabledRealms_TileInfo.txt", payload: Data(row.utf8))
+        let atlas = ClientMinimapAtlas(dataLoader: ClientAssetDataLoader { path in
+            switch path {
+            case "Assets_000.pack": return tilePack
+            case "Assets_002.pack": return infoPack
+            default: return nil
+            }
+        })
+        XCTAssertEqual(atlas.tiles.count, 1)
+
+        let texturePath = "Assets_000.pack#\(name)"
+        let engine = OSFREngine(
+            simulation: simulation,
+            assetPipeline: EngineAssetPipeline(loader: TextureLoader { path in
+                path == "Assets_000.pack" ? tilePack : nil
+            }),
+            terrainTexturePath: "",
+            minimapAtlas: atlas
+        )
+
+        let minimapTile = try XCTUnwrap(engine.frame.drawables.first {
+            $0.kind == .tile && $0.textureName == texturePath
+        })
+        XCTAssertTrue(minimapTile.label.contains(name))
+        XCTAssertEqual(engine.frame.textures[texturePath]?.width, 4)
+        XCTAssertTrue(engine.frame.textureStatus?.contains("decoded 1") == true)
+    }
+
+    func testRemoteEngineDoesNotInjectStaticMinimapTiles() throws {
+        let root = try makeResourceRoot()
+        let simulation = try WorldSimulation(rootURL: root, zoneID: 1)
+        let name = "FabledRealms_Tile_005_-32_0_0.dds"
+        let tilePack = testPack(name: name, payload: testDDS(width: 4, height: 4))
+        let row = "\(name)\t-2048.000000\t0.000000\t320.000000\t128.000000\t128.000000\n"
+        let infoPack = testPack(name: "FabledRealms_TileInfo.txt", payload: Data(row.utf8))
+        let atlas = ClientMinimapAtlas(dataLoader: ClientAssetDataLoader { path in
+            switch path {
+            case "Assets_000.pack": return tilePack
+            case "Assets_002.pack": return infoPack
+            default: return nil
+            }
+        })
+        XCTAssertEqual(atlas.tiles.count, 1)
+
+        let engine = OSFREngine(
+            simulation: simulation,
+            presentationMode: .remote,
+            minimapAtlas: atlas
+        )
+        XCTAssertFalse(engine.frame.drawables.contains {
+            $0.textureName == "Assets_000.pack#\(name)"
+        })
+        XCTAssertFalse(engine.frame.textureStatus?.contains("decoded 1") == true)
+    }
+
     private func cString(_ value: String) -> Data {
         Data(value.utf8) + Data([0])
     }

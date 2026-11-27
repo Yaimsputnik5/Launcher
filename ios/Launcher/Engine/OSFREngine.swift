@@ -346,6 +346,7 @@ final class OSFREngine {
     let assetPipeline: EngineAssetPipeline
     let terrainPalette: ClientTerrainPalette
     let clientObjectCatalog: ClientChunkCatalog
+    let minimapAtlas: ClientMinimapAtlas?
     let presentationMode: OSFREnginePresentationMode
 
     private(set) var remoteObservation: GatewayWorldObservation
@@ -355,6 +356,7 @@ final class OSFREngine {
     private(set) var frame: EngineFrame
     private let terrainTexturePath: String?
     private var terrainTextureStatus: String?
+    private var minimapTileStatus: String?
     private var destination: ZoneVector?
     private var navigationWaypoints: [ZoneVector] = []
     private var lastAdvance: Date?
@@ -368,7 +370,8 @@ final class OSFREngine {
         presentationMode: OSFREnginePresentationMode = .offline,
         selfGUID: UInt64? = nil,
         remoteObservation: GatewayWorldObservation = .empty,
-        clientObjectCatalog: ClientChunkCatalog = .empty
+        clientObjectCatalog: ClientChunkCatalog = .empty,
+        minimapAtlas: ClientMinimapAtlas? = nil
     ) {
         self.simulation = simulation
         self.assetPipeline = assetPipeline ?? EngineAssetPipeline()
@@ -378,6 +381,11 @@ final class OSFREngine {
         // Remote worlds must not mix shipped client objects into packet-backed
         // markers, even if a catalog is passed in.
         self.clientObjectCatalog = presentationMode == .remote ? .empty : clientObjectCatalog
+        // Remote sessions stay packet-only: the real zone grid is selected by
+        // the server's zone packet, but static client map art is offline-only.
+        self.minimapAtlas = presentationMode == .remote
+            ? nil
+            : (minimapAtlas ?? ClientMinimapAtlas())
         let snapshot = simulation.snapshot
         let resolvedZone = zoneManifest
             ?? (try? ClientAssetDataLoader().zoneManifest(forZoneName: snapshot.zoneName))
@@ -403,6 +411,7 @@ final class OSFREngine {
                 : nil
         )
         loadTerrainTextureIfAvailable()
+        loadMinimapTilesIfAvailable()
         rebuildScene()
     }
 
@@ -414,6 +423,20 @@ final class OSFREngine {
         } catch {
             terrainTextureStatus = "Client texture unavailable: \(error.localizedDescription)"
         }
+    }
+
+    /// Decodes only minimap DDS files whose names and rectangles are in the
+    /// shipped client index. Missing entries stay absent; no art is invented.
+    private func loadMinimapTilesIfAvailable() {
+        guard let minimapAtlas, !minimapAtlas.tiles.isEmpty else {
+            minimapTileStatus = minimapAtlas?.status
+            return
+        }
+        var decoded = 0
+        for tile in minimapAtlas.tiles {
+            if (try? assetPipeline.image(relativePath: tile.texturePath)) != nil { decoded += 1 }
+        }
+        minimapTileStatus = "\(minimapAtlas.status) · decoded \(decoded)"
     }
 
     // MARK: Input
@@ -592,6 +615,36 @@ final class OSFREngine {
             }
         }
 
+        if let minimapAtlas {
+            for (index, tile) in minimapAtlas.tiles.enumerated()
+                where assetPipeline.cachedImage(relativePath: tile.texturePath) != nil {
+                let center = ZoneVector(
+                    x: tile.centerX,
+                    y: map.zone.spawnPosition.y,
+                    z: tile.centerZ,
+                    w: 0
+                )
+                guard let unit = map.unitPosition(for: center) else { continue }
+                let tileWidth = tile.width / (map.zone.tileSize * Double(max(map.latitudeCount, 1)))
+                let tileHeight = tile.height / (map.zone.tileSize * Double(max(map.longitudeCount, 1)))
+                terrain.append(EngineDrawable(
+                    id: 20_000 + UInt64(index),
+                    kind: .tile,
+                    rect: EngineRect(
+                        x: unit.x - tileWidth / 2,
+                        y: unit.y - tileHeight / 2,
+                        width: tileWidth,
+                        height: tileHeight
+                    ),
+                    color: EngineColor(r: 1, g: 1, b: 1, a: 1),
+                    outline: EngineColor(r: 0.85, g: 0.85, b: 0.9, a: 0.45),
+                    label: "Client minimap tile: \(tile.name)",
+                    layer: 0,
+                    textureName: tile.texturePath
+                ))
+            }
+        }
+
         var entities: [EngineDrawable] = []
         if presentationMode == .remote {
             // Every remote marker requires a decoded position packet. Nothing
@@ -757,7 +810,9 @@ final class OSFREngine {
             movementTick: snapshot.movementTicks,
             secondTick: snapshot.secondTicks,
             textures: assetPipeline.cachedImages,
-            textureStatus: terrainTextureStatus,
+            textureStatus: [terrainTextureStatus, minimapTileStatus]
+                .compactMap { $0 }
+                .joined(separator: " · "),
             zoneStatus: terrainPalette.status,
             clientObjectStatus: presentationMode == .offline
                 ? clientObjectCatalog.status
