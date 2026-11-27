@@ -225,12 +225,17 @@ final class WorldSimulation {
         }
         navigationURL = try? SafePath.contained(
             base: resourceRoot,
-            components: ["NavMeshes", "\(zone.name).navmesh"]
+            components: ["NavMeshes", "\(zone.name).navmesh"],
+            resolveSymlinks: false
         )
 
         let poiURL: URL
         do {
-            poiURL = try SafePath.contained(base: resourceRoot, components: ["PointOfInterests.json"])
+            poiURL = try SafePath.contained(
+                base: resourceRoot,
+                components: ["PointOfInterests.json"],
+                resolveSymlinks: false
+            )
         } catch {
             throw WorldSimulationError.unsafePath("PointOfInterests.json")
         }

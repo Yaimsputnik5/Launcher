@@ -73,29 +73,28 @@ enum SafePath {
         return trimmed
     }
 
-    static func contained(base: URL, components: [String]) throws -> URL {
+    /// - Parameter resolveSymlinks: Set `false` only for trusted read-only
+    ///   bundle roots. LiveContainer can expose those files through a canonical
+    ///   path that does not share the literal bundle prefix; validated leaves
+    ///   plus lexical containment are sufficient there. Writable roots must keep
+    ///   symlink resolution enabled so an escape symlink cannot redirect I/O.
+    static func contained(
+        base: URL,
+        components: [String],
+        resolveSymlinks: Bool = true
+    ) throws -> URL {
         var result = base
         for component in components {
             result = result.appendingPathComponent(try validatedLeaf(component))
         }
 
-        // Lexical containment is mandatory for every root. `validatedLeaf`
-        // rejects separators, NULs, control characters and dot segments, so a
-        // component cannot walk out of `base` by name.
         let basePath = normalizedPath(base)
         let resultPath = normalizedPath(result)
         guard isContained(resultPath, in: basePath) else {
             throw LauncherError.unsafePath(result.path)
         }
+        guard resolveSymlinks else { return result }
 
-        // Read-only app-bundle resources can be reached through
-        // LiveContainer-managed symlinks whose canonical paths do not share the
-        // literal bundle prefix. Lexical containment plus validated leaves is
-        // sufficient for that trusted root; do not reject real bundled data.
-        if isInsideAppBundle(base) { return result }
-
-        // Writable roots still get the symlink-resolution check so an escape
-        // symlink cannot redirect a download or persisted file outside its root.
         let resolvedBasePath = normalizedPath(base.resolvingSymlinksInPath())
         let resolvedResultPath = normalizedPath(result.resolvingSymlinksInPath())
         guard isContained(resolvedResultPath, in: resolvedBasePath) else {
@@ -120,15 +119,4 @@ enum SafePath {
         return path
     }
 
-    private static func isInsideAppBundle(_ url: URL) -> Bool {
-        let bundle = Bundle.main.bundleURL
-        let bundlePaths = [normalizedPath(bundle), normalizedPath(bundle.resolvingSymlinksInPath())]
-        let candidatePaths = [normalizedPath(url), normalizedPath(url.resolvingSymlinksInPath())]
-        for bundlePath in bundlePaths {
-            for candidate in candidatePaths where isContained(candidate, in: bundlePath) {
-                return true
-            }
-        }
-        return false
-    }
 }

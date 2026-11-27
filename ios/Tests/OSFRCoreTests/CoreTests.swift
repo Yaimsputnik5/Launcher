@@ -194,4 +194,37 @@ final class CoreTests: XCTestCase {
         let url = try SafePath.contained(base: link, components: ["Npcs.json"])
         XCTAssertEqual(url.lastPathComponent, "Npcs.json")
     }
+
+    func testSafePathReadOnlyRootSkipsSymlinkResolution() throws {
+        let fm = FileManager.default
+        let parent = fm.temporaryDirectory.appendingPathComponent("SafePath-\(UUID().uuidString)", isDirectory: true)
+        let root = parent.appendingPathComponent("root", isDirectory: true)
+        let outside = parent.appendingPathComponent("outside", isDirectory: true)
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        try fm.createDirectory(at: outside, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: parent) }
+        try Data("secret".utf8).write(to: outside.appendingPathComponent("secret.txt"))
+        try fm.createSymbolicLink(
+            at: root.appendingPathComponent("escape"),
+            withDestinationURL: outside
+        )
+
+        // Read-only bundle resources opt out of symlink resolution because
+        // LiveContainer exposes the same files through a canonicalized path.
+        let url = try SafePath.contained(
+            base: root,
+            components: ["secret.txt"],
+            resolveSymlinks: false
+        )
+        XCTAssertEqual(url.lastPathComponent, "secret.txt")
+
+        // Lexical traversal is still rejected in read-only mode.
+        XCTAssertThrowsError(
+            try SafePath.contained(
+                base: root,
+                components: ["..", "outside", "secret.txt"],
+                resolveSymlinks: false
+            )
+        )
+    }
 }

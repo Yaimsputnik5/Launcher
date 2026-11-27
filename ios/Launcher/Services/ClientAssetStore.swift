@@ -88,7 +88,7 @@ final class ClientAssetStore: @unchecked Sendable {
     /// Returns the first usable location for a manifest-relative path.
     func location(for relativePath: String, server: ServerInfo? = nil) -> ClientAssetLocation? {
         for root in candidateRoots(server: server) {
-            guard let url = try? Self.containedURL(relativePath, in: root.url),
+            guard let url = try? Self.containedURL(relativePath, in: root.url, resolveSymlinks: false),
                   fileManager.fileExists(atPath: url.path)
             else { continue }
             switch root {
@@ -155,18 +155,27 @@ final class ClientAssetStore: @unchecked Sendable {
     }
 
     private func exists(_ entry: ClientAssetIndexEntry, in root: ClientAssetLocation) -> Bool {
-        guard let url = try? Self.containedURL(entry.path, in: root.url) else { return false }
+        guard let url = try? Self.containedURL(entry.path, in: root.url, resolveSymlinks: false)
+        else { return false }
         guard let attributes = try? fileManager.attributesOfItem(atPath: url.path),
               let size = (attributes[.size] as? NSNumber)?.int64Value
         else { return false }
         return size == entry.size
     }
 
-    private static func containedURL(_ relativePath: String, in base: URL) throws -> URL {
+    private static func containedURL(
+        _ relativePath: String,
+        in base: URL,
+        resolveSymlinks: Bool = true
+    ) throws -> URL {
         let components = relativePath
             .split(separator: "/", omittingEmptySubsequences: true)
             .map(String.init)
         guard !components.isEmpty else { throw LauncherError.unsafePath(relativePath) }
-        return try SafePath.contained(base: base, components: components)
+        return try SafePath.contained(
+            base: base,
+            components: components,
+            resolveSymlinks: resolveSymlinks
+        )
     }
 }

@@ -91,6 +91,10 @@ final class SanctuaryResourceStore {
             .split(separator: "/", omittingEmptySubsequences: true)
             .map(String.init)
         guard !components.isEmpty else { throw LauncherError.unsafePath(relativePath) }
-        return try SafePath.contained(base: base, components: components)
+        return try SafePath.contained(
+            base: base,
+            components: components,
+            resolveSymlinks: false
+        )
     }
 }

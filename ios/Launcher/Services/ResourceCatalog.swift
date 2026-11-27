@@ -1383,7 +1383,11 @@ struct ResourceCatalog: Equatable {
             .map(String.init)
         guard !components.isEmpty else { throw ResourceCatalogError.unsafePath(relativePath) }
         do {
-            return try SafePath.contained(base: root, components: components)
+            return try SafePath.contained(
+                base: root,
+                components: components,
+                resolveSymlinks: false
+            )
         } catch LauncherError.unsafePath(let value) {
             throw ResourceCatalogError.unsafePath(value)
         } catch {

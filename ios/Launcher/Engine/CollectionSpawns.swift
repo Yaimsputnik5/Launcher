@@ -282,7 +282,11 @@ struct CollectionSpawnCatalog: Equatable {
                 .map(String.init)
             guard !components.isEmpty else { throw CollectionSpawnError.unsafePath(relativePath) }
             do {
-                return try SafePath.contained(base: rootURL, components: components)
+                return try SafePath.contained(
+                    base: rootURL,
+                    components: components,
+                    resolveSymlinks: false
+                )
             } catch {
                 throw CollectionSpawnError.unsafePath(relativePath)
             }
