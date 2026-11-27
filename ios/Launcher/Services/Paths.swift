@@ -79,11 +79,56 @@ enum SafePath {
             result = result.appendingPathComponent(try validatedLeaf(component))
         }
 
-        let resolvedBase = base.resolvingSymlinksInPath().path
-        let resolvedResult = result.resolvingSymlinksInPath().path
-        guard resolvedResult == resolvedBase || resolvedResult.hasPrefix(resolvedBase + "/") else {
+        // Lexical containment is mandatory for every root. `validatedLeaf`
+        // rejects separators, NULs, control characters and dot segments, so a
+        // component cannot walk out of `base` by name.
+        let basePath = normalizedPath(base)
+        let resultPath = normalizedPath(result)
+        guard isContained(resultPath, in: basePath) else {
+            throw LauncherError.unsafePath(result.path)
+        }
+
+        // Read-only app-bundle resources can be reached through
+        // LiveContainer-managed symlinks whose canonical paths do not share the
+        // literal bundle prefix. Lexical containment plus validated leaves is
+        // sufficient for that trusted root; do not reject real bundled data.
+        if isInsideAppBundle(base) { return result }
+
+        // Writable roots still get the symlink-resolution check so an escape
+        // symlink cannot redirect a download or persisted file outside its root.
+        let resolvedBasePath = normalizedPath(base.resolvingSymlinksInPath())
+        let resolvedResultPath = normalizedPath(result.resolvingSymlinksInPath())
+        guard isContained(resolvedResultPath, in: resolvedBasePath) else {
             throw LauncherError.unsafePath(result.path)
         }
         return result
+    }
+
+    private static func isContained(_ path: String, in base: String) -> Bool {
+        path == base || path.hasPrefix(base + "/")
+    }
+
+    /// Collapses `.`/`..` segments, removes duplicate separators and drops a
+    /// trailing slash so `URL.path` differences between Foundation platforms do
+    /// not turn a contained path into a false rejection.
+    private static func normalizedPath(_ url: URL) -> String {
+        let standardized = (url.standardizedFileURL.path as NSString).standardizingPath
+        var path = standardized
+        while path.count > 1 && path.hasSuffix("/") {
+            path.removeLast()
+        }
+        return path
+    }
+
+    private static func isInsideAppBundle(_ url: URL) -> Bool {
+        let bundle = Bundle.main.bundleURL
+        let bundlePaths = [normalizedPath(bundle), normalizedPath(bundle.resolvingSymlinksInPath())]
+        let candidatePaths = [normalizedPath(url), normalizedPath(url.resolvingSymlinksInPath())]
+        for bundlePath in bundlePaths {
+            for candidate in candidatePaths where isContained(candidate, in: bundlePath) {
+                return true
+            }
+        }
+        return false
     }
 }

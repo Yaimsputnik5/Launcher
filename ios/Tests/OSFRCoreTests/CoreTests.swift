@@ -149,4 +149,49 @@ final class CoreTests: XCTestCase {
         XCTAssertThrowsError(try SafePath.validatedLeaf("../escape"))
         XCTAssertThrowsError(try SafePath.validatedLeaf("a/b"))
     }
+
+    func testSafePathContainedAcceptsTrailingSlashBase() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("SafePath-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: root) }
+
+        // Bundle.main URLs for directory resources can carry a trailing slash
+        // on iOS; that must not make a contained child look unsafe.
+        let trailingSlashRoot = URL(fileURLWithPath: root.path + "/", isDirectory: true)
+        let url = try SafePath.contained(base: trailingSlashRoot, components: ["Npcs.json"])
+        XCTAssertEqual(url.lastPathComponent, "Npcs.json")
+    }
+
+    func testSafePathContainedRejectsSymlinkEscape() throws {
+        let fm = FileManager.default
+        let parent = fm.temporaryDirectory.appendingPathComponent("SafePath-\(UUID().uuidString)", isDirectory: true)
+        let root = parent.appendingPathComponent("root", isDirectory: true)
+        let outside = parent.appendingPathComponent("outside", isDirectory: true)
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        try fm.createDirectory(at: outside, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: parent) }
+        try Data("secret".utf8).write(to: outside.appendingPathComponent("secret.txt"))
+        try fm.createSymbolicLink(
+            at: root.appendingPathComponent("escape"),
+            withDestinationURL: outside
+        )
+
+        XCTAssertThrowsError(
+            try SafePath.contained(base: root, components: ["escape", "secret.txt"])
+        )
+    }
+
+    func testSafePathContainedAcceptsSymlinkedRoot() throws {
+        let fm = FileManager.default
+        let parent = fm.temporaryDirectory.appendingPathComponent("SafePath-\(UUID().uuidString)", isDirectory: true)
+        let real = parent.appendingPathComponent("real", isDirectory: true)
+        let link = parent.appendingPathComponent("link", isDirectory: true)
+        try fm.createDirectory(at: real, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: parent) }
+        try fm.createSymbolicLink(at: link, withDestinationURL: real)
+
+        let url = try SafePath.contained(base: link, components: ["Npcs.json"])
+        XCTAssertEqual(url.lastPathComponent, "Npcs.json")
+    }
 }
