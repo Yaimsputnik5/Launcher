@@ -93,6 +93,18 @@ final class ResourceCatalogTests: XCTestCase {
         )
     }
 
+    func testZoneNameMatchesServerDisplayNames() throws {
+        let root = try makeRoot()
+        try write(Self.zoneJSON, relativePath: "Zones/FabledRealms.json", in: root)
+        try write(Self.environmentJSON, relativePath: "Zones/Environments/FabledRealms.json", in: root)
+        let catalog = try ResourceCatalog(rootURL: root)
+
+        XCTAssertEqual(catalog.zoneName(matching: "Fabled Realms"), "FabledRealms")
+        XCTAssertEqual(catalog.zoneName(matching: "fabled_realms"), "FabledRealms")
+        XCTAssertEqual(catalog.zoneName(matching: "FabledRealms"), "FabledRealms")
+        XCTAssertNil(catalog.zoneName(matching: "Unknown Zone"))
+    }
+
     func testMissingFilesAreOptional() throws {
         let root = try makeRoot()
         let catalog = try ResourceCatalog(rootURL: root)

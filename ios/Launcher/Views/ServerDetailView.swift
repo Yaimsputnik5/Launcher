@@ -93,6 +93,31 @@ struct ServerDetailView: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section("Protocol Overrides") {
+                TextField("Gateway client version", text: Binding(
+                    get: { runtime.info.gatewayVersion ?? "" },
+                    set: { value in
+                        var info = runtime.info
+                        info.gatewayVersion = value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            ? nil : value
+                        runtime.info = info
+                        state.update(info)
+                    }
+                ))
+                TextField("Login fingerprint", text: Binding(
+                    get: { runtime.info.loginFingerprint ?? "" },
+                    set: { value in
+                        var info = runtime.info
+                        info.loginFingerprint = value.isEmpty ? nil : value
+                        runtime.info = info
+                        state.update(info)
+                    }
+                ))
+                Text("Leave empty to use Sanctuary's bundled client version and this app's iOS fingerprint.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Account") {
                 Button("Sign In") { showingLogin = true }
                     .disabled(runtime.presentationState != .online)

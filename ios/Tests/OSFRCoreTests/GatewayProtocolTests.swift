@@ -393,31 +393,63 @@ final class GatewayProtocolTests: XCTestCase {
         XCTAssertEqual(npcAddition.position, GatewayVector4(x: -4, y: 5, z: 6, w: 1))
     }
 
-    /// PacketSendSelfToClient (12) wraps a length-prefixed nested world packet.
-    /// Source: Sanctuary.Packet.PacketSendSelfToClient.cs.
-    func testSendSelfWrapperDecodesNestedWorldPacket() throws {
-        let position = WorldPositionUpdate(
-            guid: 77,
-            position: GatewayVector3(x: 1, y: 2, z: 3),
-            rotation: GatewayVector3(x: 0, y: 0, z: 0),
-            state: 0,
-            teleportSequence: 0
-        )
+    /// PacketSendSelfToClient (12) wraps a length-prefixed raw ClientPcData.
+    /// Source: Sanctuary.Packet.PacketSendSelfToClient.cs and ClientPcData.cs.
+    func testSendSelfWrapperDecodesRawClientPcData() throws {
+        var player = PacketWriter()
+        player.writeUInt64(0x1122_3344_5566_7788) // LaunchTicket
+        player.writeUInt64(77) // Guid
+        player.writeInt32(5) // Model
+        player.writeString("Head")
+        player.writeString("Hair")
+        player.writeInt32(11) // HairColor
+        player.writeInt32(12) // EyeColor
+        player.writeString("Skin")
+        player.writeString("Face")
+        player.writeString("Custom")
+        player.writeInt32(1) // HeadId
+        player.writeInt32(2) // HairId
+        player.writeInt32(3) // SkinToneId
+        player.writeInt32(4) // FacePaintId
+        player.writeInt32(6) // ModelCustomizationId
+        player.writeFloat(1)
+        player.writeFloat(2)
+        player.writeFloat(3)
+        player.writeFloat(1)
+        player.writeFloat(0)
+        player.writeFloat(0)
+        player.writeFloat(0)
+        player.writeFloat(1)
+        GatewayName(
+            firstNameID: 1,
+            lastNamePrefixID: 2,
+            lastNameSuffixID: 3,
+            firstName: "Ada",
+            lastName: "Test"
+        ).append(to: &player)
+
         var wrapped = PacketWriter()
         GatewayWire.appendInt16(12, to: &wrapped.data)
-        wrapped.writeData(position.encoded())
+        wrapped.writeData(player.data)
 
         guard case .sendSelf(let packet) = try GatewayWorldCodec.decodeAny(wrapped.data) else {
             return XCTFail("expected PacketSendSelfToClient")
         }
-        XCTAssertEqual(packet.payload, position.encoded())
+        XCTAssertEqual(packet.payload, player.data)
+        XCTAssertEqual(packet.client.guid, 77)
+        XCTAssertEqual(packet.client.position, GatewayVector4(x: 1, y: 2, z: 3, w: 1))
+
+        var observation = GatewayWorldObservation.empty
+        observation.apply(.sendSelf(packet))
+        XCTAssertEqual(observation.playerGUID, 77)
+        XCTAssertEqual(observation.names[77], "Ada Test")
 
         var session = GatewaySession(connectCode: 1, encryptCode: 0)
         let events = try session.receiveApplicationData(
             GatewayPacketCodec.encode(GatewayTunneledWorldPacket(payload: wrapped.data))
         )
         XCTAssertTrue(events.contains(.world(.sendSelf(packet))))
-        XCTAssertTrue(events.contains(.world(.positionUpdate(position))))
+        XCTAssertEqual(events.count, 2) // tunneled packet plus its terminal world event
     }
 
     /// End-to-end synthetic flow: unencrypted `PacketLogin`, login reply,
