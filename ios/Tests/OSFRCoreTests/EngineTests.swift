@@ -338,6 +338,43 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(observation.chatMessages.first?.id, 1)
     }
 
+    func testEngineDrawsClientChunkObjectsOfflineButNeverInRemoteMode() throws {
+        let root = try makeResourceRoot()
+        let simulation = try WorldSimulation(rootURL: root, zoneID: 1)
+        let object = ClientChunkObject(
+            chunkName: "FabledRealms_4_-32.gcnk",
+            assetName: "sg_tree_giant_03.adr",
+            position: ZoneVector(x: -1904, y: 0, z: 412, w: 0),
+            rotation: ClientChunkRotation(x: 0, y: 0, z: 0),
+            scale: 1
+        )
+        let catalog = ClientChunkCatalog(
+            objects: [object],
+            chunkCount: 1,
+            status: "1 client object from 1 GCNK chunk"
+        )
+
+        let offline = OSFREngine(
+            simulation: simulation,
+            terrainTexturePath: "",
+            clientObjectCatalog: catalog
+        )
+        let marker = try XCTUnwrap(
+            offline.frame.drawables.first { $0.kind == .clientObject }
+        )
+        XCTAssertEqual(marker.label, "sg_tree_giant_03.adr")
+        XCTAssertEqual(offline.frame.clientObjectStatus, catalog.status)
+
+        let remote = OSFREngine(
+            simulation: simulation,
+            terrainTexturePath: "",
+            presentationMode: .remote,
+            clientObjectCatalog: catalog
+        )
+        XCTAssertFalse(remote.frame.drawables.contains { $0.kind == .clientObject })
+        XCTAssertNil(remote.frame.clientObjectStatus)
+    }
+
     func testActiveWorldSessionIdentitySeparatesLoginFromWorld() {
         let login = WorldSessionConfiguration(
             mode: .remote,

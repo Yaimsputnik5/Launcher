@@ -28,7 +28,11 @@ final class GameEngineController: ObservableObject {
                 session: session,
                 hostConfiguration: configuration
             )
-            let engine = OSFREngine(simulation: simulation)
+            let objectCatalog = ClientChunkCatalog.loadFabledRealms()
+            let engine = OSFREngine(
+                simulation: simulation,
+                clientObjectCatalog: objectCatalog
+            )
             self.simulation = simulation
             self.snapshot = simulation.snapshot
             self.frame = engine.frame
@@ -166,6 +170,13 @@ struct GamePlayerView: View {
                         VStack(alignment: .leading, spacing: 4) {
                             if let zoneStatus = controller.frame?.zoneStatus {
                                 Text(zoneStatus)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .padding(6)
+                                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 6))
+                            }
+                            if let objectStatus = controller.frame?.clientObjectStatus {
+                                Text(objectStatus)
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
                                     .padding(6)

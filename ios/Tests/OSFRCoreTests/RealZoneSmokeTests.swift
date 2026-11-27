@@ -27,6 +27,28 @@ final class RealZoneSmokeTests: XCTestCase {
         XCTAssertEqual(zone.material(named: "ss_sand")?.flora.count, 2)
     }
 
+    func testFabledRealmsGCNKChunksAreDiscoveredFromPacks() throws {
+        let root = assetsURL
+        let loader = ClientAssetDataLoader { requested in
+            guard let name = requested.split(separator: "#").first,
+                  name.hasPrefix("Assets_"),
+                  name.hasSuffix(".pack")
+            else { return nil }
+            return try? Data(contentsOf: root.appendingPathComponent(String(name)))
+        }
+        var chunks = Set<String>()
+        for index in 0..<10 {
+            let archive = String(format: "Assets_%03d.pack", index)
+            let names = try loader.packEntryNames(archivePath: archive)
+            chunks.formUnion(names.filter {
+                $0.hasPrefix("FabledRealms_") && $0.hasSuffix(".gcnk")
+            })
+        }
+        XCTAssertGreaterThan(chunks.count, 100)
+        XCTAssertTrue(chunks.contains("FabledRealms_0_-8.gcnk"))
+        XCTAssertTrue(chunks.contains("FabledRealms_4_-12.gcnk"))
+    }
+
     func testMaterialCatalogEntriesAreVerifiedPackPaths() throws {
         let paths = Set(ClientMaterialCatalog.entries.map {
             "\($0.archive)#\($0.entryName)"

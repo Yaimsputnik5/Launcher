@@ -38,6 +38,7 @@ struct EngineRect: Equatable, Sendable {
 enum EngineDrawableKind: String, Equatable, Sendable {
     case tile
     case clientTexture
+    case clientObject
     case pointOfInterest
     case collection
     case npc
@@ -116,6 +117,8 @@ struct EngineFrame: Equatable, Sendable {
     let textureStatus: String?
     /// Human-readable status of the client zone-definition lookup.
     let zoneStatus: String?
+    /// Status of decoded GCNK object placements from the client archives.
+    let clientObjectStatus: String?
     /// Packet-backed world status. Nil until a gateway packet is applied.
     let worldStatus: String?
 
@@ -129,6 +132,7 @@ struct EngineFrame: Equatable, Sendable {
         textures: [String: DecodedImage] = [:],
         textureStatus: String? = nil,
         zoneStatus: String? = nil,
+        clientObjectStatus: String? = nil,
         worldStatus: String? = nil
     ) {
         self.zoneID = zoneID
@@ -140,6 +144,7 @@ struct EngineFrame: Equatable, Sendable {
         self.textures = textures
         self.textureStatus = textureStatus
         self.zoneStatus = zoneStatus
+        self.clientObjectStatus = clientObjectStatus
         self.worldStatus = worldStatus
     }
 
@@ -340,6 +345,7 @@ final class OSFREngine {
     let sceneGraph = EngineSceneGraph()
     let assetPipeline: EngineAssetPipeline
     let terrainPalette: ClientTerrainPalette
+    let clientObjectCatalog: ClientChunkCatalog
     let presentationMode: OSFREnginePresentationMode
 
     private(set) var remoteObservation: GatewayWorldObservation
@@ -360,13 +366,17 @@ final class OSFREngine {
         zoneManifest: ClientZoneManifest? = nil,
         presentationMode: OSFREnginePresentationMode = .offline,
         selfGUID: UInt64? = nil,
-        remoteObservation: GatewayWorldObservation = .empty
+        remoteObservation: GatewayWorldObservation = .empty,
+        clientObjectCatalog: ClientChunkCatalog = .empty
     ) {
         self.simulation = simulation
         self.assetPipeline = assetPipeline ?? EngineAssetPipeline()
         self.presentationMode = presentationMode
         self.selfGUID = selfGUID
         self.remoteObservation = remoteObservation
+        // Remote worlds must not mix shipped client objects into packet-backed
+        // markers, even if a catalog is passed in.
+        self.clientObjectCatalog = presentationMode == .remote ? .empty : clientObjectCatalog
         let snapshot = simulation.snapshot
         let resolvedZone = zoneManifest
             ?? (try? ClientAssetDataLoader().zoneManifest(forZoneName: snapshot.zoneName))
@@ -386,7 +396,10 @@ final class OSFREngine {
             camera: camera,
             drawables: [],
             movementTick: snapshot.movementTicks,
-            secondTick: snapshot.secondTicks
+            secondTick: snapshot.secondTicks,
+            clientObjectStatus: presentationMode == .offline
+                ? clientObjectCatalog.status
+                : nil
         )
         loadTerrainTextureIfAvailable()
         rebuildScene()
@@ -613,6 +626,33 @@ final class OSFREngine {
                     layer: 3
                 ))
             }
+
+            // Real object placements decoded from shipped GCNK chunks. This is
+            // offline-only data from the client archives, never used to infer a
+            // remote server entity.
+            let player = Self.vector(snapshot.player)
+            let nearbyObjects: [(object: ClientChunkObject, distanceSquared: Double)] =
+                clientObjectCatalog.objects.compactMap { object in
+                    let dx = object.position.x - player.x
+                    let dz = object.position.z - player.z
+                    let distanceSquared = dx * dx + dz * dz
+                    guard distanceSquared <= 900 * 900 else { return nil }
+                    return (object, distanceSquared)
+                }
+                .sorted { $0.distanceSquared < $1.distanceSquared }
+            for (index, entry) in nearbyObjects.prefix(32).enumerated() {
+                guard let unit = map.unitPosition(for: entry.object.position) else { continue }
+                entities.append(Self.marker(
+                    id: UInt64(1_000_000 + index),
+                    kind: .clientObject,
+                    unit: EnginePoint(unit),
+                    radius: 0.004,
+                    color: EngineColor(r: 0.95, g: 0.72, b: 0.38, a: 0.9),
+                    outline: EngineColor(r: 1, g: 1, b: 1, a: 0.7),
+                    label: entry.object.assetName,
+                    layer: 3
+                ))
+            }
         }
 
         var overlays: [EngineDrawable] = []
@@ -682,6 +722,9 @@ final class OSFREngine {
             textures: assetPipeline.cachedImages,
             textureStatus: terrainTextureStatus,
             zoneStatus: terrainPalette.status,
+            clientObjectStatus: presentationMode == .offline
+                ? clientObjectCatalog.status
+                : nil,
             worldStatus: currentWorldStatus
         )
     }

@@ -666,8 +666,9 @@ struct GatewayConnectPacket: Equatable {
     }
 }
 
-/// `UdpConnection.cs` confirm packet: exactly 21 bytes, with the big-endian
-/// Int32 protocol version at offset 17.
+/// `UdpConnection.cs` confirm packet: 17 mandatory bytes plus an optional
+/// big-endian Int32 protocol version at offset 17. The live public gateway
+/// sends all 21 bytes.
 struct GatewayConfirmPacket: Equatable {
     var connectCode: Int32
     var encryptCode: Int32
@@ -707,11 +708,11 @@ struct GatewayConfirmPacket: Equatable {
 
     init(data: Data) throws {
         let bytes = Array(data)
-        guard bytes.count >= 21 else {
-            throw GatewayProtocolError.frameTooShort(expected: 21, available: bytes.count)
-        }
-        guard bytes.count == 21 else {
-            throw GatewayProtocolError.trailingBytes(bytes.count - 21)
+        guard bytes.count == 17 || bytes.count == 21 else {
+            if bytes.count < 17 {
+                throw GatewayProtocolError.frameTooShort(expected: 17, available: bytes.count)
+            }
+            throw GatewayProtocolError.trailingBytes(max(0, bytes.count - 21))
         }
         guard bytes[0] == 0x00 else { throw GatewayProtocolError.invalidFrameMarker(bytes[0]) }
         guard bytes[1] == UdpFrameType.confirm.rawValue else {
@@ -719,14 +720,19 @@ struct GatewayConfirmPacket: Equatable {
                 expected: UdpFrameType.confirm.rawValue, actual: bytes[1])
         }
 
-        var reader = PacketReader(Data(bytes[2..<21]))
+        var reader = PacketReader(Data(bytes[2..<17]))
         connectCode = Int32(bitPattern: try GatewayWire.readBE32(&reader))
         encryptCode = Int32(bitPattern: try GatewayWire.readBE32(&reader))
         crcBytes = try reader.readUInt8()
         encryptMethod1 = try reader.readUInt8()
         encryptMethod2 = try reader.readUInt8()
         maxRawPacketSize = Int32(bitPattern: try GatewayWire.readBE32(&reader))
-        protocolVersion = Int32(bitPattern: try GatewayWire.readBE32(&reader))
+        if bytes.count == 21 {
+            var versionReader = PacketReader(Data(bytes[17..<21]))
+            protocolVersion = Int32(bitPattern: try GatewayWire.readBE32(&versionReader))
+        } else {
+            protocolVersion = nil
+        }
     }
 }
 

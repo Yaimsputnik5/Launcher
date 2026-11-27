@@ -82,14 +82,17 @@ enum UdpLibrary {
     static let crcByteCount = 2
     static let maximumReassemblyLength = 4 * 1024 * 1024
 
-    /// `UdpConnection.IsNonEncryptPacket`: these are raw-sent and have no CRC.
+    /// `UdpConnection.IsNonEncryptPacket` in the authoritative Sanctuary
+    /// source: Connect, Confirm, UnreachableConnection, RequestRemap, Unknown,
+    /// and ServerStatus. Ordered2 (27) and PortAlive (28) are raw-sent only in
+    /// the manager's pre-connection dispatch, not by this connection check.
     static func isNonEncrypted(_ type: UInt8) -> Bool {
         type == 1 || // Connect
         type == 2 || // Confirm
-        type == 27 || // UnreachableConnection
-        type == 28 || // RequestRemap
-        type == 29 || // Unknown
-        type == 30 // ServerStatus
+        type == 29 || // UnreachableConnection
+        type == 30 || // RequestRemap
+        type == 31 || // Unknown
+        type == 32 // ServerStatus
     }
 
     /// Validate the datagram CRC and undo the optional user-supplied pass.
@@ -124,7 +127,7 @@ enum UdpLibrary {
         let cookedBytes = Array(signed)
         var result = Data(cookedBytes.prefix(2))
         if cookedBytes[2] == 1 {
-            result.append(try inflate(Data(cookedBytes.dropFirst(3))))
+            result.append(try inflateZlib(Data(cookedBytes.dropFirst(3))))
         } else {
             // Sanctuary treats any non-1 flag as "raw" and drops one byte.
             result.append(contentsOf: cookedBytes.dropFirst(3))
@@ -226,6 +229,23 @@ enum UdpLibrary {
             data.append(0) // raw; this client never compresses outbound packets
         }
         appendBE16(reliableID, to: &data)
+        let crc = UInt16(truncatingIfNeeded: CRC32.checksum(data, encryptCode: encryptCode))
+        appendBE16(crc, to: &data)
+        return data
+    }
+
+    /// Build the two-byte `KeepAlive` internal frame. Sanctuary still applies
+    /// its negotiated user-supplied and CRC passes, so the additional flag is
+    /// inserted after the internal header and the CRC covers all preceding
+    /// bytes (`UdpConnection.cs:1328-1348` and `PhysicalSend`).
+    static func encodeKeepAlive(
+        encryptCode: UInt32,
+        userSuppliedCompression: Bool
+    ) -> Data {
+        var data = Data([marker, UdpFrameType.keepAlive.rawValue])
+        if userSuppliedCompression {
+            data.append(0) // raw; the empty body is never smaller compressed
+        }
         let crc = UInt16(truncatingIfNeeded: CRC32.checksum(data, encryptCode: encryptCode))
         appendBE16(crc, to: &data)
         return data
@@ -340,8 +360,12 @@ enum UdpLibrary {
                 length = Int(bytes[pointer])
                 pointer += 1
             }
-            guard length > 0, pointer + length <= bytes.count else { break }
-            result.append(contentsOf: parse(Data(bytes[pointer..<(pointer + length)]), state: &state))
+            guard pointer + length <= bytes.count else { break }
+            // Sanctuary processes every slice, including a zero-length slice,
+            // then advances. Empty entries must not truncate the container.
+            if length > 0 {
+                result.append(contentsOf: parse(Data(bytes[pointer..<(pointer + length)]), state: &state))
+            }
             pointer += length
         }
         return result
@@ -404,7 +428,9 @@ enum UdpLibrary {
         return (b << 16) | a
     }
 
-    private static func inflate(_ source: Data) throws -> Data {
+    /// Decompresses an RFC 1950 zlib stream and verifies its Adler-32 trailer.
+    /// Also used by the native chunk reader for shipped `GCNK` archives.
+    static func inflateZlib(_ source: Data) throws -> Data {
         let zlib = try splitZlibStream(source)
         #if canImport(Compression)
         // The iOS SDK imports these C pointers as non-optional, so neither

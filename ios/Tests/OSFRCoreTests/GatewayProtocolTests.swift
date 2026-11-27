@@ -388,8 +388,9 @@ final class GatewayProtocolTests: XCTestCase {
 
     // MARK: - Connect / confirm
 
-    /// `Sanctuary.UdpLibrary/UdpConnection.cs`: connect fields are big-endian,
-    /// confirm is exactly 21 bytes with the version at offset 17.
+    /// `Sanctuary.UdpLibrary/UdpConnection.cs`: connect fields are big-endian.
+    /// Confirm has 17 mandatory bytes and an optional version at offset 17;
+    /// the live public gateway sends the full 21-byte form.
     func testConnectAndConfirmPacketRoundTrip() throws {
         let connect = GatewayConnectPacket(connectCode: 0x7F)
         let connectWire = try connect.encoded()
@@ -410,6 +411,13 @@ final class GatewayProtocolTests: XCTestCase {
         let confirmWire = confirm.encoded()
         XCTAssertEqual(confirmWire.count, 21)
         XCTAssertEqual(try GatewayConfirmPacket(data: confirmWire), confirm)
+
+        let optionalVersionWire = confirmWire.prefix(17)
+        let withoutVersion = try GatewayConfirmPacket(data: optionalVersionWire)
+        XCTAssertNil(withoutVersion.protocolVersion)
+        XCTAssertEqual(withoutVersion.connectCode, confirm.connectCode)
+        XCTAssertEqual(withoutVersion.encryptCode, confirm.encryptCode)
+        XCTAssertEqual(withoutVersion.maxRawPacketSize, confirm.maxRawPacketSize)
     }
 
     // MARK: Helpers

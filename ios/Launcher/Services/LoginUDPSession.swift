@@ -744,6 +744,9 @@ final class GatewayUDPSession: @unchecked Sendable {
     static let defaultClientVersion = "1.910.1.530630"
 
     private static let retryDelay: TimeInterval = 1
+    /// Sanctuary's external-client `UdpParams` default. The public gateway's
+    /// own server side uses 29 s, which is close to its 30 s no-data timeout.
+    private static let keepAliveDelay: TimeInterval = 10
     private static let maximumDatagramSize = 8192
 
     private enum Stage: String {
@@ -767,6 +770,7 @@ final class GatewayUDPSession: @unchecked Sendable {
     private var pendingFrames: [UInt16: Data] = [:]
     private var connectRetry: DispatchWorkItem?
     private var retryTimer: DispatchWorkItem?
+    private var keepAliveTimer: DispatchWorkItem?
     private var timeoutWork: DispatchWorkItem?
     private var trace: [String] = []
     private var worldEventHandler: ((GatewayWorldPacket) -> Void)?
@@ -1073,6 +1077,31 @@ final class GatewayUDPSession: @unchecked Sendable {
         )
     }
 
+    /// Keeps an idle authenticated connection alive. Sanctuary's gateway drops
+    /// connections after 30 s without any received datagram; a periodic
+    /// `[0, KeepAlive]` frame resets that timer on the server.
+    private func scheduleKeepAlive() {
+        guard isActive else { return }
+        keepAliveTimer?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.queue.async {
+                guard self.isActive else { return }
+                let packet = UdpLibrary.encodeKeepAlive(
+                    encryptCode: self.encryptCode,
+                    userSuppliedCompression: self.userSuppliedCompression
+                )
+                self.rawSend(packet)
+                self.scheduleKeepAlive()
+            }
+        }
+        keepAliveTimer = item
+        DispatchQueue.global(qos: .utility).asyncAfter(
+            deadline: .now() + Self.keepAliveDelay,
+            execute: item
+        )
+    }
+
     private func rawSend(_ packet: Data) {
         connection.send(content: packet, completion: .contentProcessed { [weak self] error in
             guard let self, let error else { return }
@@ -1171,6 +1200,7 @@ final class GatewayUDPSession: @unchecked Sendable {
         timeoutWork?.cancel()
         connectRetry = nil
         timeoutWork = nil
+        scheduleKeepAlive()
         pendingContinuation.resume(returning: ())
     }
 
@@ -1200,9 +1230,11 @@ final class GatewayUDPSession: @unchecked Sendable {
     private func cancelTimersAndPendingFrames() {
         connectRetry?.cancel()
         retryTimer?.cancel()
+        keepAliveTimer?.cancel()
         timeoutWork?.cancel()
         connectRetry = nil
         retryTimer = nil
+        keepAliveTimer = nil
         timeoutWork = nil
         pendingFrames.removeAll()
     }

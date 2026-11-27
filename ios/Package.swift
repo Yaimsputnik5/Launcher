@@ -46,6 +46,7 @@ let package = Package(
                 "Engine/ClientTextureCatalog.swift",
                 "Engine/ClientZoneManifest.swift",
                 "Engine/ClientMaterialCatalog.swift",
+                "Engine/ClientChunkCatalog.swift",
                 "Engine/ClientTerrainPalette.swift",
                 "Engine/OSFREngine.swift",
                 "Services/GatewayProtocol.swift",

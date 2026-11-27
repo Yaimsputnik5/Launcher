@@ -125,6 +125,17 @@ public struct ClientAssetDataLoader {
         return try archive.payload(named: entryName)
     }
 
+    /// Names in a `.pack` directory chain, without loading any payloads.
+    public func packEntryNames(archivePath: String) throws -> [String] {
+        guard let archiveData = lookup?(archivePath) else {
+            throw ClientZoneError.resourceNotFound(archivePath)
+        }
+        guard (archivePath as NSString).pathExtension.lowercased() == "pack" else {
+            throw ClientZoneError.resourceNotFound(archivePath)
+        }
+        return try PackArchive(archiveData).entries.map(\.name)
+    }
+
     public func zoneManifest(forZoneName zoneName: String) throws -> ClientZoneManifest {
         guard let path = ClientZoneCatalog.zonePath(forZoneName: zoneName) else {
             throw ClientZoneError.resourceNotFound(zoneName)

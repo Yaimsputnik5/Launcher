@@ -28,7 +28,7 @@ enum ResourceCatalogError: LocalizedError, Equatable {
 
 /// Sanctuary writes vectors as JSON arrays. The server's converters accept two
 /// components (X/Z), three (X/Y/Z), or four (X/Y/Z/W), so keep all four here.
-struct ZoneVector: Codable, Equatable {
+struct ZoneVector: Codable, Equatable, Sendable {
     let x: Double
     let y: Double
     let z: Double

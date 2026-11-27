@@ -80,10 +80,11 @@ collision.
 - The remaining 33 GZNE ground-texture names are not present as exact loose
   names in the scanned `.pack` directories; they may use packed aliases or a
   different case/derivation.
-- `.map` and `.gcnk` record semantics are still unresolved. A `.map` sample
-  shows 36-byte records with a repeated `u32 == 2` marker, but no verified
-  interpretation is claimed here. Decompressed `.gcnk` streams do contain
-  `.adr`/`.agr` object names and float records, which is useful evidence for
-  future object-placement work.
+- `.map` is now decoded as a 2,019-node weighted graph; see
+  `sanctuary-audit/09-packet-backed-world-view-and-navgraph.md`. The original
+  engine's use of that graph is still unresolved.
+- `.gcnk` object records are decoded in
+  `sanctuary-audit/10-gcnk-objects-and-udp-parity.md`, but exact original
+  rendering, collision, and gameplay semantics remain unresolved.
 - The material mapping is visual only; physics, height, flora placement and
   gameplay behavior are not derived from GZNE yet.

@@ -43,6 +43,26 @@ final class UdpLibraryTransportTests: XCTestCase {
         XCTAssertEqual(packets, [.application(Data([0x00, 0x01, 0x02]))])
     }
 
+    func testZeroLengthMultiEntryDoesNotTruncateFollowingPackets() {
+        // Multi: empty slice, then two one-byte application slices.
+        let cooked = Data([0x00, 0x03, 0x00, 0x01, 0x41, 0x01, 0x42])
+        XCTAssertEqual(UdpLibrary.parse(cooked), [
+            .application(Data([0x41])),
+            .application(Data([0x42]))
+        ])
+    }
+
+    func testNonEncryptedPacketTypesFollowSanctuaryConnectionCheck() {
+        let rawTypes: [UInt8] = [1, 2, 29, 30, 31, 32]
+        let encryptedTypes: [UInt8] = [3, 9, 17, 27, 28]
+        for type in rawTypes {
+            XCTAssertTrue(UdpLibrary.isNonEncrypted(type), "type \(type)")
+        }
+        for type in encryptedTypes {
+            XCTAssertFalse(UdpLibrary.isNonEncrypted(type), "type \(type)")
+        }
+    }
+
     func testGroupContainerExpandsVariableLengthPayloads() {
         // Group (25) with a one-byte length followed by two app packets.
         let cooked = Data([
@@ -146,6 +166,29 @@ final class UdpLibraryTransportTests: XCTestCase {
                 return XCTFail("expected CRC mismatch, got \(String(describing: error))")
             }
         }
+    }
+
+    func testKeepAliveFrameIncludesNegotiatedFlagAndCRC() throws {
+        let encryptCode: UInt32 = 0x0102_0304
+        let raw = UdpLibrary.encodeKeepAlive(
+            encryptCode: encryptCode,
+            userSuppliedCompression: false
+        )
+        XCTAssertEqual(Array(raw.prefix(2)), [0x00, 0x06])
+        XCTAssertEqual(
+            try UdpLibrary.cook(raw, encryptCode: encryptCode, userSuppliedCompression: false),
+            Data([0x00, 0x06])
+        )
+
+        let compressed = UdpLibrary.encodeKeepAlive(
+            encryptCode: encryptCode,
+            userSuppliedCompression: true
+        )
+        XCTAssertEqual(Array(compressed.prefix(3)), [0x00, 0x06, 0x00])
+        XCTAssertEqual(
+            try UdpLibrary.cook(compressed, encryptCode: encryptCode, userSuppliedCompression: true),
+            Data([0x00, 0x06])
+        )
     }
 
     func testZlibWrapperIsSplitForApplesRawDeflateDecoder() throws {
