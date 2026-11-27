@@ -267,6 +267,37 @@ matching the field names in Sanctuary's C# `UdpReliableChannel`. They are string
 observations only; the exact native control flow was not recovered because
 auto-analysis timed out before references were created.
 
+### Entry point and direct calls
+
+A follow-up read-only Ghidra 12.2 script, `DumpEntryPointEvidence.java`, loaded
+the already analyzed project with `-noanalysis -readonly`. It resolved a real
+PE entry symbol and decompiled it; the complete output is
+`/tmp/opencode/rea-build/ghidra-entrypoint3.log`. This is targeted evidence,
+not a full decompilation of all 134,650 discovered functions.
+
+| Fact | Observation |
+|---|---|
+| PE entry symbol | `entry @ 0x00d83687` |
+| Decompiled body | `void entry(void) { FUN_00d95820(); FUN_00d834a7(); return; }` |
+| Direct callees | `FUN_00d95820`, `FUN_00d834a7` |
+| Imported external symbols | 545 |
+| `Server=` occurrences in `.rdata` | 3 (`0x017e66ed`, `0x0183ef0d`, `0x0183ef49`) |
+| `StartingZone` occurrences in `.rdata` | 3 (`0x018046fb`, `0x01804d68`, `0x01810196`) |
+| `ProfileName` occurrences in `.rdata` | 2 (`0x01811604`, `0x01880de6`) |
+| `PlayerName` occurrences in `.rdata` | 4 (`0x0180b584`, `0x01814fec`, `0x0182d95b`, `0x0185f90a`) |
+
+`FUN_00d834a7` is the Microsoft C runtime startup path: it calls
+`GetStartupInfoA`, `GetProcessHeap`, `HeapAlloc`, `GetVersionExA`, and
+`HeapFree` before entering the application. The import table includes the
+expected Win32 and GFx/Scaleform surface (for example `GetStartupInfoA`,
+`GetVersionExA`, `RenderMovie`, and `TCGetGuiGfxParam`). No application-level
+argument parser was proven by this entry-point run: `SessionId=`,
+`Internationalization:Locale=`, `FabledRealms`, `UDPLibrary` and `LoginApiUrl`
+were not found as contiguous `.rdata` strings, while the launch argument names
+that are present have no code references in the partially analyzed project.
+The iOS launch-argument parser remains source-backed by Sanctuary/README, not a
+claim of decompiled native equivalence.
+
 ## Ghidra observations: Launcher apphost
 
 The Windows `Launcher.exe` is a standard .NET apphost, not the application

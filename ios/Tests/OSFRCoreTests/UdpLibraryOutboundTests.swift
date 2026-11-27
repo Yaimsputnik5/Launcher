@@ -216,4 +216,69 @@ final class UdpLibraryOutboundTests: XCTestCase {
         )
         XCTAssertEqual(Array(cooked), [0, 18, 0, 9])
     }
+
+    func testOfferPreservesBufferedAckWhenReliableFrameIsOversized() throws {
+        var buffer = UdpLibraryBufferedAcks()
+        buffer.enqueue(type: 17, reliableID: 4, isAckAll: false)
+        let cooked = UdpLibrary.encodeReliableCookedBody(
+            type: 9,
+            reliableID: 1,
+            body: Data(repeating: 0xAA, count: 600)
+        )
+        let sends = buffer.offer(cooked: cooked, config: config())
+        XCTAssertEqual(sends.count, 2)
+        let flushedAck = try UdpLibrary.cook(sends[0], config: config())
+        XCTAssertEqual(UdpLibrary.parse(flushedAck), [.ack(type: 17, reliableID: 4)])
+        let reliable = try UdpLibrary.cook(sends[1], config: config())
+        XCTAssertEqual(UdpLibrary.parse(reliable).count, 1)
+        XCTAssertEqual(buffer.count, 0)
+    }
+
+    func testOutboundQueueCoalescesSmallMessagesIntoOneGroupFrame() throws {
+        var queue = UdpLibraryOutboundQueue(config: config())
+        queue.enqueue(Data([0xA1]))
+        queue.enqueue(Data([0xB1, 0xB2]))
+        let pump = queue.pump(now: 0)
+
+        XCTAssertEqual(pump.newFrames.count, 1)
+        XCTAssertEqual(pump.newFrames[0].stamp, 0)
+        XCTAssertEqual(pump.newFrames[0].channel, 0)
+        let cooked = UdpLibrary.encodePhysical(
+            cookedBody: pump.newFrames[0].cooked,
+            config: config()
+        )
+        let decoded = try UdpLibrary.cook(cooked, config: config())
+        XCTAssertEqual(UdpLibrary.parse(decoded), [
+            .reliable(
+                type: 9,
+                reliableID: 0,
+                body: Data([0, 0, 25, 1, 0xA1, 2, 0xB1, 0xB2]),
+                applications: [Data([0, 25, 1, 0xA1, 2, 0xB1, 0xB2])]
+            )
+        ])
+    }
+
+    func testOutboundQueueGatesNewFramesOnCongestionWindow() {
+        var queue = UdpLibraryOutboundQueue(config: config())
+        for _ in 0..<20 { queue.enqueue(Data(repeating: 0x42, count: 500)) }
+        let pump = queue.pump(now: 0)
+        let sentBytes = pump.newFrames.reduce(0) { $0 + $1.outstandingBytes }
+        XCTAssertGreaterThan(sentBytes, 0)
+        XCTAssertLessThanOrEqual(sentBytes, 8 * 1024)
+        XCTAssertTrue(queue.hasPendingWork)
+        XCTAssertLessThan(queue.reliable.availableWindowBytes, 500)
+    }
+
+    func testOutboundQueueAssignsDistinctStampsToFragments() {
+        var queue = UdpLibraryOutboundQueue(config: config())
+        queue.enqueue(Data(repeating: 0x43, count: 1_200))
+        let pump = queue.pump(now: 0)
+        XCTAssertEqual(pump.newFrames.count, 3)
+        XCTAssertEqual(pump.newFrames.map(\.stamp), [0, 1, 2])
+        XCTAssertEqual(pump.newFrames.map(\.type), [13, 13, 13])
+        XCTAssertEqual(
+            pump.newFrames.map(\.outstandingBytes).reduce(0, +),
+            1_200
+        )
+    }
 }

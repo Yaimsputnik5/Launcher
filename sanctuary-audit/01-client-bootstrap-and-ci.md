@@ -147,6 +147,20 @@ or public play.
   Servers + WebAPI + Client.
 - VS Code has equivalent launch configurations and build tasks.
 
+### iOS download lifecycle parity
+
+C# `src/Launcher/Views/Main.axaml.cs:25-36` cancels window closing while any
+server `IsDownloading` and shows `Text.Downloading.OnClose`
+("Cannot close the launcher while downloading." from
+`src/Launcher/Resources/Texts.axaml:76`). iOS cannot refuse the home gesture or
+app termination, so `ios/Launcher/LauncherApp.swift` applies the closest
+platform-equivalent guard: `AppState.hasActiveDownloads` keeps the idle timer
+disabled, requests a named `UIBackgroundTaskIdentifier` when the app backgrounds
+mid-download, ends that task when downloads stop or expire, and posts the same
+message. `AppState.deleteServer` already refuses to delete a downloading
+server, matching `ViewModels/Main.cs:149-163`. This is a documented platform
+limit, not a claim that iOS can cancel OS-level termination.
+
 ## External services
 
 - `https://opensourcefreerealms.com/clientmanifest.xml`
