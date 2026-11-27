@@ -398,10 +398,10 @@ enum UdpLibrary {
                     stream.dst_size = buffer.count
                     // Once the source is exhausted, finalize instead of asking
                     // the decoder to process another zero-length input forever.
-                    return compression_stream_process(
-                        &stream,
-                        hadInput ? 0 : COMPRESSION_STREAM_FINALIZE
-                    )
+                    // 1 is COMPRESSION_STREAM_FINALIZE; the SDK imports it as a
+                    // flag type while compression_stream_process takes Int32.
+                    let flags: Int32 = hadInput ? 0 : 1
+                    return compression_stream_process(&stream, flags)
                 }
                 if status == COMPRESSION_STATUS_ERROR {
                     throw UdpLibraryError.decompressionFailed
