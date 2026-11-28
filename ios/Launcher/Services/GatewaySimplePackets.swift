@@ -1321,3 +1321,167 @@ struct GatewayQueuedAnimation: Equatable, Sendable {
         guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
     }
 }
+
+/// `PetBasePacket` (53) / `PetUtilityNotifyPacket` (20). Unknown4/5/6 are
+/// preserved with the C# names because their semantics are not defined there.
+struct GatewayPetUtilityNotification: Equatable, Sendable {
+    static let opcode: Int16 = 53
+    static let subOpcode: UInt8 = 20
+
+    let petID: Int32
+    let notificationType: Int32
+    let groomDurationSeconds: Int32
+    let unknown4: Int32
+    let unknown5: Int32
+    let unknown6: Int32
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try reader.readUInt8()
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedInternalOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        petID = try reader.readInt32()
+        notificationType = try reader.readInt32()
+        groomDurationSeconds = try reader.readInt32()
+        unknown4 = try reader.readInt32()
+        unknown5 = try reader.readInt32()
+        unknown6 = try reader.readInt32()
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `PacketBaseInGamePurchase` (66) /
+/// `PacketInGamePurchaseStoreEnablePaymentSources` (33).
+struct GatewayInGamePurchasePaymentSources: Equatable, Sendable {
+    static let opcode: Int16 = 66
+    static let subOpcode: Int16 = 33
+
+    let sms: Bool
+    let paypal: Bool
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try GatewayWire.readInt16(&reader)
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        sms = try reader.readBool()
+        paypal = try reader.readBool()
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `PacketBaseInGamePurchase` (66) / `PacketInGamePurchaseEnableMarketplace` (24).
+struct GatewayInGamePurchaseMarketplace: Equatable, Sendable {
+    static let opcode: Int16 = 66
+    static let subOpcode: Int16 = 24
+
+    let enabled: Bool
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try GatewayWire.readInt16(&reader)
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        enabled = try reader.readBool()
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `BaseUiPacket` (47) / `ObjectiveTargetUpdatePacket` (14). The C# serializer
+/// writes the target fields only when `Active` is true; the decoder mirrors that
+/// branch and leaves the optionals nil otherwise.
+struct GatewayObjectiveTargetUpdate: Equatable, Sendable {
+    static let opcode: Int16 = 47
+    static let subOpcode: UInt8 = 14
+
+    let active: Bool
+    let taskID: UInt64?
+    let selectTaskID: Int32?
+    let guid: UInt64?
+    let nameID: Int32?
+    let positionX: Float?
+    let positionY: Float?
+    let positionZ: Float?
+    let positionW: Float?
+    let targetType: Int32?
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try reader.readUInt8()
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedInternalOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        active = try reader.readBool()
+        var taskID: UInt64?
+        var selectTaskID: Int32?
+        var guid: UInt64?
+        var nameID: Int32?
+        var positionX: Float?
+        var positionY: Float?
+        var positionZ: Float?
+        var positionW: Float?
+        var targetType: Int32?
+        if active {
+            taskID = try reader.readUInt64()
+            selectTaskID = try reader.readInt32()
+            guid = try reader.readUInt64()
+            nameID = try reader.readInt32()
+            positionX = try reader.readFloat()
+            positionY = try reader.readFloat()
+            positionZ = try reader.readFloat()
+            positionW = try reader.readFloat()
+            targetType = try reader.readInt32()
+        }
+        self.taskID = taskID
+        self.selectTaskID = selectTaskID
+        self.guid = guid
+        self.nameID = nameID
+        self.positionX = positionX
+        self.positionY = positionY
+        self.positionZ = positionZ
+        self.positionW = positionW
+        self.targetType = targetType
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `BaseObjectivePacket` (45) / `ObjectiveClientClearPacket` (8).
+struct GatewayObjectiveClientClear: Equatable, Sendable {
+    static let opcode: Int16 = 45
+    static let subOpcode: UInt8 = 8
+
+    let unknown: Int32
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try reader.readUInt8()
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedInternalOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        unknown = try reader.readInt32()
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}

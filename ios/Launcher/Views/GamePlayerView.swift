@@ -654,6 +654,35 @@ private struct RemoteWorldView: View {
                         )
                         .font(.caption2)
                     }
+                    if let notification = observation.lastPetUtilityNotification {
+                        LabeledContent(
+                            "Pet utility",
+                            value: "\(notification.petID) · \(notification.notificationType)"
+                        )
+                        .font(.caption2)
+                    }
+                    if let sources = observation.inGamePurchasePaymentSources {
+                        LabeledContent(
+                            "Payment sources",
+                            value: "SMS \(sources.sms) · PayPal \(sources.paypal)"
+                        )
+                        .font(.caption2)
+                    }
+                    if let enabled = observation.inGamePurchaseMarketplaceEnabled {
+                        LabeledContent("Marketplace", value: enabled ? "Enabled" : "Disabled")
+                            .font(.caption2)
+                    }
+                    if let target = observation.objectiveTargetUpdate, target.active {
+                        LabeledContent(
+                            "Objective target",
+                            value: "\(target.taskID ?? 0) · \(target.nameID ?? 0)"
+                        )
+                        .font(.caption2)
+                    }
+                    if let cleared = observation.lastClearedObjectiveUnknown {
+                        LabeledContent("Objective clear", value: "\(cleared)")
+                            .font(.caption2)
+                    }
                     if !observation.castingAbilities.isEmpty {
                         LabeledContent("Casting", value: "\(observation.castingAbilities.count)")
                             .font(.caption2)

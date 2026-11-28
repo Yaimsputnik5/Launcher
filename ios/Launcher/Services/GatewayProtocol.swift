@@ -2339,6 +2339,11 @@ enum GatewayWorldPacket: Equatable {
     case removeCompositeEffectTag(GatewayRemoveCompositeEffectTag)
     case compositeEffectsEnabled(GatewayCompositeEffectsEnabled)
     case addCompositeEffectTag(GatewayAddCompositeEffectTag)
+    case petUtilityNotification(GatewayPetUtilityNotification)
+    case inGamePurchasePaymentSources(GatewayInGamePurchasePaymentSources)
+    case inGamePurchaseMarketplace(GatewayInGamePurchaseMarketplace)
+    case objectiveTargetUpdate(GatewayObjectiveTargetUpdate)
+    case objectiveClientClear(GatewayObjectiveClientClear)
     case clientArea(GatewayClientAreaUpdate)
     case messageOfTheDay(GatewayMessageOfTheDay)
     /// A packet whose opcode/sub-opcode is known from Sanctuary or the compiled
@@ -2500,6 +2505,8 @@ enum GatewayWorldCodec {
                 return .petActive(try GatewayPetActive(data: data))
             case GatewayPetTrickNotification.subOpcode:
                 return .petTrickNotification(try GatewayPetTrickNotification(data: data))
+            case GatewayPetUtilityNotification.subOpcode:
+                return .petUtilityNotification(try GatewayPetUtilityNotification(data: data))
             default:
                 return Self.mappedOrUnknown(opcode: opcode, data: data)
             }
@@ -2552,6 +2559,32 @@ enum GatewayWorldCodec {
             return sub == GatewayOverworldCombat.subOpcode
                 ? .overworldCombat(try GatewayOverworldCombat(data: data))
                 : Self.mappedOrUnknown(opcode: opcode, data: data)
+        case GatewayInGamePurchasePaymentSources.opcode:
+            let sub = try GatewayWire.readInt16(&reader)
+            switch sub {
+            case GatewayInGamePurchasePaymentSources.subOpcode:
+                return .inGamePurchasePaymentSources(try GatewayInGamePurchasePaymentSources(data: data))
+            case GatewayInGamePurchaseMarketplace.subOpcode:
+                return .inGamePurchaseMarketplace(try GatewayInGamePurchaseMarketplace(data: data))
+            default:
+                return Self.mappedOrUnknown(opcode: opcode, data: data)
+            }
+        case GatewayObjectiveTargetUpdate.opcode:
+            let sub = try reader.readUInt8()
+            switch sub {
+            case GatewayObjectiveTargetUpdate.subOpcode:
+                return .objectiveTargetUpdate(try GatewayObjectiveTargetUpdate(data: data))
+            default:
+                return Self.mappedOrUnknown(opcode: opcode, data: data)
+            }
+        case GatewayObjectiveClientClear.opcode:
+            let sub = try reader.readUInt8()
+            switch sub {
+            case GatewayObjectiveClientClear.subOpcode:
+                return .objectiveClientClear(try GatewayObjectiveClientClear(data: data))
+            default:
+                return Self.mappedOrUnknown(opcode: opcode, data: data)
+            }
         default:
             return Self.mappedOrUnknown(opcode: opcode, data: data)
         }
@@ -2689,6 +2722,11 @@ struct GatewayWorldObservation: Equatable, Sendable {
     var setAnimations: [UInt64: GatewaySetAnimation] = [:]
     var compositeEffectTags: [UInt64: Set<Int32>] = [:]
     var compositeEffectsEnabled: Bool?
+    var lastPetUtilityNotification: GatewayPetUtilityNotification?
+    var inGamePurchasePaymentSources: GatewayInGamePurchasePaymentSources?
+    var inGamePurchaseMarketplaceEnabled: Bool?
+    var objectiveTargetUpdate: GatewayObjectiveTargetUpdate?
+    var lastClearedObjectiveUnknown: Int32?
     /// Packet-backed only: set by `PacketSetClientArea` / `PacketMOTD`.
     var activeClientAreaID: Int32?
     var clientAreaEnabled: Bool?
@@ -3093,6 +3131,21 @@ struct GatewayWorldObservation: Equatable, Sendable {
         case .abilityStartCasting(let casting):
             castingAbilities[casting.casterGUID] = casting
             lastEvent = "Casting \(casting.abilityID) · GUID \(casting.casterGUID)"
+        case .petUtilityNotification(let notification):
+            lastPetUtilityNotification = notification
+            lastEvent = "Pet utility · \(notification.petID) · \(notification.notificationType)"
+        case .inGamePurchasePaymentSources(let sources):
+            inGamePurchasePaymentSources = sources
+            lastEvent = "Payment sources · SMS \(sources.sms) · PayPal \(sources.paypal)"
+        case .inGamePurchaseMarketplace(let marketplace):
+            inGamePurchaseMarketplaceEnabled = marketplace.enabled
+            lastEvent = "Marketplace · \(marketplace.enabled)"
+        case .objectiveTargetUpdate(let update):
+            objectiveTargetUpdate = update
+            lastEvent = "Objective target · active \(update.active)"
+        case .objectiveClientClear(let clear):
+            lastClearedObjectiveUnknown = clear.unknown
+            lastEvent = "Objective clear · \(clear.unknown)"
         case .clientArea(let area):
             activeClientAreaID = area.areaID
             clientAreaEnabled = area.enabled

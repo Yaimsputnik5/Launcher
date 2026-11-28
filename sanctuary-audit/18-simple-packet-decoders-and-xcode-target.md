@@ -105,6 +105,42 @@ These fields remain packet-backed. They are not seeded from offline simulation,
 cache, defaults or the engine. This preserves the remote-session rule that
 local simulation must not be presented as server state.
 
+### Third batch: purchase, pet-utility and objective packets
+
+A further C# source audit found five scalar-only server-to-client packets that
+were still routed as raw catalog packets. Their `Serialize()` bodies were
+checked before adding decoders:
+
+| Packet | Route | Wire layout from C# | Swift decoder | Observation fields |
+|---|---|---|---|---|
+| `PetUtilityNotifyPacket` | `53/20` (byte sub-opcode) | six `int` fields (`PetId`, `NotificationType`, `GroomDurationSeconds`, `Unknown4`, `Unknown5`, `Unknown6`) | `GatewayPetUtilityNotification` | `.lastPetUtilityNotification` |
+| `PacketInGamePurchaseStoreEnablePaymentSources` | `66/33` (short sub-opcode) | `bool Sms`, `bool Paypal` | `GatewayInGamePurchasePaymentSources` | `.inGamePurchasePaymentSources` |
+| `PacketInGamePurchaseEnableMarketplace` | `66/24` (short sub-opcode) | `bool Enabled` | `GatewayInGamePurchaseMarketplace` | `.inGamePurchaseMarketplaceEnabled` |
+| `ObjectiveTargetUpdatePacket` | `47/14` (byte sub-opcode) | `bool Active`; if true, `ulong TaskId`, `int SelectTaskId`, `ulong Guid`, `int NameId`, four `float` positions, `int TargetType` | `GatewayObjectiveTargetUpdate` | `.objectiveTargetUpdate` |
+| `ObjectiveClientClearPacket` | `45/8` (byte sub-opcode) | `int Unknown` | `GatewayObjectiveClientClear` | `.lastClearedObjectiveUnknown` |
+
+The C# `ObjectiveTargetUpdatePacket.Serialize()` writes its target fields only
+inside `if (Active)`. The Swift decoder mirrors that branch and leaves the
+optional fields nil when `Active` is false; it never synthesizes coordinates.
+
+Three scalar-looking candidates were rejected because their C# serializers
+still delegate to nested codecs, so they remain raw-preserving `.mapped` packets:
+
+| Rejected packet | Route | Reason |
+|---|---|---|
+| `StartInspectPacket` | `149/1` | `writer.WritePayload(Payload)` |
+| `HousingPacketZoneData` | `127/45` | `InstanceInfo.Serialize(writer)` |
+| `PacketPointOfInterestDefinitionReply` | `57` | `writer.WritePayload(Payload)` |
+
+The known nested-serializer packets `49/1`, `49/3`, `49/7`, `49/13`, `38/16`,
+`36/5` and `74/9` remain rejected as well. Login-protocol packets were not added
+to `GatewayWorldCodec`; the login protocol has a separate transport path.
+
+`53/20` was added inside the existing opcode-53 dispatch switch rather than as
+a duplicate outer case. Swift switches stop at the first matching outer case; a
+second `case 53` would have remained unreachable and the packet would still
+have been `.mapped`. The test asserts the decoded case explicitly.
+
 ## 2. Missing Swift files in the Xcode project
 
 `ios/Package.swift` listed `GatewayProtocol.swift`, `PacketCatalog.swift` and
@@ -132,17 +168,19 @@ Local Foundation-only suite after these changes:
 TMPDIR=/tmp/opencode swift test --package-path ios --scratch-path /tmp/opencode/osfr-swift-test-chunks
 ```
 
-Result after the corrected batch and the raw-fallback test: 245 tests,
-1 skipped, 0 failures. SwiftUI/UIKit/Network/Metal and actual IPA compilation
-still require macOS GitHub Actions; no local iOS SDK is available from this
-Linux host.
+Result after the corrected batch, the raw-fallback test and the third scalar
+batch: 246 tests, 1 skipped, 0 failures. SwiftUI/UIKit/Network/Metal and actual
+IPA compilation still require macOS GitHub Actions; no local iOS SDK is
+available from this Linux host.
 
 ## Still open
 
 - The remaining 352-class catalog is routing/layout metadata, not 352 decoded
-  gameplay codecs; the seven nested-serializer packets above are deliberately
-  raw-only until their nested codecs exist.
-- Lua command registration, zone-load row names, spawn transforms, engine
-  material/tile fidelity and live-session parity remain unresolved.
+  gameplay codecs; the nested-serializer packets above are deliberately raw-only
+  until their nested codecs exist.
+- Lua command registration, zone-load row consumer semantics, spawn transforms,
+  engine material/tile fidelity and live-session parity remain unresolved. The
+  row field names themselves were recovered in
+  `15-packet-catalog-and-config-xrefs.md`.
 - The verified release IPA predates this source; do not treat it as containing
   these decoders or the Xcode project correction.

@@ -972,4 +972,104 @@ final class GatewaySimplePacketTests: XCTestCase {
             XCTAssertTrue(observation.setAnimations.isEmpty)
         }
     }
+
+    func testAdditionalScalarOnlyPacketsUseExactFieldOrder() throws {
+        var petWriter = PacketWriter()
+        GatewayWire.appendInt16(GatewayPetUtilityNotification.opcode, to: &petWriter.data)
+        petWriter.writeUInt8(GatewayPetUtilityNotification.subOpcode)
+        petWriter.writeInt32(201)
+        petWriter.writeInt32(4)
+        petWriter.writeInt32(12)
+        petWriter.writeInt32(1)
+        petWriter.writeInt32(2)
+        petWriter.writeInt32(3)
+        let pet = try GatewayWorldCodec.decodeAny(petWriter.data)
+        guard case .petUtilityNotification(let notification) = pet else {
+            return XCTFail("Expected pet utility notification, got \(pet)")
+        }
+        XCTAssertEqual(notification.petID, 201)
+        XCTAssertEqual(notification.notificationType, 4)
+        XCTAssertEqual(notification.groomDurationSeconds, 12)
+        XCTAssertEqual(notification.unknown4, 1)
+        XCTAssertEqual(notification.unknown5, 2)
+        XCTAssertEqual(notification.unknown6, 3)
+
+        var sourcesWriter = PacketWriter()
+        GatewayWire.appendInt16(GatewayInGamePurchasePaymentSources.opcode, to: &sourcesWriter.data)
+        GatewayWire.appendInt16(GatewayInGamePurchasePaymentSources.subOpcode, to: &sourcesWriter.data)
+        sourcesWriter.writeBool(true)
+        sourcesWriter.writeBool(false)
+        let sources = try GatewayWorldCodec.decodeAny(sourcesWriter.data)
+        guard case .inGamePurchasePaymentSources(let payment) = sources else {
+            return XCTFail("Expected payment sources, got \(sources)")
+        }
+        XCTAssertTrue(payment.sms)
+        XCTAssertFalse(payment.paypal)
+
+        var marketWriter = PacketWriter()
+        GatewayWire.appendInt16(GatewayInGamePurchaseMarketplace.opcode, to: &marketWriter.data)
+        GatewayWire.appendInt16(GatewayInGamePurchaseMarketplace.subOpcode, to: &marketWriter.data)
+        marketWriter.writeBool(true)
+        let market = try GatewayWorldCodec.decodeAny(marketWriter.data)
+        guard case .inGamePurchaseMarketplace(let marketplace) = market else {
+            return XCTFail("Expected marketplace packet, got \(market)")
+        }
+        XCTAssertTrue(marketplace.enabled)
+
+        var targetWriter = PacketWriter()
+        GatewayWire.appendInt16(GatewayObjectiveTargetUpdate.opcode, to: &targetWriter.data)
+        targetWriter.writeUInt8(GatewayObjectiveTargetUpdate.subOpcode)
+        targetWriter.writeBool(true)
+        targetWriter.writeUInt64(5001)
+        targetWriter.writeInt32(2)
+        targetWriter.writeUInt64(88)
+        targetWriter.writeInt32(900)
+        targetWriter.writeFloat(1.25)
+        targetWriter.writeFloat(2.5)
+        targetWriter.writeFloat(3.75)
+        targetWriter.writeFloat(1)
+        targetWriter.writeInt32(2)
+        let target = try GatewayWorldCodec.decodeAny(targetWriter.data)
+        guard case .objectiveTargetUpdate(let update) = target else {
+            return XCTFail("Expected objective target update, got \(target)")
+        }
+        XCTAssertTrue(update.active)
+        XCTAssertEqual(update.taskID ?? 0, 5001)
+        XCTAssertEqual(update.guid ?? 0, 88)
+        XCTAssertEqual(update.nameID ?? 0, 900)
+        XCTAssertEqual(update.positionX ?? 0, 1.25)
+        XCTAssertEqual(update.positionW ?? 0, 1)
+
+        var inactiveWriter = PacketWriter()
+        GatewayWire.appendInt16(GatewayObjectiveTargetUpdate.opcode, to: &inactiveWriter.data)
+        inactiveWriter.writeUInt8(GatewayObjectiveTargetUpdate.subOpcode)
+        inactiveWriter.writeBool(false)
+        let inactive = try GatewayWorldCodec.decodeAny(inactiveWriter.data)
+        guard case .objectiveTargetUpdate(let clearedTarget) = inactive else {
+            return XCTFail("Expected inactive objective target, got \(inactive)")
+        }
+        XCTAssertFalse(clearedTarget.active)
+        XCTAssertNil(clearedTarget.taskID)
+        XCTAssertNil(clearedTarget.targetType)
+
+        var clearWriter = PacketWriter()
+        GatewayWire.appendInt16(GatewayObjectiveClientClear.opcode, to: &clearWriter.data)
+        clearWriter.writeUInt8(GatewayObjectiveClientClear.subOpcode)
+        clearWriter.writeInt32(-7)
+        let clear = try GatewayWorldCodec.decodeAny(clearWriter.data)
+        guard case .objectiveClientClear(let cleared) = clear else {
+            return XCTFail("Expected objective client clear, got \(clear)")
+        }
+        XCTAssertEqual(cleared.unknown, -7)
+
+        var observation = GatewayWorldObservation.empty
+        for packet in [pet, sources, market, inactive, target, clear] {
+            observation.apply(packet)
+        }
+        XCTAssertEqual(observation.lastPetUtilityNotification?.petID, 201)
+        XCTAssertTrue(observation.inGamePurchasePaymentSources?.sms == true)
+        XCTAssertEqual(observation.inGamePurchaseMarketplaceEnabled, true)
+        XCTAssertEqual(observation.objectiveTargetUpdate?.guid ?? 0, 88)
+        XCTAssertEqual(observation.lastClearedObjectiveUnknown, -7)
+    }
 }
