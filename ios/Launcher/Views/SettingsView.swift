@@ -77,7 +77,7 @@ struct SettingsView: View {
                         value: state.hostBinding(\.startingStationCash),
                         in: 0...Int64.max
                     )
-                    Text("Applied to the next Offline game and to the selected offline character.")
+                    Text("Applied to the running Offline world and the selected offline character.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

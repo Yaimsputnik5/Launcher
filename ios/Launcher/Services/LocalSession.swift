@@ -586,6 +586,33 @@ final class LocalSession {
         return character
     }
 
+    /// Applies host settings to the selected character while an offline world
+    /// is active. The engine applies the same values immediately; this keeps the
+    /// persisted save in sync so a later restart does not revert the change.
+    @discardableResult
+    func applyHostConfigurationToSelectedCharacter(
+        _ configuration: LocalHostConfiguration
+    ) throws -> LocalCharacter? {
+        guard let accountIndex = file.accounts.firstIndex(where: { $0.id == activeAccountID }),
+              let characterIndex = file.accounts[accountIndex].characters.firstIndex(where: {
+                  $0.id == selectedCharacterID
+              }) else { return nil }
+        let existing = file.accounts[accountIndex].characters[characterIndex]
+        var updated = existing
+        updated.name = try Self.validatedCharacterName(configuration.characterName)
+        updated.zoneID = configuration.startingZoneID
+        updated.coins = configuration.startingCoins
+        updated.stationCash = configuration.startingStationCash
+        updated.locale = configuration.locale
+        updated.unlockAllProfiles = configuration.unlockAllProfiles
+        updated.unlockAllTitles = configuration.unlockAllTitles
+        updated.unlockAllTiles = configuration.unlockAllTiles
+        guard updated != existing else { return existing }
+        file.accounts[accountIndex].characters[characterIndex] = updated
+        try save()
+        return updated
+    }
+
     // MARK: Character commands
 
     @discardableResult

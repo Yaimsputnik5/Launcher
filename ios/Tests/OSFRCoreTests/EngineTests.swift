@@ -146,6 +146,68 @@ final class EngineTests: XCTestCase {
         XCTAssertTrue(snapshot.options.unlockAllTiles)
     }
 
+    func testLiveHostConfigurationUpdatesRunningSimulation() throws {
+        let root = try makeResourceRoot()
+        let simulation = try WorldSimulation(rootURL: root, zoneID: 1)
+        XCTAssertEqual(simulation.snapshot.playerName, "Local")
+        XCTAssertFalse(simulation.snapshot.options.unlockAllTiles)
+
+        var updated = LocalHostConfiguration()
+        updated.accountName = "Live Profile"
+        updated.characterName = "Live Hero"
+        updated.startingCoins = 77
+        updated.startingStationCash = 88
+        updated.unlockAllProfiles = false
+        updated.unlockAllTitles = false
+        updated.unlockAllTiles = true
+        simulation.applyHostConfiguration(updated)
+
+        let snapshot = simulation.snapshot
+        XCTAssertEqual(snapshot.playerName, "Live Hero")
+        XCTAssertEqual(snapshot.profileName, "Live Profile")
+        XCTAssertEqual(snapshot.coins, 77)
+        XCTAssertEqual(snapshot.stationCash, 88)
+        XCTAssertFalse(snapshot.options.unlockAllProfiles)
+        XCTAssertFalse(snapshot.options.unlockAllTitles)
+        XCTAssertTrue(snapshot.options.unlockAllTiles)
+        let blocked = ZoneVector(x: -2_016, y: 0, z: 288, w: 0)
+        XCTAssertTrue(simulation.isWalkable(blocked))
+    }
+
+    func testNonDefaultStartingZoneUsesThatZonesSpawn() throws {
+        let root = try makeResourceRoot()
+        let zoneJSON = Self.zoneJSON
+            .replacingOccurrences(of: "\"Id\": 1", with: "\"Id\": 7")
+            .replacingOccurrences(
+                of: "\"SpawnPosition\": [-1904, -39.7098, 412]",
+                with: "\"SpawnPosition\": [-10, -20, 30]"
+            )
+            .replacingOccurrences(
+                of: "\"SpawnRotation\": [0.55, 0.83]",
+                with: "\"SpawnRotation\": [0.1, 0.2]"
+            )
+        try write(zoneJSON, relativePath: "Resources/Zones/FabledRealms.json", in: root)
+
+        var configuration = LocalHostConfiguration()
+        configuration.startingZoneID = 7
+        let character = LocalCharacter.makeDefault(id: 9, name: "Zone Seven", configuration: configuration)
+        XCTAssertEqual(character.position, .fabledRealmsSpawn)
+
+        let simulation = try WorldSimulation(
+            rootURL: root,
+            zoneID: 7,
+            character: character,
+            hostConfiguration: configuration
+        )
+        let snapshot = simulation.snapshot
+        XCTAssertEqual(snapshot.zoneID, 7)
+        XCTAssertEqual(snapshot.player.x, -10, accuracy: 0.001)
+        XCTAssertEqual(snapshot.player.y, -20, accuracy: 0.001)
+        XCTAssertEqual(snapshot.player.z, 30, accuracy: 0.001)
+        XCTAssertEqual(snapshot.player.rotationX, 0.1, accuracy: 0.001)
+        XCTAssertEqual(snapshot.player.rotationZ, 0.2, accuracy: 0.001)
+    }
+
     func testUnlockAllTilesChangesWalkability() throws {
         let root = try makeResourceRoot()
         let blocked = ZoneVector(x: -2_016, y: 0, z: 288, w: 0)

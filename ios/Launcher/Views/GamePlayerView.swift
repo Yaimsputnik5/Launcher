@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import SwiftUI
 
@@ -12,11 +13,13 @@ final class GameEngineController: ObservableObject {
 
     private var engine: OSFREngine?
     private var remoteZoneName: String?
+    private var attachedLocalSession: LocalSession?
 
     var isLoaded: Bool { engine != nil }
 
     func attach(session: LocalSession, configuration: LocalHostConfiguration) {
         guard !isLoaded else { return }
+        attachedLocalSession = session
         guard let root = AppPaths.bundledSanctuaryResources else {
             errorMessage = "Sanctuary resources are not bundled in this build."
             return
@@ -100,12 +103,28 @@ final class GameEngineController: ObservableObject {
         publish(engine)
     }
 
+    /// Applies a settings change to the running offline world. Changing the
+    /// starting zone needs a new zone grid, so the simulation is rebuilt from
+    /// the same real session; all other fields update in place.
+    func applyHostConfiguration(_ configuration: LocalHostConfiguration) {
+        guard let engine, engine.presentationMode == .offline, let simulation else { return }
+        if simulation.zone.id != configuration.startingZoneID {
+            guard let session = attachedLocalSession else { return }
+            reset()
+            attach(session: session, configuration: configuration)
+            return
+        }
+        simulation.applyHostConfiguration(configuration)
+        publish(engine)
+    }
+
     func reset() {
         engine = nil
         simulation = nil
         snapshot = nil
         frame = nil
         remoteZoneName = nil
+        attachedLocalSession = nil
         errorMessage = nil
     }
 
@@ -284,6 +303,12 @@ struct GamePlayerView: View {
             else { return }
             controller.attach(session: localSession, configuration: configuration)
             loadedSessionID = session.id
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .osfrHostConfigurationDidChange)) { note in
+            guard state.activeSession?.mode == .offline,
+                  let configuration = note.userInfo?["configuration"] as? LocalHostConfiguration
+            else { return }
+            controller.applyHostConfiguration(configuration)
         }
         .onReceive(Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()) { _ in
             controller.advance()

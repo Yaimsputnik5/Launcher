@@ -84,6 +84,39 @@ final class LocalSessionTests: XCTestCase {
         XCTAssertEqual(session.selectedCharacter?.id, character.id)
     }
 
+    func testHostConfigurationAppliesToSelectedCharacterAndPersists() throws {
+        var configuration = LocalHostConfiguration()
+        configuration.accountName = "local"
+        configuration.characterName = "Before"
+        let session = try LocalSession(directory: directory)
+        let character = try session.bootstrapOffline(configuration: configuration, password: password)
+
+        var updated = configuration
+        updated.characterName = "After"
+        updated.startingZoneID = 7
+        updated.startingCoins = 321
+        updated.startingStationCash = 654
+        updated.locale = .en_GB
+        updated.unlockAllProfiles = false
+        updated.unlockAllTitles = false
+        updated.unlockAllTiles = true
+        let applied = try XCTUnwrap(session.applyHostConfigurationToSelectedCharacter(updated))
+
+        XCTAssertEqual(applied.id, character.id)
+        XCTAssertEqual(applied.name, "After")
+        XCTAssertEqual(applied.zoneID, 7)
+        XCTAssertEqual(applied.coins, 321)
+        XCTAssertEqual(applied.stationCash, 654)
+        XCTAssertEqual(applied.locale, .en_GB)
+        XCTAssertFalse(applied.unlockAllProfiles)
+        XCTAssertFalse(applied.unlockAllTitles)
+        XCTAssertTrue(applied.unlockAllTiles)
+
+        let reopened = try LocalSession(directory: directory)
+        _ = try reopened.login(username: "local", password: password)
+        XCTAssertEqual(reopened.selectedCharacter, applied)
+    }
+
     func testDuplicateCharacterNamesAreRejectedCaseInsensitively() throws {
         let session = try LocalSession(directory: directory)
         let first = try session.bootstrapOffline(configuration: LocalHostConfiguration(), password: password)

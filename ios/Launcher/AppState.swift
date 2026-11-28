@@ -154,6 +154,32 @@ final class AppState: ObservableObject {
         update(&configuration)
         settings.hostConfiguration = configuration
         persistSettings()
+
+        // Settings changed while an offline world is open must reach the live
+        // engine, not just the next session. Remote sessions keep their
+        // packet-only state and never consume host settings.
+        guard let current = activeSession, current.mode == .offline else { return }
+        var world = current.configuration
+        world.profileName = configuration.accountName
+        world.characterName = configuration.characterName
+        world.locale = effectiveHostConfiguration().locale
+        world.localConfiguration = configuration
+        activeSession = ActiveWorldSession(
+            id: current.id,
+            configuration: world,
+            hostConfiguration: configuration,
+            startedAt: current.startedAt
+        )
+        do {
+            try localSession?.applyHostConfigurationToSelectedCharacter(configuration)
+        } catch {
+            notify("Could not update the offline character: \(error.localizedDescription)", isError: true)
+        }
+        NotificationCenter.default.post(
+            name: .osfrHostConfigurationDidChange,
+            object: nil,
+            userInfo: ["configuration": configuration]
+        )
     }
 
     /// The C# launcher's global locale applies to whichever client is launched.

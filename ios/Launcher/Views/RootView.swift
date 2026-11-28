@@ -144,4 +144,7 @@ private struct WorldUnavailableView: View {
 
 extension Notification.Name {
     static let osfrShowOfflineTab = Notification.Name("osfrShowOfflineTab")
+    /// Posted after persisted offline host settings change so the live engine can
+    /// apply them without creating a new session or touching remote state.
+    static let osfrHostConfigurationDidChange = Notification.Name("osfrHostConfigurationDidChange")
 }

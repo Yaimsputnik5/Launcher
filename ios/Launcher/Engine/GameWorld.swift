@@ -274,7 +274,13 @@ final class WorldSimulation {
             name: "Local",
             configuration: hostConfiguration ?? LocalHostConfiguration()
         )
-        if resolvedCharacter.zoneID != zone.id {
+        // A non-default starting zone loads its own grid, but a newly created
+        // offline character still carries zone 1's persisted spawn. Reset it to
+        // the *selected* zone's real spawn so the player does not appear inside
+        // a different zone's coordinates (or outside its walkable grid).
+        let hasExplicitStartZone = zoneID != nil
+        if resolvedCharacter.zoneID != zone.id
+            || (hasExplicitStartZone && zone.id != 1 && resolvedCharacter.position == .fabledRealmsSpawn) {
             resolvedCharacter.position = LocalWorldPosition(
                 x: Float(zone.spawnPosition.x),
                 y: Float(zone.spawnPosition.y),
@@ -322,6 +328,27 @@ final class WorldSimulation {
 
         buildEntities()
         syncPlayerQuests()
+    }
+
+    /// Applies persisted offline host settings to an already running local
+    /// simulation. A changed starting zone is handled by rebuilding the
+    /// simulation (its zone grid is immutable), but every other setting now
+    /// takes effect in the live world instead of only on the next start.
+    func applyHostConfiguration(_ configuration: LocalHostConfiguration) {
+        guard !zone.name.isEmpty else { return }
+        player.name = configuration.characterName
+        player.coins = configuration.startingCoins
+        player.stationCash = configuration.startingStationCash
+        player.locale = configuration.locale
+        player.unlockAllProfiles = configuration.unlockAllProfiles
+        player.unlockAllTitles = configuration.unlockAllTitles
+        player.unlockAllTiles = configuration.unlockAllTiles
+        profileName = configuration.accountName
+        hostOptions = WorldPlayOptions(
+            unlockAllProfiles: configuration.unlockAllProfiles,
+            unlockAllTitles: configuration.unlockAllTitles,
+            unlockAllTiles: configuration.unlockAllTiles
+        )
     }
 
     // MARK: - Snapshot
