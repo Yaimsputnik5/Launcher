@@ -158,14 +158,16 @@ macOS runner:
 - Local artifact: `ios/Launcher.ipa` (375,200,997 bytes)
 - SHA-256: `e5a48f13bab8da1daa4c9a5c26475f57855cd2e49176665cf251baed7ec21307`
 
-Current `ios-build` source: `f568a64430e6a36cb1fae22c2d6dd4a0225d84e4`
-(`Resolve bundled resources without path containment under LiveContainer`),
-followed by trigger commit `ca10578af737c95a3eba8938df310096142e01cf`. A fresh
-IPA has not yet been published for those commits: GitHub currently reports that
-workflows are not being run on this fork. A repository maintainer must
-re-enable Actions for `YaimSputnik5/Launcher`, then re-run the
-`Build iOS IPA` workflow on `ios-build`. The verified release below remains the
-last built artifact and does not include this source change.
+Current `ios-build` source is newer than the verified IPA: the direct bundled
+resource path fix begins at `f568a64430e6a36cb1fae22c2d6dd4a0225d84e4`
+(`Resolve bundled resources without path containment under LiveContainer`), and
+the packet catalog work is at `c43ae1efcc31b74389120c535050b6209ab11830`
+(`Map Sanctuary packet catalog and preserve known raw packets`). A fresh IPA has
+not been published for those commits: GitHub still reports zero Actions runs
+and zero check runs for them. A repository maintainer must re-enable Actions for
+`YaimSputnik5/Launcher`, then re-run the `Build iOS IPA` workflow on `ios-build`.
+The verified release below remains the last built artifact and does not include
+these source changes.
 
 Bundled resources now use validated relative components appended directly to
 the trusted `Bundle.main` root; there is no path-string prefix comparison and
@@ -198,10 +200,11 @@ Foundation-only logic is verified locally:
 swift test --package-path ios
 ```
 
-The 209 tests (1 skipped) cover XXH64, URL/path safety, manifest v1/v2 and
+The 216 tests (1 skipped) cover XXH64, URL/path safety, manifest v1/v2 and
 case-insensitive manifest locales, embedded-payload manifest matching, packet primitives,
 CRC32, RC4, GUID layout, WebAPI login response decoding, login framing/messages,
-gateway AES-CCM, opcode codecs and reliable-ID sequencing, `.pack`/`.rcc`
+gateway AES-CCM, opcode codecs and reliable-ID sequencing, the 352-class
+Sanctuary packet routing catalog and raw-payload preservation, `.pack`/`.rcc`
 parsing, TGA/DDS decoding, Sanctuary resource schemas, zone/collection/quest
 simulation, offline account/character persistence, host setting application,
 world gating, fixed-step engine advancement, input events, camera projection,
