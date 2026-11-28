@@ -68,6 +68,77 @@ struct GatewayMessageOfTheDay: Equatable, Sendable {
     }
 }
 
+/// `BaseUiPacket` (47) / `ExecuteScriptPacket` (7). C# writes a string, then an
+/// Int32 count followed by Int32 arguments. The name is a UI method selector;
+/// decoding it must not execute a script.
+struct GatewayExecuteScript: Equatable, Sendable {
+    static let opcode: Int16 = 47
+    static let subOpcode: UInt8 = 7
+    private static let maxParameterCount = 65_536
+
+    let script: String
+    let parameters: [Int32]
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try reader.readUInt8()
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedInternalOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        script = try reader.readString()
+        let count = try reader.readInt32()
+        guard count >= 0, count <= Self.maxParameterCount else {
+            throw GatewayProtocolError.invalidCollectionCount("ExecuteScriptPacket.Params")
+        }
+        var decoded: [Int32] = []
+        decoded.reserveCapacity(Int(count))
+        for _ in 0..<Int(count) {
+            decoded.append(try reader.readInt32())
+        }
+        parameters = decoded
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `BaseUiPacket` (47) / `ExecuteScriptWithStringParamsPacket` (8). The C#
+/// class comment names this a UI method dispatch, not Lua source execution.
+struct GatewayExecuteScriptStringParams: Equatable, Sendable {
+    static let opcode: Int16 = 47
+    static let subOpcode: UInt8 = 8
+    private static let maxParameterCount = 65_536
+
+    let script: String
+    let parameters: [String]
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try reader.readUInt8()
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedInternalOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        script = try reader.readString()
+        let count = try reader.readInt32()
+        guard count >= 0, count <= Self.maxParameterCount else {
+            throw GatewayProtocolError.invalidCollectionCount("ExecuteScriptWithStringParamsPacket.Params")
+        }
+        var decoded: [String] = []
+        decoded.reserveCapacity(Int(count))
+        for _ in 0..<Int(count) {
+            decoded.append(try reader.readString())
+        }
+        parameters = decoded
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
 /// `BaseClientUpdatePacket` (38) / `ClientUpdatePacketMana` (13).
 struct GatewayManaUpdate: Equatable, Sendable {
     static let opcode: Int16 = 38

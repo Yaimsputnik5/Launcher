@@ -186,8 +186,9 @@ these source changes. The newer source work is documented in
 `sanctuary-audit/27-client-starting-zone-loader-call-sites.md`,
 `sanctuary-audit/28-starting-zone-lua-dispatch.md`,
 `sanctuary-audit/29-external-login-scalar-replies.md`,
-`sanctuary-audit/30-trade-handshake-codecs.md` and
-`sanctuary-audit/31-housing-instance-list-codec.md`; none of those notes claims full
+`sanctuary-audit/30-trade-handshake-codecs.md`,
+`sanctuary-audit/31-housing-instance-list-codec.md` and
+`sanctuary-audit/32-ui-script-dispatch-codecs.md`; none of those notes claims full
 compiled-client or Lua/gameplay parity. Note 18 records an
 Xcode project omission that would have broken a build of the newer source, and
 the subsequent correction of a 25-packet batch: seven packets whose C#
@@ -232,7 +233,9 @@ unimplemented and the live UDP failure path is not covered by Linux tests. Note
 verified `NameData` order while keeping unresolved trade opcodes raw; no trade
 UI or outbound trade protocol is claimed. Note 31 decodes 127/39 housing
 instance lists through the already verified nested housing layout with a bounded
-count; 127/28 remains raw because its C# serializer is unresolved.
+count; 127/28 remains raw because its C# serializer is unresolved. Note 32
+decodes 47/7 and 47/8 as UI method selectors and arguments without executing
+them, and consolidates the 47 switch so 47/14 remains decoded.
 
 Bundled resources now use validated relative components appended directly to
 the trusted `Bundle.main` root; there is no path-string prefix comparison and

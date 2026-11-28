@@ -1817,4 +1817,51 @@ final class GatewaySimplePacketTests: XCTestCase {
         invalid.writeInt32(-1)
         XCTAssertThrowsError(try GatewayWorldCodec.decodeAny(invalid.data))
     }
+
+    func testExecuteScriptPacketsDecodeArgumentsWithoutRunningScripts() throws {
+        func header(_ sub: UInt8, to writer: inout PacketWriter) {
+            GatewayWire.appendInt16(GatewayExecuteScript.opcode, to: &writer.data)
+            writer.writeUInt8(sub)
+        }
+
+        var intWriter = PacketWriter()
+        header(GatewayExecuteScript.subOpcode, to: &intWriter)
+        intWriter.writeString("HUD.StartingZoneLoaded")
+        intWriter.writeInt32(2)
+        intWriter.writeInt32(10)
+        intWriter.writeInt32(-3)
+        let intPacket = try GatewayWorldCodec.decodeAny(intWriter.data)
+        guard case .executeScript(let intScript) = intPacket else {
+            return XCTFail("Expected int-argument UI packet, got \(intPacket)")
+        }
+        XCTAssertEqual(intScript.script, "HUD.StartingZoneLoaded")
+        XCTAssertEqual(intScript.parameters, [10, -3])
+
+        var stringWriter = PacketWriter()
+        header(GatewayExecuteScriptStringParams.subOpcode, to: &stringWriter)
+        stringWriter.writeString("OpenWindow")
+        stringWriter.writeInt32(2)
+        stringWriter.writeString("Inventory")
+        stringWriter.writeString("1")
+        let stringPacket = try GatewayWorldCodec.decodeAny(stringWriter.data)
+        guard case .executeScriptStringParams(let stringScript) = stringPacket else {
+            return XCTFail("Expected string-argument UI packet, got \(stringPacket)")
+        }
+        XCTAssertEqual(stringScript.script, "OpenWindow")
+        XCTAssertEqual(stringScript.parameters, ["Inventory", "1"])
+
+        var observation = GatewayWorldObservation.empty
+        observation.apply(intPacket)
+        observation.apply(stringPacket)
+        XCTAssertEqual(observation.lastExecuteScript?.parameters, [10, -3])
+        XCTAssertEqual(observation.lastExecuteScriptStringParams?.parameters, ["Inventory", "1"])
+        XCTAssertNil(observation.lastTradeMessage)
+        XCTAssertTrue(observation.positions.isEmpty)
+
+        var invalid = PacketWriter()
+        header(GatewayExecuteScript.subOpcode, to: &invalid)
+        invalid.writeString("Bad")
+        invalid.writeInt32(-1)
+        XCTAssertThrowsError(try GatewayWorldCodec.decodeAny(invalid.data))
+    }
 }

@@ -2369,6 +2369,8 @@ enum GatewayWorldPacket: Equatable {
     case storeBundleContent(GatewayStoreBundleContentResponse)
     case storeItemRequirements(GatewayStoreItemRequirementsReply)
     case zoneBroadcast(GatewayZoneBroadcast)
+    case executeScript(GatewayExecuteScript)
+    case executeScriptStringParams(GatewayExecuteScriptStringParams)
     case housingInstanceList(GatewayHousingInstanceList)
     case housingZoneData(GatewayHousingZoneData)
     case objectiveTargetUpdate(GatewayObjectiveTargetUpdate)
@@ -2498,6 +2500,18 @@ enum GatewayWorldCodec {
                 return .itemUpdate(try GatewayItemUpdate(data: data))
             case GatewayImmediateActivationCheck.subOpcode:
                 return .immediateActivationCheck(try GatewayImmediateActivationCheck(data: data))
+            default:
+                return Self.mappedOrUnknown(opcode: opcode, data: data)
+            }
+        case GatewayExecuteScript.opcode:
+            let sub = try reader.readUInt8()
+            switch sub {
+            case GatewayExecuteScript.subOpcode:
+                return .executeScript(try GatewayExecuteScript(data: data))
+            case GatewayExecuteScriptStringParams.subOpcode:
+                return .executeScriptStringParams(try GatewayExecuteScriptStringParams(data: data))
+            case GatewayObjectiveTargetUpdate.subOpcode:
+                return .objectiveTargetUpdate(try GatewayObjectiveTargetUpdate(data: data))
             default:
                 return Self.mappedOrUnknown(opcode: opcode, data: data)
             }
@@ -2659,14 +2673,6 @@ enum GatewayWorldCodec {
                 return .storeBundleContent(try GatewayStoreBundleContentResponse(data: data))
             case GatewayStoreItemRequirementsReply.subOpcode:
                 return .storeItemRequirements(try GatewayStoreItemRequirementsReply(data: data))
-            default:
-                return Self.mappedOrUnknown(opcode: opcode, data: data)
-            }
-        case GatewayObjectiveTargetUpdate.opcode:
-            let sub = try reader.readUInt8()
-            switch sub {
-            case GatewayObjectiveTargetUpdate.subOpcode:
-                return .objectiveTargetUpdate(try GatewayObjectiveTargetUpdate(data: data))
             default:
                 return Self.mappedOrUnknown(opcode: opcode, data: data)
             }
@@ -2842,6 +2848,8 @@ struct GatewayWorldObservation: Equatable, Sendable {
     var storeBundleContentResponses: [GatewayStoreBundleContentResponseItem]?
     var storeItemRequirements: [GatewayStoreItemRequirementUpdate]?
     var lastZoneBroadcast: GatewayZoneBroadcast?
+    var lastExecuteScript: GatewayExecuteScript?
+    var lastExecuteScriptStringParams: GatewayExecuteScriptStringParams?
     var housingInstanceList: GatewayHousingInstanceList?
     var housingZoneData: GatewayHousingZoneData?
     var objectiveTargetUpdate: GatewayObjectiveTargetUpdate?
@@ -3331,6 +3339,12 @@ struct GatewayWorldObservation: Equatable, Sendable {
         case .zoneBroadcast(let broadcast):
             lastZoneBroadcast = broadcast
             lastEvent = "Zone broadcast · \(broadcast.messageID)"
+        case .executeScript(let script):
+            lastExecuteScript = script
+            lastEvent = "UI method · \(script.script) · \(script.parameters.count) int args"
+        case .executeScriptStringParams(let script):
+            lastExecuteScriptStringParams = script
+            lastEvent = "UI method · \(script.script) · \(script.parameters.count) string args"
         case .housingInstanceList(let list):
             housingInstanceList = list
             lastEvent = "Housing instances · \(list.instances.count) · player \(list.playerGUID)"
