@@ -1447,4 +1447,174 @@ final class GatewaySimplePacketTests: XCTestCase {
         badCount.writeInt32(-1)
         XCTAssertThrowsError(try GatewayWorldCodec.decodeAny(badCount.data))
     }
+
+    func testAdditionalCommerceResponsesUseExactCSharpFieldOrder() throws {
+        func writeHeader(_ sub: Int16, to writer: inout PacketWriter) {
+            GatewayWire.appendInt16(66, to: &writer.data)
+            GatewayWire.appendInt16(sub, to: &writer.data)
+        }
+
+        var previewWriter = PacketWriter()
+        writeHeader(2, to: &previewWriter)
+        previewWriter.writeInt32(91)
+        previewWriter.writeInt32(5)
+        previewWriter.writeInt32(120)
+        previewWriter.writeInt32(880)
+        let previewPacket = try GatewayWorldCodec.decodeAny(previewWriter.data)
+        guard case .storePreviewOrder(let preview) = previewPacket else {
+            return XCTFail("Expected store preview order, got \(previewPacket)")
+        }
+        XCTAssertEqual(preview.orderTrackingID, 91)
+        XCTAssertEqual(preview.result, 5)
+        XCTAssertEqual(preview.discount, 120)
+        XCTAssertEqual(preview.total, 880)
+
+        var placeWriter = PacketWriter()
+        writeHeader(4, to: &placeWriter)
+        placeWriter.writeInt32(92)
+        placeWriter.writeInt32(8)
+        placeWriter.writeString("order-92")
+        placeWriter.writeInt32(130)
+        placeWriter.writeInt32(870)
+        let placePacket = try GatewayWorldCodec.decodeAny(placeWriter.data)
+        guard case .storePlaceOrder(let place) = placePacket else {
+            return XCTFail("Expected store place order, got \(placePacket)")
+        }
+        XCTAssertEqual(place.orderID, "order-92")
+        XCTAssertEqual(place.result, 8)
+        XCTAssertEqual(place.total, 870)
+
+        var currencyWriter = PacketWriter()
+        writeHeader(17, to: &currencyWriter)
+        currencyWriter.writeInt32(1)
+        currencyWriter.writeString("en_US")
+        currencyWriter.writeInt32(1)
+        currencyWriter.writeUInt32(840)
+        currencyWriter.writeString("USD")
+        currencyWriter.writeString("$")
+        currencyWriter.writeString(".")
+        currencyWriter.writeString("US Dollar")
+        currencyWriter.writeInt32(100)
+        currencyWriter.writeInt32(2)
+        currencyWriter.writeBool(false)
+        let currencyPacket = try GatewayWorldCodec.decodeAny(currencyWriter.data)
+        guard case .storeCurrencyCodes(let currencies) = currencyPacket else {
+            return XCTFail("Expected currency codes, got \(currencyPacket)")
+        }
+        XCTAssertEqual(currencies.currencies[840]?.symbol, "$")
+        XCTAssertEqual(currencies.currencies[840]?.minorUnit, 100)
+
+        var errorCurrencyWriter = PacketWriter()
+        writeHeader(17, to: &errorCurrencyWriter)
+        errorCurrencyWriter.writeInt32(2)
+        errorCurrencyWriter.writeString("en_US")
+        let errorCurrencyPacket = try GatewayWorldCodec.decodeAny(errorCurrencyWriter.data)
+        guard case .storeCurrencyCodes(let errorCurrencies) = errorCurrencyPacket else {
+            return XCTFail("Expected currency error, got \(errorCurrencyPacket)")
+        }
+        XCTAssertTrue(errorCurrencies.currencies.isEmpty)
+
+        var stateWriter = PacketWriter()
+        writeHeader(19, to: &stateWriter)
+        stateWriter.writeInt32(1)
+        stateWriter.writeInt32(1)
+        stateWriter.writeString("CA")
+        stateWriter.writeString("California")
+        let statePacket = try GatewayWorldCodec.decodeAny(stateWriter.data)
+        guard case .storeStateCodes(let states) = statePacket else {
+            return XCTFail("Expected state codes, got \(statePacket)")
+        }
+        XCTAssertEqual(states.states.first?.name, "California")
+
+        var countryWriter = PacketWriter()
+        writeHeader(21, to: &countryWriter)
+        countryWriter.writeInt32(1)
+        countryWriter.writeString("en_US")
+        countryWriter.writeInt32(1)
+        countryWriter.writeString("US")
+        countryWriter.writeString("en")
+        countryWriter.writeString("en_US")
+        countryWriter.writeString("United States")
+        let countryPacket = try GatewayWorldCodec.decodeAny(countryWriter.data)
+        guard case .storeCountryCodes(let countries) = countryPacket else {
+            return XCTFail("Expected country codes, got \(countryPacket)")
+        }
+        XCTAssertEqual(countries.countries.first?.code, "US")
+        XCTAssertEqual(countries.countries.first?.name, "United States")
+
+        var accountWriter = PacketWriter()
+        writeHeader(26, to: &accountWriter)
+        accountWriter.writeInt32(1)
+        accountWriter.writeString("US")
+        accountWriter.writeString("USD")
+        accountWriter.writeBool(true)
+        let accountPacket = try GatewayWorldCodec.decodeAny(accountWriter.data)
+        guard case .storeAccountInfo(let account) = accountPacket else {
+            return XCTFail("Expected store account info, got \(accountPacket)")
+        }
+        XCTAssertEqual(account.defaultCountryCode, "US")
+        XCTAssertTrue(account.isParentalPasswordEnabled)
+
+        var contentWriter = PacketWriter()
+        writeHeader(28, to: &contentWriter)
+        contentWriter.writeInt32(2)
+        contentWriter.writeInt32(7)
+        contentWriter.writeInt32(101)
+        contentWriter.writeInt32(7)
+        contentWriter.writeInt32(102)
+        let contentPacket = try GatewayWorldCodec.decodeAny(contentWriter.data)
+        guard case .storeBundleContent(let content) = contentPacket else {
+            return XCTFail("Expected store bundle content, got \(contentPacket)")
+        }
+        XCTAssertEqual(content.responses.map(\.bundleID), [101, 102])
+
+        var requirementsWriter = PacketWriter()
+        writeHeader(39, to: &requirementsWriter)
+        requirementsWriter.writeInt32(2)
+        requirementsWriter.writeInt32(101)
+        requirementsWriter.writeBool(true)
+        requirementsWriter.writeInt32(102)
+        requirementsWriter.writeBool(false)
+        let requirementsPacket = try GatewayWorldCodec.decodeAny(requirementsWriter.data)
+        guard case .storeItemRequirements(let requirements) = requirementsPacket else {
+            return XCTFail("Expected store item requirements, got \(requirementsPacket)")
+        }
+        XCTAssertEqual(requirements.itemRequirements.map(\.canPurchase), [true, false])
+
+        var observation = GatewayWorldObservation.empty
+        for packet in [
+            previewPacket,
+            placePacket,
+            errorCurrencyPacket,
+            currencyPacket,
+            statePacket,
+            countryPacket,
+            accountPacket,
+            contentPacket,
+            requirementsPacket
+        ] {
+            observation.apply(packet)
+        }
+        XCTAssertEqual(observation.storePreviewOrder?.total, 880)
+        XCTAssertEqual(observation.storePlaceOrder?.orderID, "order-92")
+        XCTAssertEqual(observation.storeCurrencyCodes?[840]?.name, "US Dollar")
+        XCTAssertEqual(observation.storeStateCodes?.first?.code, "CA")
+        XCTAssertEqual(observation.storeCountryCodes?.first?.language, "en")
+        XCTAssertEqual(observation.storeAccountInfo?.defaultCurrencyCode, "USD")
+        XCTAssertEqual(observation.storeBundleContentResponses?.count, 2)
+        XCTAssertEqual(observation.storeItemRequirements?.count, 2)
+        XCTAssertTrue(observation.positions.isEmpty)
+
+        var badCount = PacketWriter()
+        writeHeader(39, to: &badCount)
+        badCount.writeInt32(-1)
+        XCTAssertThrowsError(try GatewayWorldCodec.decodeAny(badCount.data))
+
+        var badCurrencyCount = PacketWriter()
+        writeHeader(17, to: &badCurrencyCount)
+        badCurrencyCount.writeInt32(1)
+        badCurrencyCount.writeString("en_US")
+        badCurrencyCount.writeInt32(65_537)
+        XCTAssertThrowsError(try GatewayWorldCodec.decodeAny(badCurrencyCount.data))
+    }
 }

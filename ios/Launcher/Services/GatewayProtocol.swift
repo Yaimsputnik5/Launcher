@@ -2357,6 +2357,14 @@ enum GatewayWorldPacket: Equatable {
     case storeWalletInfo(GatewayStoreWalletInfoResponse)
     case subscriptionProducts(GatewaySubscriptionProductsResponse)
     case saleDisplayUpdate(GatewaySaleDisplayUpdate)
+    case storePreviewOrder(GatewayStorePreviewOrderResponse)
+    case storePlaceOrder(GatewayStorePlaceOrderResponse)
+    case storeCurrencyCodes(GatewayCurrencyCodesResponse)
+    case storeStateCodes(GatewayStateCodesResponse)
+    case storeCountryCodes(GatewayCountryCodesResponse)
+    case storeAccountInfo(GatewayStoreAccountInfoResponse)
+    case storeBundleContent(GatewayStoreBundleContentResponse)
+    case storeItemRequirements(GatewayStoreItemRequirementsReply)
     case objectiveTargetUpdate(GatewayObjectiveTargetUpdate)
     case objectiveClientClear(GatewayObjectiveClientClear)
     case clientArea(GatewayClientAreaUpdate)
@@ -2605,6 +2613,22 @@ enum GatewayWorldCodec {
                 return .subscriptionProducts(try GatewaySubscriptionProductsResponse(data: data))
             case GatewaySaleDisplayUpdate.subOpcode:
                 return .saleDisplayUpdate(try GatewaySaleDisplayUpdate(data: data))
+            case GatewayStorePreviewOrderResponse.subOpcode:
+                return .storePreviewOrder(try GatewayStorePreviewOrderResponse(data: data))
+            case GatewayStorePlaceOrderResponse.subOpcode:
+                return .storePlaceOrder(try GatewayStorePlaceOrderResponse(data: data))
+            case GatewayCurrencyCodesResponse.subOpcode:
+                return .storeCurrencyCodes(try GatewayCurrencyCodesResponse(data: data))
+            case GatewayStateCodesResponse.subOpcode:
+                return .storeStateCodes(try GatewayStateCodesResponse(data: data))
+            case GatewayCountryCodesResponse.subOpcode:
+                return .storeCountryCodes(try GatewayCountryCodesResponse(data: data))
+            case GatewayStoreAccountInfoResponse.subOpcode:
+                return .storeAccountInfo(try GatewayStoreAccountInfoResponse(data: data))
+            case GatewayStoreBundleContentResponse.subOpcode:
+                return .storeBundleContent(try GatewayStoreBundleContentResponse(data: data))
+            case GatewayStoreItemRequirementsReply.subOpcode:
+                return .storeItemRequirements(try GatewayStoreItemRequirementsReply(data: data))
             default:
                 return Self.mappedOrUnknown(opcode: opcode, data: data)
             }
@@ -2776,6 +2800,14 @@ struct GatewayWorldObservation: Equatable, Sendable {
     var storeWalletInfo: GatewayStoreWalletInfo?
     var subscriptionProducts: GatewaySubscriptionProductsResponse?
     var saleDisplays: [GatewaySaleDisplayInfo]?
+    var storePreviewOrder: GatewayStorePreviewOrderResponse?
+    var storePlaceOrder: GatewayStorePlaceOrderResponse?
+    var storeCurrencyCodes: [UInt32: GatewayCurrencyCode]?
+    var storeStateCodes: [GatewayStateCode]?
+    var storeCountryCodes: [GatewayCountryCode]?
+    var storeAccountInfo: GatewayStoreAccountInfoResponse?
+    var storeBundleContentResponses: [GatewayStoreBundleContentResponseItem]?
+    var storeItemRequirements: [GatewayStoreItemRequirementUpdate]?
     var objectiveTargetUpdate: GatewayObjectiveTargetUpdate?
     var lastClearedObjectiveUnknown: Int32?
     /// Packet-backed only: set by `PacketSetClientArea` / `PacketMOTD`.
@@ -3227,6 +3259,30 @@ struct GatewayWorldObservation: Equatable, Sendable {
         case .saleDisplayUpdate(let update):
             saleDisplays = update.sales
             lastEvent = "Sale display · \(update.sales.count) entries"
+        case .storePreviewOrder(let order):
+            storePreviewOrder = order
+            lastEvent = "Store preview order · \(order.orderTrackingID) · \(order.result)"
+        case .storePlaceOrder(let order):
+            storePlaceOrder = order
+            lastEvent = "Store place order · \(order.orderTrackingID) · \(order.result)"
+        case .storeCurrencyCodes(let codes):
+            storeCurrencyCodes = codes.currencies
+            lastEvent = "Currency codes · error \(codes.errorCode) · \(codes.currencies.count)"
+        case .storeStateCodes(let codes):
+            storeStateCodes = codes.states
+            lastEvent = "State codes · error \(codes.errorCode) · \(codes.states.count)"
+        case .storeCountryCodes(let codes):
+            storeCountryCodes = codes.countries
+            lastEvent = "Country codes · error \(codes.errorCode) · \(codes.countries.count)"
+        case .storeAccountInfo(let info):
+            storeAccountInfo = info
+            lastEvent = "Store account · error \(info.errorCode) · \(info.defaultCountryCode)"
+        case .storeBundleContent(let content):
+            storeBundleContentResponses = content.responses
+            lastEvent = "Store bundle content · \(content.responses.count) responses"
+        case .storeItemRequirements(let requirements):
+            storeItemRequirements = requirements.itemRequirements
+            lastEvent = "Store item requirements · \(requirements.itemRequirements.count) entries"
         case .objectiveTargetUpdate(let update):
             objectiveTargetUpdate = update
             lastEvent = "Objective target · active \(update.active)"

@@ -2207,3 +2207,328 @@ struct GatewaySaleDisplayUpdate: Equatable, Sendable {
         guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
     }
 }
+
+// MARK: - Additional commerce responses (66)
+
+/// `PacketInGamePurchasePreviewOrderResponse` (66/2). All four fields are Int32.
+struct GatewayStorePreviewOrderResponse: Equatable, Sendable {
+    static let opcode: Int16 = 66
+    static let subOpcode: Int16 = 2
+
+    let orderTrackingID: Int32
+    let result: Int32
+    let discount: Int32
+    let total: Int32
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try GatewayWire.readInt16(&reader)
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        orderTrackingID = try reader.readInt32()
+        result = try reader.readInt32()
+        discount = try reader.readInt32()
+        total = try reader.readInt32()
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `PacketInGamePurchasePlaceOrderResponse` (66/4). C# casts the enum result
+/// to `int`, so the wire field is decoded as an Int32 rather than guessing the
+/// enum's semantics.
+struct GatewayStorePlaceOrderResponse: Equatable, Sendable {
+    static let opcode: Int16 = 66
+    static let subOpcode: Int16 = 4
+
+    let orderTrackingID: Int32
+    let result: Int32
+    let orderID: String
+    let discount: Int32
+    let total: Int32
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try GatewayWire.readInt16(&reader)
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        orderTrackingID = try reader.readInt32()
+        result = try reader.readInt32()
+        orderID = try reader.readString()
+        discount = try reader.readInt32()
+        total = try reader.readInt32()
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `CurrencyCodeData.Serialize`.
+struct GatewayCurrencyCode: Equatable, Sendable {
+    let code: String
+    let symbol: String
+    let separator: String
+    let name: String
+    let minorUnit: Int32
+    let decimals: Int32
+    let unknown: Bool
+
+    init(reader: inout PacketReader) throws {
+        code = try reader.readString()
+        symbol = try reader.readString()
+        separator = try reader.readString()
+        name = try reader.readString()
+        minorUnit = try reader.readInt32()
+        decimals = try reader.readInt32()
+        unknown = try reader.readBool()
+    }
+}
+
+/// `PacketInGamePurchaseCurrencyCodesResponse` (66/17). The dictionary is
+/// written only when `ErrorCode == 1`; its UInt32 key is written raw by C#.
+struct GatewayCurrencyCodesResponse: Equatable, Sendable {
+    static let opcode: Int16 = 66
+    static let subOpcode: Int16 = 17
+
+    let errorCode: Int32
+    let locale: String
+    let currencies: [UInt32: GatewayCurrencyCode]
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try GatewayWire.readInt16(&reader)
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        errorCode = try reader.readInt32()
+        locale = try reader.readString()
+        if errorCode == 1 {
+            let count = try GatewayStoreCodec.readCount(&reader, "currency codes")
+            var decoded: [UInt32: GatewayCurrencyCode] = [:]
+            decoded.reserveCapacity(count)
+            for _ in 0..<count {
+                let key = try reader.readUInt32()
+                decoded[key] = try GatewayCurrencyCode(reader: &reader)
+            }
+            currencies = decoded
+        } else {
+            currencies = [:]
+        }
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `StateCode.Serialize`.
+struct GatewayStateCode: Equatable, Sendable {
+    let code: String
+    let name: String
+
+    init(reader: inout PacketReader) throws {
+        code = try reader.readString()
+        name = try reader.readString()
+    }
+}
+
+/// `PacketInGamePurchaseStateCodesResponse` (66/19). Unlike the other code
+/// responses, C# does not write a locale before the conditional list.
+struct GatewayStateCodesResponse: Equatable, Sendable {
+    static let opcode: Int16 = 66
+    static let subOpcode: Int16 = 19
+
+    let errorCode: Int32
+    let states: [GatewayStateCode]
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try GatewayWire.readInt16(&reader)
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        errorCode = try reader.readInt32()
+        if errorCode == 1 {
+            let count = try GatewayStoreCodec.readCount(&reader, "state codes")
+            var decoded: [GatewayStateCode] = []
+            decoded.reserveCapacity(count)
+            for _ in 0..<count {
+                decoded.append(try GatewayStateCode(reader: &reader))
+            }
+            states = decoded
+        } else {
+            states = []
+        }
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `CountryCode.Serialize`.
+struct GatewayCountryCode: Equatable, Sendable {
+    let code: String
+    let language: String
+    let locale: String
+    let name: String
+
+    init(reader: inout PacketReader) throws {
+        code = try reader.readString()
+        language = try reader.readString()
+        locale = try reader.readString()
+        name = try reader.readString()
+    }
+}
+
+/// `PacketInGamePurchaseCountryCodesResponse` (66/21). The list is written
+/// only when `ErrorCode == 1`.
+struct GatewayCountryCodesResponse: Equatable, Sendable {
+    static let opcode: Int16 = 66
+    static let subOpcode: Int16 = 21
+
+    let errorCode: Int32
+    let locale: String
+    let countries: [GatewayCountryCode]
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try GatewayWire.readInt16(&reader)
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        errorCode = try reader.readInt32()
+        locale = try reader.readString()
+        if errorCode == 1 {
+            let count = try GatewayStoreCodec.readCount(&reader, "country codes")
+            var decoded: [GatewayCountryCode] = []
+            decoded.reserveCapacity(count)
+            for _ in 0..<count {
+                decoded.append(try GatewayCountryCode(reader: &reader))
+            }
+            countries = decoded
+        } else {
+            countries = []
+        }
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `PacketInGamePurchaseAccountInfoResponse` (66/26).
+struct GatewayStoreAccountInfoResponse: Equatable, Sendable {
+    static let opcode: Int16 = 66
+    static let subOpcode: Int16 = 26
+
+    let errorCode: Int32
+    let defaultCountryCode: String
+    let defaultCurrencyCode: String
+    let isParentalPasswordEnabled: Bool
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try GatewayWire.readInt16(&reader)
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        errorCode = try reader.readInt32()
+        defaultCountryCode = try reader.readString()
+        defaultCurrencyCode = try reader.readString()
+        isParentalPasswordEnabled = try reader.readBool()
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `PacketInGamePurchaseStoreBundleContentResponse.ResponseData.Serialize`.
+struct GatewayStoreBundleContentResponseItem: Equatable, Sendable {
+    let storeID: Int32
+    let bundleID: Int32
+
+    init(reader: inout PacketReader) throws {
+        storeID = try reader.readInt32()
+        bundleID = try reader.readInt32()
+    }
+}
+
+/// `PacketInGamePurchaseStoreBundleContentResponse` (66/28).
+struct GatewayStoreBundleContentResponse: Equatable, Sendable {
+    static let opcode: Int16 = 66
+    static let subOpcode: Int16 = 28
+
+    let responses: [GatewayStoreBundleContentResponseItem]
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try GatewayWire.readInt16(&reader)
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        let count = try GatewayStoreCodec.readCount(&reader, "store bundle content responses")
+        var decoded: [GatewayStoreBundleContentResponseItem] = []
+        decoded.reserveCapacity(count)
+        for _ in 0..<count {
+            decoded.append(try GatewayStoreBundleContentResponseItem(reader: &reader))
+        }
+        responses = decoded
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `InGamePurchaseUpdateItemRequirementsReply.UpdateData.Serialize`.
+struct GatewayStoreItemRequirementUpdate: Equatable, Sendable {
+    let bundleID: Int32
+    let canPurchase: Bool
+
+    init(reader: inout PacketReader) throws {
+        bundleID = try reader.readInt32()
+        canPurchase = try reader.readBool()
+    }
+}
+
+/// `InGamePurchaseUpdateItemRequirementsReply` (66/39).
+struct GatewayStoreItemRequirementsReply: Equatable, Sendable {
+    static let opcode: Int16 = 66
+    static let subOpcode: Int16 = 39
+
+    let itemRequirements: [GatewayStoreItemRequirementUpdate]
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try GatewayWire.readInt16(&reader)
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        let count = try GatewayStoreCodec.readCount(&reader, "store item requirements")
+        var decoded: [GatewayStoreItemRequirementUpdate] = []
+        decoded.reserveCapacity(count)
+        for _ in 0..<count {
+            decoded.append(try GatewayStoreItemRequirementUpdate(reader: &reader))
+        }
+        itemRequirements = decoded
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
