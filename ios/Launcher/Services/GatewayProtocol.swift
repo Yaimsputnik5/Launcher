@@ -2112,7 +2112,7 @@ struct GatewayScaleUpdate: Equatable {
 }
 
 /// `Sanctuary.Packet.Common.NameData`: three Int32 name ids then two strings.
-struct GatewayName: Equatable {
+struct GatewayName: Equatable, Sendable {
     var firstNameID: Int32
     var lastNamePrefixID: Int32
     var lastNameSuffixID: Int32
@@ -2365,6 +2365,8 @@ enum GatewayWorldPacket: Equatable {
     case storeAccountInfo(GatewayStoreAccountInfoResponse)
     case storeBundleContent(GatewayStoreBundleContentResponse)
     case storeItemRequirements(GatewayStoreItemRequirementsReply)
+    case zoneBroadcast(GatewayZoneBroadcast)
+    case housingZoneData(GatewayHousingZoneData)
     case objectiveTargetUpdate(GatewayObjectiveTargetUpdate)
     case objectiveClientClear(GatewayObjectiveClientClear)
     case clientArea(GatewayClientAreaUpdate)
@@ -2592,6 +2594,22 @@ enum GatewayWorldCodec {
             return sub == GatewayOverworldCombat.subOpcode
                 ? .overworldCombat(try GatewayOverworldCombat(data: data))
                 : Self.mappedOrUnknown(opcode: opcode, data: data)
+        case GatewayZoneBroadcast.opcode:
+            let sub = try GatewayWire.readInt16(&reader)
+            switch sub {
+            case GatewayZoneBroadcast.subOpcode:
+                return .zoneBroadcast(try GatewayZoneBroadcast(data: data))
+            default:
+                return Self.mappedOrUnknown(opcode: opcode, data: data)
+            }
+        case GatewayHousingZoneData.opcode:
+            let sub = try GatewayWire.readInt16(&reader)
+            switch sub {
+            case GatewayHousingZoneData.subOpcode:
+                return .housingZoneData(try GatewayHousingZoneData(data: data))
+            default:
+                return Self.mappedOrUnknown(opcode: opcode, data: data)
+            }
         case GatewayInGamePurchasePaymentSources.opcode:
             let sub = try GatewayWire.readInt16(&reader)
             switch sub {
@@ -2808,6 +2826,8 @@ struct GatewayWorldObservation: Equatable, Sendable {
     var storeAccountInfo: GatewayStoreAccountInfoResponse?
     var storeBundleContentResponses: [GatewayStoreBundleContentResponseItem]?
     var storeItemRequirements: [GatewayStoreItemRequirementUpdate]?
+    var lastZoneBroadcast: GatewayZoneBroadcast?
+    var housingZoneData: GatewayHousingZoneData?
     var objectiveTargetUpdate: GatewayObjectiveTargetUpdate?
     var lastClearedObjectiveUnknown: Int32?
     /// Packet-backed only: set by `PacketSetClientArea` / `PacketMOTD`.
@@ -3283,6 +3303,12 @@ struct GatewayWorldObservation: Equatable, Sendable {
         case .storeItemRequirements(let requirements):
             storeItemRequirements = requirements.itemRequirements
             lastEvent = "Store item requirements · \(requirements.itemRequirements.count) entries"
+        case .zoneBroadcast(let broadcast):
+            lastZoneBroadcast = broadcast
+            lastEvent = "Zone broadcast · \(broadcast.messageID)"
+        case .housingZoneData(let zone):
+            housingZoneData = zone
+            lastEvent = "Housing zone · fixture \(zone.instanceInfo.fixtureCount)"
         case .objectiveTargetUpdate(let update):
             objectiveTargetUpdate = update
             lastEvent = "Objective target · active \(update.active)"

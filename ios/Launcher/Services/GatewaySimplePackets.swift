@@ -2532,3 +2532,111 @@ struct GatewayStoreItemRequirementsReply: Equatable, Sendable {
         guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
     }
 }
+
+// MARK: - Server broadcast and housing zone data
+
+/// `BaseBroadcastPacket` (77) / `BroadcastPacketZone` (2). `NameData` is the
+/// verified three-Int32-id/two-string codec shared with chat packets.
+struct GatewayZoneBroadcast: Equatable, Sendable {
+    static let opcode: Int16 = 77
+    static let subOpcode: Int16 = 2
+
+    let name: GatewayName
+    let message: String
+    let messageID: Int32
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try GatewayWire.readInt16(&reader)
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        name = try GatewayName(reader: &reader)
+        message = try reader.readString()
+        messageID = try reader.readInt32()
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `PlayerHousingInstanceInfo.Serialize`. C# writes `HouseName` before
+/// `OwnerName` despite their declaration order, and writes each
+/// `DateTimeOffset` as Int64 seconds since the Unix epoch.
+struct GatewayPlayerHousingInstanceInfo: Equatable, Sendable {
+    let ownerGUID: UInt64
+    let instanceGUID: UInt64
+    let nameID: Int32
+    let houseName: String
+    let ownerName: String
+    let iconID: Int32
+    let fixtureCount: Int32
+    let furnitureScore: Int32
+    let lastVisitedSeconds: Int64
+    let isLocked: Bool
+    let isMembersOnly: Bool
+    let isFloraAllowed: Bool
+    let description: String
+    let keywordList: String
+    let unknown21: String
+    let rating: Float
+    let votes: Int32
+    let hasRating: Bool
+    let canVote: Bool
+    let factoryPlotID: Int32
+    let whenCreatedSeconds: Int64
+
+    init(reader: inout PacketReader) throws {
+        ownerGUID = try reader.readUInt64()
+        instanceGUID = try reader.readUInt64()
+        nameID = try reader.readInt32()
+        houseName = try reader.readString()
+        ownerName = try reader.readString()
+        iconID = try reader.readInt32()
+        fixtureCount = try reader.readInt32()
+        furnitureScore = try reader.readInt32()
+        lastVisitedSeconds = try reader.readInt64()
+        isLocked = try reader.readBool()
+        isMembersOnly = try reader.readBool()
+        isFloraAllowed = try reader.readBool()
+        description = try reader.readString()
+        keywordList = try reader.readString()
+        unknown21 = try reader.readString()
+        rating = try reader.readFloat()
+        votes = try reader.readInt32()
+        hasRating = try reader.readBool()
+        canVote = try reader.readBool()
+        factoryPlotID = try reader.readInt32()
+        whenCreatedSeconds = try reader.readInt64()
+    }
+}
+
+/// `BaseHousingPacket` (127) / `HousingPacketZoneData` (45).
+struct GatewayHousingZoneData: Equatable, Sendable {
+    static let opcode: Int16 = 127
+    static let subOpcode: Int16 = 45
+
+    let isPreview: Bool
+    let unused: Bool
+    let headSize: Int32
+    let instanceInfo: GatewayPlayerHousingInstanceInfo
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try GatewayWire.readInt16(&reader)
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        isPreview = try reader.readBool()
+        unused = try reader.readBool()
+        headSize = try reader.readInt32()
+        instanceInfo = try GatewayPlayerHousingInstanceInfo(reader: &reader)
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}

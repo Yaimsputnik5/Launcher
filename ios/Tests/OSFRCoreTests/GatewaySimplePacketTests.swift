@@ -1617,4 +1617,83 @@ final class GatewaySimplePacketTests: XCTestCase {
         badCurrencyCount.writeInt32(65_537)
         XCTAssertThrowsError(try GatewayWorldCodec.decodeAny(badCurrencyCount.data))
     }
+
+    func testServerBroadcastAndHousingZoneDataUseExactCSharpFieldOrder() throws {
+        var broadcastWriter = PacketWriter()
+        GatewayWire.appendInt16(GatewayZoneBroadcast.opcode, to: &broadcastWriter.data)
+        GatewayWire.appendInt16(GatewayZoneBroadcast.subOpcode, to: &broadcastWriter.data)
+        let name = GatewayName(
+            firstNameID: 1,
+            lastNamePrefixID: 2,
+            lastNameSuffixID: 3,
+            firstName: "Ava",
+            lastName: "Zephyr"
+        )
+        name.append(to: &broadcastWriter)
+        broadcastWriter.writeString("Welcome to the zone")
+        broadcastWriter.writeInt32(314)
+        let broadcastPacket = try GatewayWorldCodec.decodeAny(broadcastWriter.data)
+        guard case .zoneBroadcast(let broadcast) = broadcastPacket else {
+            return XCTFail("Expected zone broadcast, got \(broadcastPacket)")
+        }
+        XCTAssertEqual(broadcast.name.firstName, "Ava")
+        XCTAssertEqual(broadcast.message, "Welcome to the zone")
+        XCTAssertEqual(broadcast.messageID, 314)
+
+        var housingWriter = PacketWriter()
+        GatewayWire.appendInt16(GatewayHousingZoneData.opcode, to: &housingWriter.data)
+        GatewayWire.appendInt16(GatewayHousingZoneData.subOpcode, to: &housingWriter.data)
+        housingWriter.writeBool(true)
+        housingWriter.writeBool(false)
+        housingWriter.writeInt32(42)
+        housingWriter.writeUInt64(0x1000)
+        housingWriter.writeUInt64(0x2000)
+        housingWriter.writeInt32(700)
+        housingWriter.writeString("My House")
+        housingWriter.writeString("Owner")
+        housingWriter.writeInt32(11)
+        housingWriter.writeInt32(12)
+        housingWriter.writeInt32(13)
+        housingWriter.writeInt64(1_700_000_000)
+        housingWriter.writeBool(true)
+        housingWriter.writeBool(false)
+        housingWriter.writeBool(true)
+        housingWriter.writeString("Description")
+        housingWriter.writeString("keyword")
+        housingWriter.writeString("unknown")
+        housingWriter.writeFloat(4.5)
+        housingWriter.writeInt32(9)
+        housingWriter.writeBool(true)
+        housingWriter.writeBool(false)
+        housingWriter.writeInt32(77)
+        housingWriter.writeInt64(1_600_000_000)
+        let housingPacket = try GatewayWorldCodec.decodeAny(housingWriter.data)
+        guard case .housingZoneData(let zone) = housingPacket else {
+            return XCTFail("Expected housing zone data, got \(housingPacket)")
+        }
+        XCTAssertTrue(zone.isPreview)
+        XCTAssertEqual(zone.headSize, 42)
+        XCTAssertEqual(zone.instanceInfo.ownerGUID, 0x1000)
+        XCTAssertEqual(zone.instanceInfo.houseName, "My House")
+        XCTAssertEqual(zone.instanceInfo.ownerName, "Owner")
+        XCTAssertEqual(zone.instanceInfo.lastVisitedSeconds, 1_700_000_000)
+        XCTAssertEqual(zone.instanceInfo.rating, 4.5)
+        XCTAssertEqual(zone.instanceInfo.whenCreatedSeconds, 1_600_000_000)
+
+        var observation = GatewayWorldObservation.empty
+        observation.apply(broadcastPacket)
+        observation.apply(housingPacket)
+        XCTAssertEqual(observation.lastZoneBroadcast?.name.lastName, "Zephyr")
+        XCTAssertEqual(observation.housingZoneData?.instanceInfo.furnitureScore, 13)
+        XCTAssertTrue(observation.positions.isEmpty)
+
+        var wrongSub = PacketWriter()
+        GatewayWire.appendInt16(GatewayHousingZoneData.opcode, to: &wrongSub.data)
+        GatewayWire.appendInt16(44, to: &wrongSub.data)
+        wrongSub.writeBool(false)
+        let fallback = try GatewayWorldCodec.decodeAny(wrongSub.data)
+        guard case .mapped = fallback else {
+            return XCTFail("Expected raw-preserving mapped fallback, got \(fallback)")
+        }
+    }
 }

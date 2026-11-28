@@ -180,8 +180,9 @@ these source changes. The newer source work is documented in
 `sanctuary-audit/21-trade-packet-codecs.md`,
 `sanctuary-audit/22-store-bundle-codec.md`,
 `sanctuary-audit/23-additional-store-catalog-codecs.md`,
-`sanctuary-audit/24-client-starting-zone-loader-rtti.md` and
-`sanctuary-audit/25-additional-commerce-response-codecs.md`; none of those notes claims full
+`sanctuary-audit/24-client-starting-zone-loader-rtti.md`,
+`sanctuary-audit/25-additional-commerce-response-codecs.md` and
+`sanctuary-audit/26-broadcast-and-housing-zone-codecs.md`; none of those notes claims full
 compiled-client or Lua/gameplay parity. Note 18 records an
 Xcode project omission that would have broken a build of the newer source, and
 the subsequent correction of a 25-packet batch: seven packets whose C#
@@ -207,8 +208,10 @@ list. Note 24 verifies `ClientStartingZoneLoader` RTTI inheritance from
 leaving the runtime dispatch site and row consumer unresolved. Note 25 adds
 exact decoders for 66/2 preview orders, 66/4 place orders, 66/17 currency codes,
 66/19 state codes, 66/21 country codes, 66/26 account info, 66/28 bundle
-content responses, and 66/39 item requirement updates; all still-unresolved
-store sub-opcodes retain raw bytes.
+content responses, and 66/39 item requirement updates. Note 26 adds 77/2 zone
+broadcasts and 127/45 housing zone data with the verified nested
+`PlayerHousingInstanceInfo` layout; all still-unresolved store sub-opcodes
+retain raw bytes.
 
 Bundled resources now use validated relative components appended directly to
 the trusted `Bundle.main` root; there is no path-string prefix comparison and
