@@ -1752,9 +1752,37 @@ final class GatewaySimplePacketTests: XCTestCase {
         XCTAssertEqual(observation.housingZoneData?.instanceInfo.furnitureScore, 13)
         XCTAssertTrue(observation.positions.isEmpty)
 
+        var houseInfoWriter = PacketWriter()
+        GatewayWire.appendInt16(GatewayHousingUpdateHouseInfo.opcode, to: &houseInfoWriter.data)
+        GatewayWire.appendInt16(GatewayHousingUpdateHouseInfo.subOpcode, to: &houseInfoWriter.data)
+        houseInfoWriter.writeBool(true)
+        houseInfoWriter.writeInt32(99)
+        houseInfoWriter.writeBool(false)
+        houseInfoWriter.writeBool(true)
+        houseInfoWriter.writeBool(false)
+        houseInfoWriter.writeInt32(4)
+        houseInfoWriter.writeInt32(5)
+        houseInfoWriter.writeInt32(6)
+        let houseInfoPacket = try GatewayWorldCodec.decodeAny(houseInfoWriter.data)
+        guard case .housingUpdateHouseInfo(let info) = houseInfoPacket else {
+            return XCTFail("Expected housing update, got \(houseInfoPacket)")
+        }
+        XCTAssertTrue(info.inEditMode)
+        XCTAssertEqual(info.unused, 99)
+        XCTAssertFalse(info.isLocked)
+        XCTAssertTrue(info.isFloraAllowed)
+        XCTAssertFalse(info.petAutospawn)
+        XCTAssertEqual(info.curFixtureCount, 4)
+        XCTAssertEqual(info.curLandmarkCount, 5)
+        XCTAssertEqual(info.furnitureScore, 6)
+
+        var observationWithHouseInfo = GatewayWorldObservation.empty
+        observationWithHouseInfo.apply(houseInfoPacket)
+        XCTAssertEqual(observationWithHouseInfo.lastHousingUpdateHouseInfo?.furnitureScore, 6)
+
         var wrongSub = PacketWriter()
         GatewayWire.appendInt16(GatewayHousingZoneData.opcode, to: &wrongSub.data)
-        GatewayWire.appendInt16(44, to: &wrongSub.data)
+        GatewayWire.appendInt16(43, to: &wrongSub.data)
         wrongSub.writeBool(false)
         let fallback = try GatewayWorldCodec.decodeAny(wrongSub.data)
         guard case .mapped = fallback else {
@@ -1910,5 +1938,446 @@ final class GatewaySimplePacketTests: XCTestCase {
         XCTAssertEqual(observation.lastStartInspect?.payload, inspectBytes)
         XCTAssertEqual(observation.lastPlayerTitleUpdateAll?.payload, titleBytes)
         XCTAssertNil(observation.lastExecuteScript)
+    }
+
+    private func writeHeader(_ opcode: Int16, _ subOpcode: Int16, to writer: inout PacketWriter) {
+        GatewayWire.appendInt16(opcode, to: &writer.data)
+        GatewayWire.appendInt16(subOpcode, to: &writer.data)
+    }
+
+    private func writeByteHeader(_ opcode: Int16, _ subOpcode: UInt8, to writer: inout PacketWriter) {
+        GatewayWire.appendInt16(opcode, to: &writer.data)
+        writer.writeUInt8(subOpcode)
+    }
+
+    private func writeIntHeader(_ opcode: Int16, _ subOpcode: Int32, to writer: inout PacketWriter) {
+        GatewayWire.appendInt16(opcode, to: &writer.data)
+        writer.writeInt32(subOpcode)
+    }
+
+    private func makeName(_ first: String, _ last: String) -> GatewayName {
+        GatewayName(
+            firstNameID: 1,
+            lastNamePrefixID: 2,
+            lastNameSuffixID: 3,
+            firstName: first,
+            lastName: last
+        )
+    }
+
+    func testSourceVerifiedChatCommandPlayerAndCollectionReplies() throws {
+        var debugChatWriter = PacketWriter()
+        writeHeader(GatewayDebugChat.opcode, GatewayDebugChat.subOpcode, to: &debugChatWriter)
+        debugChatWriter.writeString("debug line")
+        debugChatWriter.writeBool(true)
+        let debugChatPacket = try GatewayWorldCodec.decodeAny(debugChatWriter.data)
+        guard case .debugChat(let debugChat) = debugChatPacket else {
+            return XCTFail("Expected debug chat, got \(debugChatPacket)")
+        }
+        XCTAssertEqual(debugChat.message, "debug line")
+        XCTAssertTrue(debugChat.printToChat)
+
+        var tellWriter = PacketWriter()
+        writeHeader(GatewayTellEcho.opcode, GatewayTellEcho.subOpcode, to: &tellWriter)
+        makeName("Ava", "Zephyr").append(to: &tellWriter)
+        tellWriter.writeString("hello back")
+        let tellPacket = try GatewayWorldCodec.decodeAny(tellWriter.data)
+        guard case .tellEcho(let tell) = tellPacket else {
+            return XCTFail("Expected tell echo, got \(tellPacket)")
+        }
+        XCTAssertEqual(tell.name.lastName, "Zephyr")
+        XCTAssertEqual(tell.message, "hello back")
+
+        var endDialogWriter = PacketWriter()
+        writeHeader(GatewayEndDialog.opcode, GatewayEndDialog.subOpcode, to: &endDialogWriter)
+        let endDialogPacket = try GatewayWorldCodec.decodeAny(endDialogWriter.data)
+        guard case .endDialog = endDialogPacket else {
+            return XCTFail("Expected end dialog, got \(endDialogPacket)")
+        }
+
+        var friendRequestWriter = PacketWriter()
+        writeHeader(GatewayConfirmFriendRequest.opcode, GatewayConfirmFriendRequest.subOpcode, to: &friendRequestWriter)
+        friendRequestWriter.writeUInt64(0xA1)
+        makeName("Bo", "River").append(to: &friendRequestWriter)
+        friendRequestWriter.writeBool(false)
+        let friendRequestPacket = try GatewayWorldCodec.decodeAny(friendRequestWriter.data)
+        guard case .confirmFriendRequest(let friendRequest) = friendRequestPacket else {
+            return XCTFail("Expected friend request confirmation, got \(friendRequestPacket)")
+        }
+        XCTAssertEqual(friendRequest.guid, 0xA1)
+        XCTAssertEqual(friendRequest.name.firstName, "Bo")
+        XCTAssertFalse(friendRequest.unknown)
+
+        var effectWriter = PacketWriter()
+        writeHeader(GatewayPlayCompositeEffect.opcode, GatewayPlayCompositeEffect.subOpcode, to: &effectWriter)
+        effectWriter.writeUInt64(0xB1)
+        effectWriter.writeUInt64(0xB2)
+        effectWriter.writeInt32(77)
+        effectWriter.writeInt32(88)
+        effectWriter.writeInt32(99)
+        effectWriter.writeFloat(1.5)
+        effectWriter.writeFloat(2.5)
+        effectWriter.writeFloat(3.5)
+        effectWriter.writeFloat(4.5)
+        effectWriter.writeBool(true)
+        let effectPacket = try GatewayWorldCodec.decodeAny(effectWriter.data)
+        guard case .playCompositeEffect(let effect) = effectPacket else {
+            return XCTFail("Expected composite effect, got \(effectPacket)")
+        }
+        XCTAssertEqual(effect.guid, 0xB1)
+        XCTAssertEqual(effect.unknown2, 0xB2)
+        XCTAssertEqual(effect.compositeEffectID, 77)
+        XCTAssertEqual(effect.positionW, 4.5)
+        XCTAssertTrue(effect.clear)
+
+        var renameWriter = PacketWriter()
+        writeHeader(GatewayPlayerRename.opcode, GatewayPlayerRename.subOpcode, to: &renameWriter)
+        renameWriter.writeUInt64(0xC1)
+        makeName("Cy", "Storm").append(to: &renameWriter)
+        let renamePacket = try GatewayWorldCodec.decodeAny(renameWriter.data)
+        guard case .playerRename(let rename) = renamePacket else {
+            return XCTFail("Expected player rename, got \(renamePacket)")
+        }
+        XCTAssertEqual(rename.guid, 0xC1)
+        XCTAssertEqual(rename.name.firstName, "Cy")
+
+        var syncWriter = PacketWriter()
+        writeHeader(GatewaySynchronizedAnimations.opcode, GatewaySynchronizedAnimations.subOpcode, to: &syncWriter)
+        syncWriter.writeInt32(2)
+        syncWriter.writeUInt64(0xD1)
+        syncWriter.writeInt32(11)
+        syncWriter.writeUInt64(0xD2)
+        syncWriter.writeInt32(12)
+        let syncPacket = try GatewayWorldCodec.decodeAny(syncWriter.data)
+        guard case .synchronizedAnimations(let sync) = syncPacket else {
+            return XCTFail("Expected synchronized animations, got \(syncPacket)")
+        }
+        XCTAssertEqual(sync.animations.count, 2)
+        XCTAssertEqual(sync.animations[1].guid, 0xD2)
+        XCTAssertEqual(sync.animations[1].animationID, 12)
+
+        var collectionRemoveWriter = PacketWriter()
+        writeHeader(GatewayCollectionRemove.opcode, GatewayCollectionRemove.subOpcode, to: &collectionRemoveWriter)
+        collectionRemoveWriter.writeInt32(21)
+        let collectionRemovePacket = try GatewayWorldCodec.decodeAny(collectionRemoveWriter.data)
+        guard case .collectionRemove(let collectionRemove) = collectionRemovePacket else {
+            return XCTFail("Expected collection remove, got \(collectionRemovePacket)")
+        }
+        XCTAssertEqual(collectionRemove.collectionID, 21)
+
+        var addEntryWriter = PacketWriter()
+        writeHeader(GatewayCollectionAddEntry.opcode, GatewayCollectionAddEntry.subOpcode, to: &addEntryWriter)
+        for value: Int32 in [1, 2, 3, 4, 5, 6, 7] { addEntryWriter.writeInt32(value) }
+        addEntryWriter.writeBool(false)
+        let addEntryPacket = try GatewayWorldCodec.decodeAny(addEntryWriter.data)
+        guard case .collectionAddEntry(let addEntry) = addEntryPacket else {
+            return XCTFail("Expected collection add entry, got \(addEntryPacket)")
+        }
+        XCTAssertEqual(addEntry.definitionID, 1)
+        XCTAssertEqual(addEntry.iconTintID, 3)
+        XCTAssertEqual(addEntry.collectionID, 5)
+        XCTAssertEqual(addEntry.unknown, 7)
+        XCTAssertFalse(addEntry.collected)
+
+        var removeEntryWriter = PacketWriter()
+        writeHeader(GatewayCollectionRemoveEntry.opcode, GatewayCollectionRemoveEntry.subOpcode, to: &removeEntryWriter)
+        removeEntryWriter.writeInt32(31)
+        removeEntryWriter.writeInt32(32)
+        let removeEntryPacket = try GatewayWorldCodec.decodeAny(removeEntryWriter.data)
+        guard case .collectionRemoveEntry(let removeEntry) = removeEntryPacket else {
+            return XCTFail("Expected collection remove entry, got \(removeEntryPacket)")
+        }
+        XCTAssertEqual(removeEntry.collectionID, 31)
+        XCTAssertEqual(removeEntry.entryID, 32)
+
+        var observation = GatewayWorldObservation.empty
+        for packet in [
+            debugChatPacket, tellPacket, endDialogPacket, friendRequestPacket, effectPacket,
+            renamePacket, syncPacket, collectionRemovePacket, addEntryPacket, removeEntryPacket
+        ] {
+            observation.apply(packet)
+        }
+        XCTAssertEqual(observation.lastDebugChat?.message, "debug line")
+        XCTAssertEqual(observation.lastTellEcho?.name.lastName, "Zephyr")
+        XCTAssertNotNil(observation.lastEndDialog)
+        XCTAssertEqual(observation.lastConfirmFriendRequest?.guid, 0xA1)
+        XCTAssertEqual(observation.lastPlayCompositeEffect?.compositeEffectID, 77)
+        XCTAssertEqual(observation.lastPlayerRename?.guid, 0xC1)
+        XCTAssertEqual(observation.lastSynchronizedAnimations?.animations.count, 2)
+        XCTAssertEqual(observation.lastCollectionRemove?.collectionID, 21)
+        XCTAssertEqual(observation.lastCollectionAddEntry?.definitionID, 1)
+        XCTAssertEqual(observation.lastCollectionRemoveEntry?.entryID, 32)
+        XCTAssertTrue(observation.positions.isEmpty)
+    }
+
+    func testSourceVerifiedPetQuickChatFriendAndIgnoreReplies() throws {
+        var petNameWriter = PacketWriter()
+        writeByteHeader(GatewayPetSetName.opcode, GatewayPetSetName.subOpcode, to: &petNameWriter)
+        petNameWriter.writeUInt64(0x111)
+        petNameWriter.writeString("Pixel")
+        petNameWriter.writeBool(true)
+        let petNamePacket = try GatewayWorldCodec.decodeAny(petNameWriter.data)
+        guard case .petSetName(let petName) = petNamePacket else {
+            return XCTFail("Expected pet set name, got \(petNamePacket)")
+        }
+        XCTAssertEqual(petName.petGUID, 0x111)
+        XCTAssertEqual(petName.name, "Pixel")
+        XCTAssertTrue(petName.accepted)
+
+        var petEquipWriter = PacketWriter()
+        writeByteHeader(GatewayPetEquip.opcode, GatewayPetEquip.subOpcode, to: &petEquipWriter)
+        petEquipWriter.writeBool(false)
+        petEquipWriter.writeInt32(3)
+        petEquipWriter.writeInt32(44)
+        let petEquipPacket = try GatewayWorldCodec.decodeAny(petEquipWriter.data)
+        guard case .petEquip(let petEquip) = petEquipPacket else {
+            return XCTFail("Expected pet equip, got \(petEquipPacket)")
+        }
+        XCTAssertFalse(petEquip.unequip)
+        XCTAssertEqual(petEquip.slot, 3)
+        XCTAssertEqual(petEquip.itemGUID, 44)
+
+        var petUtilityWriter = PacketWriter()
+        writeByteHeader(GatewayPetUtility.opcode, GatewayPetUtility.subOpcode, to: &petUtilityWriter)
+        petUtilityWriter.writeBool(true)
+        petUtilityWriter.writeInt32(55)
+        petUtilityWriter.writeInt32(6)
+        petUtilityWriter.writeInt32(77)
+        let petUtilityPacket = try GatewayWorldCodec.decodeAny(petUtilityWriter.data)
+        guard case .petUtility(let petUtility) = petUtilityPacket else {
+            return XCTFail("Expected pet utility, got \(petUtilityPacket)")
+        }
+        XCTAssertTrue(petUtility.unequip)
+        XCTAssertEqual(petUtility.petID, 55)
+        XCTAssertEqual(petUtility.slot, 6)
+        XCTAssertEqual(petUtility.itemGUID, 77)
+
+        var quickChatWriter = PacketWriter()
+        writeHeader(GatewayQuickChatChannel.opcode, GatewayQuickChatChannel.subOpcode, to: &quickChatWriter)
+        quickChatWriter.writeInt32(101)
+        quickChatWriter.writeUInt64(0x222)
+        makeName("Dee", "Lake").append(to: &quickChatWriter)
+        GatewayWire.appendInt16(7, to: &quickChatWriter.data)
+        quickChatWriter.writeInt32(808)
+        quickChatWriter.writeUInt64(0x333)
+        let quickChatPacket = try GatewayWorldCodec.decodeAny(quickChatWriter.data)
+        guard case .quickChatChannel(let quickChat) = quickChatPacket else {
+            return XCTFail("Expected quick chat channel, got \(quickChatPacket)")
+        }
+        XCTAssertEqual(quickChat.id, 101)
+        XCTAssertEqual(quickChat.name.firstName, "Dee")
+        XCTAssertEqual(quickChat.channel, 7)
+        XCTAssertEqual(quickChat.areaNameID, 808)
+        XCTAssertEqual(quickChat.guildGUID, 0x333)
+
+        var friendMessageWriter = PacketWriter()
+        writeByteHeader(GatewayFriendMessage.opcode, GatewayFriendMessage.subOpcode, to: &friendMessageWriter)
+        friendMessageWriter.writeUInt8(2)
+        friendMessageWriter.writeUInt64(0x444)
+        makeName("Eve", "Vale").append(to: &friendMessageWriter)
+        makeName("Eve", "Nova").append(to: &friendMessageWriter)
+        let friendMessagePacket = try GatewayWorldCodec.decodeAny(friendMessageWriter.data)
+        guard case .friendMessage(let friendMessage) = friendMessagePacket else {
+            return XCTFail("Expected friend message, got \(friendMessagePacket)")
+        }
+        XCTAssertEqual(friendMessage.type, 2)
+        XCTAssertEqual(friendMessage.guid, 0x444)
+        XCTAssertEqual(friendMessage.name.lastName, "Vale")
+        XCTAssertEqual(friendMessage.newName.lastName, "Nova")
+
+        var ignoreRemoveWriter = PacketWriter()
+        writeByteHeader(GatewayIgnoreRemove.opcode, GatewayIgnoreRemove.subOpcode, to: &ignoreRemoveWriter)
+        ignoreRemoveWriter.writeUInt64(0x555)
+        let ignoreRemovePacket = try GatewayWorldCodec.decodeAny(ignoreRemoveWriter.data)
+        guard case .ignoreRemove(let ignoreRemove) = ignoreRemovePacket else {
+            return XCTFail("Expected ignore remove, got \(ignoreRemovePacket)")
+        }
+        XCTAssertEqual(ignoreRemove.guid, 0x555)
+
+        var observation = GatewayWorldObservation.empty
+        for packet in [
+            petNamePacket, petEquipPacket, petUtilityPacket, quickChatPacket,
+            friendMessagePacket, ignoreRemovePacket
+        ] {
+            observation.apply(packet)
+        }
+        XCTAssertEqual(observation.lastPetSetName?.name, "Pixel")
+        XCTAssertEqual(observation.lastPetEquip?.slot, 3)
+        XCTAssertEqual(observation.lastPetUtility?.petID, 55)
+        XCTAssertEqual(observation.lastQuickChatChannel?.channel, 7)
+        XCTAssertEqual(observation.lastFriendMessage?.newName.lastName, "Nova")
+        XCTAssertEqual(observation.lastIgnoreRemove?.guid, 0x555)
+        XCTAssertTrue(observation.positions.isEmpty)
+    }
+
+    func testSourceVerifiedGuildNameChangeAndJournalReplies() throws {
+        var memberStatusWriter = PacketWriter()
+        writeHeader(GatewayGuildMemberStatusUpdate.opcode, GatewayGuildMemberStatusUpdate.subOpcode, to: &memberStatusWriter)
+        memberStatusWriter.writeUInt64(0x1001)
+        memberStatusWriter.writeUInt64(0x1002)
+        makeName("Finn", "Brook").append(to: &memberStatusWriter)
+        memberStatusWriter.writeInt32(4)
+        memberStatusWriter.writeBool(true)
+        for value: Int32 in [6, 7, 8, 9, 10] { memberStatusWriter.writeInt32(value) }
+        let memberStatusPacket = try GatewayWorldCodec.decodeAny(memberStatusWriter.data)
+        guard case .guildMemberStatusUpdate(let memberStatus) = memberStatusPacket else {
+            return XCTFail("Expected guild member status, got \(memberStatusPacket)")
+        }
+        XCTAssertEqual(memberStatus.guildGUID, 0x1001)
+        XCTAssertEqual(memberStatus.memberGUID, 0x1002)
+        XCTAssertEqual(memberStatus.name.firstName, "Finn")
+        XCTAssertEqual(memberStatus.role, 4)
+        XCTAssertTrue(memberStatus.online)
+        XCTAssertEqual(memberStatus.profileRank, 10)
+
+        var guildNameWriter = PacketWriter()
+        writeHeader(GatewayGuildNameUpdate.opcode, GatewayGuildNameUpdate.subOpcode, to: &guildNameWriter)
+        guildNameWriter.writeUInt64(0x2001)
+        guildNameWriter.writeString("Night Owls")
+        let guildNamePacket = try GatewayWorldCodec.decodeAny(guildNameWriter.data)
+        guard case .guildNameUpdate(let guildName) = guildNamePacket else {
+            return XCTFail("Expected guild name update, got \(guildNamePacket)")
+        }
+        XCTAssertEqual(guildName.guid, 0x2001)
+        XCTAssertEqual(guildName.name, "Night Owls")
+
+        var guildErrorWriter = PacketWriter()
+        writeHeader(GatewayGuildError.opcode, GatewayGuildError.subOpcode, to: &guildErrorWriter)
+        guildErrorWriter.writeString("GuildError_Invalid")
+        let guildErrorPacket = try GatewayWorldCodec.decodeAny(guildErrorWriter.data)
+        guard case .guildError(let guildError) = guildErrorPacket else {
+            return XCTFail("Expected guild error, got \(guildErrorPacket)")
+        }
+        XCTAssertEqual(guildError.messageName, "GuildError_Invalid")
+
+        var inviteAcceptWriter = PacketWriter()
+        writeHeader(GatewayGuildInviteAcceptNotification.opcode, GatewayGuildInviteAcceptNotification.subOpcode, to: &inviteAcceptWriter)
+        makeName("Gia", "Wren").append(to: &inviteAcceptWriter)
+        let inviteAcceptPacket = try GatewayWorldCodec.decodeAny(inviteAcceptWriter.data)
+        guard case .guildInviteAcceptNotification(let inviteAccept) = inviteAcceptPacket else {
+            return XCTFail("Expected guild invite accept, got \(inviteAcceptPacket)")
+        }
+        XCTAssertEqual(inviteAccept.name.lastName, "Wren")
+
+        var inviteDeclineWriter = PacketWriter()
+        writeHeader(GatewayGuildInviteDeclineNotification.opcode, GatewayGuildInviteDeclineNotification.subOpcode, to: &inviteDeclineWriter)
+        makeName("Hal", "Frost").append(to: &inviteDeclineWriter)
+        inviteDeclineWriter.writeBool(true)
+        let inviteDeclinePacket = try GatewayWorldCodec.decodeAny(inviteDeclineWriter.data)
+        guard case .guildInviteDeclineNotification(let inviteDecline) = inviteDeclinePacket else {
+            return XCTFail("Expected guild invite decline, got \(inviteDeclinePacket)")
+        }
+        XCTAssertEqual(inviteDecline.name.firstName, "Hal")
+        XCTAssertTrue(inviteDecline.timedOut)
+
+        var renameCheckWriter = PacketWriter()
+        writeHeader(GatewayGuildRenameCheckReply.opcode, GatewayGuildRenameCheckReply.subOpcode, to: &renameCheckWriter)
+        renameCheckWriter.writeUInt64(0x3001)
+        renameCheckWriter.writeString("New Name")
+        renameCheckWriter.writeInt32(5)
+        let renameCheckPacket = try GatewayWorldCodec.decodeAny(renameCheckWriter.data)
+        guard case .guildRenameCheckReply(let renameCheck) = renameCheckPacket else {
+            return XCTFail("Expected guild rename check, got \(renameCheckPacket)")
+        }
+        XCTAssertEqual(renameCheck.guid, 0x3001)
+        XCTAssertEqual(renameCheck.name, "New Name")
+        XCTAssertEqual(renameCheck.result, 5)
+
+        var playerStatusWriter = PacketWriter()
+        writeHeader(GatewayGuildPlayerStatusUpdate.opcode, GatewayGuildPlayerStatusUpdate.subOpcode, to: &playerStatusWriter)
+        playerStatusWriter.writeUInt64(0x4001)
+        playerStatusWriter.writeUInt64(0x4002)
+        playerStatusWriter.writeBool(false)
+        let playerStatusPacket = try GatewayWorldCodec.decodeAny(playerStatusWriter.data)
+        guard case .guildPlayerStatusUpdate(let playerStatus) = playerStatusPacket else {
+            return XCTFail("Expected guild player status, got \(playerStatusPacket)")
+        }
+        XCTAssertEqual(playerStatus.playerGUID, 0x4001)
+        XCTAssertEqual(playerStatus.guildGUID, 0x4002)
+        XCTAssertFalse(playerStatus.isInGuild)
+
+        var canCreateWriter = PacketWriter()
+        writeHeader(GatewayGuildCanCreate.opcode, GatewayGuildCanCreate.subOpcode, to: &canCreateWriter)
+        canCreateWriter.writeBool(true)
+        let canCreatePacket = try GatewayWorldCodec.decodeAny(canCreateWriter.data)
+        guard case .guildCanCreate(let canCreate) = canCreatePacket else {
+            return XCTFail("Expected guild can create, got \(canCreatePacket)")
+        }
+        XCTAssertTrue(canCreate.canCreateGuild)
+
+        var createWriter = PacketWriter()
+        writeHeader(GatewayGuildCreateAllowed.opcode, GatewayGuildCreateAllowed.subOpcode, to: &createWriter)
+        createWriter.writeBool(false)
+        let createPacket = try GatewayWorldCodec.decodeAny(createWriter.data)
+        guard case .guildCreateAllowed(let create) = createPacket else {
+            return XCTFail("Expected guild create reply, got \(createPacket)")
+        }
+        XCTAssertFalse(create.createGuild)
+
+        var checkNameWriter = PacketWriter()
+        writeHeader(GatewayCheckNameResponse.opcode, GatewayCheckNameResponse.subOpcode, to: &checkNameWriter)
+        makeName("Ivy", "Moss").append(to: &checkNameWriter)
+        checkNameWriter.writeInt32(2)
+        checkNameWriter.writeInt32(3)
+        checkNameWriter.writeUInt64(0x5001)
+        let checkNamePacket = try GatewayWorldCodec.decodeAny(checkNameWriter.data)
+        guard case .checkNameResponse(let checkName) = checkNamePacket else {
+            return XCTFail("Expected name check response, got \(checkNamePacket)")
+        }
+        XCTAssertEqual(checkName.name.lastName, "Moss")
+        XCTAssertEqual(checkName.result, 2)
+        XCTAssertEqual(checkName.type, 3)
+        XCTAssertEqual(checkName.guid, 0x5001)
+
+        var nameChangeWriter = PacketWriter()
+        writeHeader(GatewayNameChangeResponse.opcode, GatewayNameChangeResponse.subOpcode, to: &nameChangeWriter)
+        nameChangeWriter.writeInt32(4)
+        nameChangeWriter.writeUInt64(0x6001)
+        makeName("Jade", "Sky").append(to: &nameChangeWriter)
+        nameChangeWriter.writeInt32(5)
+        let nameChangePacket = try GatewayWorldCodec.decodeAny(nameChangeWriter.data)
+        guard case .nameChangeResponse(let nameChange) = nameChangePacket else {
+            return XCTFail("Expected name change response, got \(nameChangePacket)")
+        }
+        XCTAssertEqual(nameChange.type, 4)
+        XCTAssertEqual(nameChange.guid, 0x6001)
+        XCTAssertEqual(nameChange.name.firstName, "Jade")
+        XCTAssertEqual(nameChange.result, 5)
+
+        var journalWriter = PacketWriter()
+        writeIntHeader(GatewayJournalQuestUpdate.opcode, GatewayJournalQuestUpdate.subOpcode, to: &journalWriter)
+        journalWriter.writeInt32(2)
+        journalWriter.writeInt32(71)
+        journalWriter.writeInt32(3)
+        journalWriter.writeInt32(72)
+        journalWriter.writeInt32(4)
+        let journalPacket = try GatewayWorldCodec.decodeAny(journalWriter.data)
+        guard case .journalQuestUpdate(let journal) = journalPacket else {
+            return XCTFail("Expected journal quest update, got \(journalPacket)")
+        }
+        XCTAssertEqual(journal.questStates[71], 3)
+        XCTAssertEqual(journal.questStates[72], 4)
+
+        var observation = GatewayWorldObservation.empty
+        for packet in [
+            memberStatusPacket, guildNamePacket, guildErrorPacket, inviteAcceptPacket,
+            inviteDeclinePacket, renameCheckPacket, playerStatusPacket, canCreatePacket,
+            createPacket, checkNamePacket, nameChangePacket, journalPacket
+        ] {
+            observation.apply(packet)
+        }
+        XCTAssertEqual(observation.lastGuildMemberStatusUpdate?.profileRank, 10)
+        XCTAssertEqual(observation.lastGuildNameUpdate?.name, "Night Owls")
+        XCTAssertEqual(observation.lastGuildError?.messageName, "GuildError_Invalid")
+        XCTAssertEqual(observation.lastGuildInviteAcceptNotification?.name.firstName, "Gia")
+        XCTAssertTrue(observation.lastGuildInviteDeclineNotification?.timedOut ?? false)
+        XCTAssertEqual(observation.lastGuildRenameCheckReply?.result, 5)
+        XCTAssertFalse(observation.lastGuildPlayerStatusUpdate?.isInGuild ?? true)
+        XCTAssertTrue(observation.lastGuildCanCreate?.canCreateGuild ?? false)
+        XCTAssertFalse(observation.lastGuildCreateAllowed?.createGuild ?? true)
+        XCTAssertEqual(observation.lastCheckNameResponse?.guid, 0x5001)
+        XCTAssertEqual(observation.lastNameChangeResponse?.name.lastName, "Sky")
+        XCTAssertEqual(observation.lastJournalQuestUpdate?.questStates.count, 2)
+        XCTAssertTrue(observation.positions.isEmpty)
     }
 }

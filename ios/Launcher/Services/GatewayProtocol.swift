@@ -2380,6 +2380,35 @@ enum GatewayWorldPacket: Equatable {
     case objectiveClientClear(GatewayObjectiveClientClear)
     case clientArea(GatewayClientAreaUpdate)
     case messageOfTheDay(GatewayMessageOfTheDay)
+    case debugChat(GatewayDebugChat)
+    case tellEcho(GatewayTellEcho)
+    case endDialog(GatewayEndDialog)
+    case confirmFriendRequest(GatewayConfirmFriendRequest)
+    case playCompositeEffect(GatewayPlayCompositeEffect)
+    case playerRename(GatewayPlayerRename)
+    case synchronizedAnimations(GatewaySynchronizedAnimations)
+    case collectionRemove(GatewayCollectionRemove)
+    case collectionAddEntry(GatewayCollectionAddEntry)
+    case collectionRemoveEntry(GatewayCollectionRemoveEntry)
+    case petSetName(GatewayPetSetName)
+    case petEquip(GatewayPetEquip)
+    case petUtility(GatewayPetUtility)
+    case quickChatChannel(GatewayQuickChatChannel)
+    case friendMessage(GatewayFriendMessage)
+    case ignoreRemove(GatewayIgnoreRemove)
+    case housingUpdateHouseInfo(GatewayHousingUpdateHouseInfo)
+    case guildMemberStatusUpdate(GatewayGuildMemberStatusUpdate)
+    case guildNameUpdate(GatewayGuildNameUpdate)
+    case guildError(GatewayGuildError)
+    case guildInviteAcceptNotification(GatewayGuildInviteAcceptNotification)
+    case guildInviteDeclineNotification(GatewayGuildInviteDeclineNotification)
+    case guildRenameCheckReply(GatewayGuildRenameCheckReply)
+    case guildPlayerStatusUpdate(GatewayGuildPlayerStatusUpdate)
+    case guildCanCreate(GatewayGuildCanCreate)
+    case guildCreateAllowed(GatewayGuildCreateAllowed)
+    case checkNameResponse(GatewayCheckNameResponse)
+    case nameChangeResponse(GatewayNameChangeResponse)
+    case journalQuestUpdate(GatewayJournalQuestUpdate)
     /// A packet whose opcode/sub-opcode is known from Sanctuary or the compiled
     /// client, but whose field semantics are not decoded yet. The raw payload is
     /// preserved verbatim; no local simulation value is inferred from it.
@@ -2403,6 +2432,10 @@ enum GatewayWorldCodec {
                 return .chatEnterArea(try GatewayChatEnterArea(data: data))
             case GatewayChatFromStringID.subOpcode:
                 return .chatFromStringID(try GatewayChatFromStringID(data: data))
+            case GatewayDebugChat.subOpcode:
+                return .debugChat(try GatewayDebugChat(data: data))
+            case GatewayTellEcho.subOpcode:
+                return .tellEcho(try GatewayTellEcho(data: data))
             default:
                 return Self.mappedOrUnknown(opcode: opcode, data: data)
             }
@@ -2453,6 +2486,12 @@ enum GatewayWorldCodec {
                 return .compositeEffectsEnabled(try GatewayCompositeEffectsEnabled(data: data))
             case GatewayAddCompositeEffectTag.subOpcode:
                 return .addCompositeEffectTag(try GatewayAddCompositeEffectTag(data: data))
+            case GatewayPlayCompositeEffect.subOpcode:
+                return .playCompositeEffect(try GatewayPlayCompositeEffect(data: data))
+            case GatewayPlayerRename.subOpcode:
+                return .playerRename(try GatewayPlayerRename(data: data))
+            case GatewaySynchronizedAnimations.subOpcode:
+                return .synchronizedAnimations(try GatewaySynchronizedAnimations(data: data))
             default:
                 return Self.mappedOrUnknown(opcode: opcode, data: data)
             }
@@ -2480,6 +2519,16 @@ enum GatewayWorldCodec {
             default:
                 return Self.mappedOrUnknown(opcode: opcode, data: data)
             }
+        case GatewayEndDialog.opcode:
+            let sub = try GatewayWire.readInt16(&reader)
+            switch sub {
+            case GatewayEndDialog.subOpcode:
+                return .endDialog(try GatewayEndDialog(data: data))
+            case GatewayConfirmFriendRequest.subOpcode:
+                return .confirmFriendRequest(try GatewayConfirmFriendRequest(data: data))
+            default:
+                return Self.mappedOrUnknown(opcode: opcode, data: data)
+            }
         case 38:
             let sub = try GatewayWire.readInt16(&reader)
             switch sub {
@@ -2503,6 +2552,12 @@ enum GatewayWorldCodec {
                 return .itemUpdate(try GatewayItemUpdate(data: data))
             case GatewayImmediateActivationCheck.subOpcode:
                 return .immediateActivationCheck(try GatewayImmediateActivationCheck(data: data))
+            case GatewayCollectionRemove.subOpcode:
+                return .collectionRemove(try GatewayCollectionRemove(data: data))
+            case GatewayCollectionAddEntry.subOpcode:
+                return .collectionAddEntry(try GatewayCollectionAddEntry(data: data))
+            case GatewayCollectionRemoveEntry.subOpcode:
+                return .collectionRemoveEntry(try GatewayCollectionRemoveEntry(data: data))
             default:
                 return Self.mappedOrUnknown(opcode: opcode, data: data)
             }
@@ -2571,6 +2626,12 @@ enum GatewayWorldCodec {
                 return .petTrickNotification(try GatewayPetTrickNotification(data: data))
             case GatewayPetUtilityNotification.subOpcode:
                 return .petUtilityNotification(try GatewayPetUtilityNotification(data: data))
+            case GatewayPetSetName.subOpcode:
+                return .petSetName(try GatewayPetSetName(data: data))
+            case GatewayPetEquip.subOpcode:
+                return .petEquip(try GatewayPetEquip(data: data))
+            case GatewayPetUtility.subOpcode:
+                return .petUtility(try GatewayPetUtility(data: data))
             default:
                 return Self.mappedOrUnknown(opcode: opcode, data: data)
             }
@@ -2600,6 +2661,14 @@ enum GatewayWorldCodec {
             default:
                 return Self.mappedOrUnknown(opcode: opcode, data: data)
             }
+        case GatewayQuickChatChannel.opcode:
+            let sub = try GatewayWire.readInt16(&reader)
+            switch sub {
+            case GatewayQuickChatChannel.subOpcode:
+                return .quickChatChannel(try GatewayQuickChatChannel(data: data))
+            default:
+                return Self.mappedOrUnknown(opcode: opcode, data: data)
+            }
         case GatewayFriendOnline.opcode:
             let sub = try reader.readUInt8()
             switch sub {
@@ -2611,6 +2680,8 @@ enum GatewayWorldCodec {
                 return .friendRemove(try GatewayFriendRemove(data: data))
             case GatewayFriendRename.subOpcode:
                 return .friendRename(try GatewayFriendRename(data: data))
+            case GatewayFriendMessage.subOpcode:
+                return .friendMessage(try GatewayFriendMessage(data: data))
             default:
                 return Self.mappedOrUnknown(opcode: opcode, data: data)
             }
@@ -2628,6 +2699,14 @@ enum GatewayWorldCodec {
             return .worldShutdownNotice(try GatewayWorldShutdownNotice(data: data))
         case GatewayPOIChange.opcode:
             return .poiChange(try GatewayPOIChange(data: data))
+        case GatewayIgnoreRemove.opcode:
+            let sub = try reader.readUInt8()
+            switch sub {
+            case GatewayIgnoreRemove.subOpcode:
+                return .ignoreRemove(try GatewayIgnoreRemove(data: data))
+            default:
+                return Self.mappedOrUnknown(opcode: opcode, data: data)
+            }
         case GatewayMembershipInfo.opcode:
             return .membership(try GatewayMembershipInfo(data: data))
         case GatewayMessageOfTheDay.opcode:
@@ -2654,6 +2733,32 @@ enum GatewayWorldCodec {
                 return .housingInstanceList(try GatewayHousingInstanceList(data: data))
             case GatewayHousingZoneData.subOpcode:
                 return .housingZoneData(try GatewayHousingZoneData(data: data))
+            case GatewayHousingUpdateHouseInfo.subOpcode:
+                return .housingUpdateHouseInfo(try GatewayHousingUpdateHouseInfo(data: data))
+            default:
+                return Self.mappedOrUnknown(opcode: opcode, data: data)
+            }
+        case GatewayGuildMemberStatusUpdate.opcode:
+            let sub = try GatewayWire.readInt16(&reader)
+            switch sub {
+            case GatewayGuildMemberStatusUpdate.subOpcode:
+                return .guildMemberStatusUpdate(try GatewayGuildMemberStatusUpdate(data: data))
+            case GatewayGuildNameUpdate.subOpcode:
+                return .guildNameUpdate(try GatewayGuildNameUpdate(data: data))
+            case GatewayGuildError.subOpcode:
+                return .guildError(try GatewayGuildError(data: data))
+            case GatewayGuildInviteAcceptNotification.subOpcode:
+                return .guildInviteAcceptNotification(try GatewayGuildInviteAcceptNotification(data: data))
+            case GatewayGuildInviteDeclineNotification.subOpcode:
+                return .guildInviteDeclineNotification(try GatewayGuildInviteDeclineNotification(data: data))
+            case GatewayGuildRenameCheckReply.subOpcode:
+                return .guildRenameCheckReply(try GatewayGuildRenameCheckReply(data: data))
+            case GatewayGuildPlayerStatusUpdate.subOpcode:
+                return .guildPlayerStatusUpdate(try GatewayGuildPlayerStatusUpdate(data: data))
+            case GatewayGuildCanCreate.subOpcode:
+                return .guildCanCreate(try GatewayGuildCanCreate(data: data))
+            case GatewayGuildCreateAllowed.subOpcode:
+                return .guildCreateAllowed(try GatewayGuildCreateAllowed(data: data))
             default:
                 return Self.mappedOrUnknown(opcode: opcode, data: data)
             }
@@ -2702,6 +2807,24 @@ enum GatewayWorldCodec {
             switch sub {
             case GatewayObjectiveClientClear.subOpcode:
                 return .objectiveClientClear(try GatewayObjectiveClientClear(data: data))
+            default:
+                return Self.mappedOrUnknown(opcode: opcode, data: data)
+            }
+        case GatewayCheckNameResponse.opcode:
+            let sub = try GatewayWire.readInt16(&reader)
+            switch sub {
+            case GatewayCheckNameResponse.subOpcode:
+                return .checkNameResponse(try GatewayCheckNameResponse(data: data))
+            case GatewayNameChangeResponse.subOpcode:
+                return .nameChangeResponse(try GatewayNameChangeResponse(data: data))
+            default:
+                return Self.mappedOrUnknown(opcode: opcode, data: data)
+            }
+        case GatewayJournalQuestUpdate.opcode:
+            let sub = try reader.readInt32()
+            switch sub {
+            case GatewayJournalQuestUpdate.subOpcode:
+                return .journalQuestUpdate(try GatewayJournalQuestUpdate(data: data))
             default:
                 return Self.mappedOrUnknown(opcode: opcode, data: data)
             }
@@ -2874,6 +2997,35 @@ struct GatewayWorldObservation: Equatable, Sendable {
     var lastPlayerTitleUpdateAll: GatewayPlayerTitleUpdateAll?
     var lastExecuteScript: GatewayExecuteScript?
     var lastExecuteScriptStringParams: GatewayExecuteScriptStringParams?
+    var lastDebugChat: GatewayDebugChat?
+    var lastTellEcho: GatewayTellEcho?
+    var lastEndDialog: GatewayEndDialog?
+    var lastConfirmFriendRequest: GatewayConfirmFriendRequest?
+    var lastPlayCompositeEffect: GatewayPlayCompositeEffect?
+    var lastPlayerRename: GatewayPlayerRename?
+    var lastSynchronizedAnimations: GatewaySynchronizedAnimations?
+    var lastCollectionRemove: GatewayCollectionRemove?
+    var lastCollectionAddEntry: GatewayCollectionAddEntry?
+    var lastCollectionRemoveEntry: GatewayCollectionRemoveEntry?
+    var lastPetSetName: GatewayPetSetName?
+    var lastPetEquip: GatewayPetEquip?
+    var lastPetUtility: GatewayPetUtility?
+    var lastQuickChatChannel: GatewayQuickChatChannel?
+    var lastFriendMessage: GatewayFriendMessage?
+    var lastIgnoreRemove: GatewayIgnoreRemove?
+    var lastHousingUpdateHouseInfo: GatewayHousingUpdateHouseInfo?
+    var lastGuildMemberStatusUpdate: GatewayGuildMemberStatusUpdate?
+    var lastGuildNameUpdate: GatewayGuildNameUpdate?
+    var lastGuildError: GatewayGuildError?
+    var lastGuildInviteAcceptNotification: GatewayGuildInviteAcceptNotification?
+    var lastGuildInviteDeclineNotification: GatewayGuildInviteDeclineNotification?
+    var lastGuildRenameCheckReply: GatewayGuildRenameCheckReply?
+    var lastGuildPlayerStatusUpdate: GatewayGuildPlayerStatusUpdate?
+    var lastGuildCanCreate: GatewayGuildCanCreate?
+    var lastGuildCreateAllowed: GatewayGuildCreateAllowed?
+    var lastCheckNameResponse: GatewayCheckNameResponse?
+    var lastNameChangeResponse: GatewayNameChangeResponse?
+    var lastJournalQuestUpdate: GatewayJournalQuestUpdate?
     var housingInstanceList: GatewayHousingInstanceList?
     var housingZoneData: GatewayHousingZoneData?
     var objectiveTargetUpdate: GatewayObjectiveTargetUpdate?
@@ -3399,6 +3551,93 @@ struct GatewayWorldObservation: Equatable, Sendable {
             messageOfTheDay = motd.message
             messageOfTheDaySecondary = motd.secondary
             lastEvent = "Message of the day · \(motd.message)"
+        case .debugChat(let chat):
+            lastDebugChat = chat
+            lastEvent = "Debug chat · \(chat.message) · print \(chat.printToChat)"
+        case .tellEcho(let echo):
+            lastTellEcho = echo
+            lastEvent = "Tell echo · \(Self.displayName(echo.name)) · \(echo.message)"
+        case .endDialog(let dialog):
+            lastEndDialog = dialog
+            lastEvent = "End dialog"
+        case .confirmFriendRequest(let request):
+            lastConfirmFriendRequest = request
+            lastEvent = "Friend confirm · \(request.guid) · \(Self.displayName(request.name))"
+        case .playCompositeEffect(let effect):
+            lastPlayCompositeEffect = effect
+            lastEvent = "Composite effect · \(effect.compositeEffectID) · \(effect.guid)"
+        case .playerRename(let rename):
+            lastPlayerRename = rename
+            lastEvent = "Player rename · \(rename.guid) · \(Self.displayName(rename.name))"
+        case .synchronizedAnimations(let sync):
+            lastSynchronizedAnimations = sync
+            lastEvent = "Synchronized animations · \(sync.animations.count)"
+        case .collectionRemove(let remove):
+            lastCollectionRemove = remove
+            lastEvent = "Collection remove · \(remove.collectionID)"
+        case .collectionAddEntry(let entry):
+            lastCollectionAddEntry = entry
+            lastEvent = "Collection add · \(entry.collectionID) · \(entry.definitionID)"
+        case .collectionRemoveEntry(let remove):
+            lastCollectionRemoveEntry = remove
+            lastEvent = "Collection entry remove · \(remove.collectionID) · \(remove.entryID)"
+        case .petSetName(let rename):
+            lastPetSetName = rename
+            lastEvent = "Pet rename · \(rename.petGUID) · \(rename.name) · accepted \(rename.accepted)"
+        case .petEquip(let equip):
+            lastPetEquip = equip
+            lastEvent = "Pet equip · slot \(equip.slot) · item \(equip.itemGUID)"
+        case .petUtility(let utility):
+            lastPetUtility = utility
+            lastEvent = "Pet utility · \(utility.petID) · slot \(utility.slot)"
+        case .quickChatChannel(let chat):
+            lastQuickChatChannel = chat
+            lastEvent = "Quick chat · \(chat.id) · channel \(chat.channel)"
+        case .friendMessage(let message):
+            lastFriendMessage = message
+            lastEvent = "Friend message · type \(message.type) · \(Self.displayName(message.name))"
+        case .ignoreRemove(let remove):
+            lastIgnoreRemove = remove
+            lastEvent = "Ignore remove · \(remove.guid)"
+        case .housingUpdateHouseInfo(let info):
+            lastHousingUpdateHouseInfo = info
+            lastEvent = "House info · edit \(info.inEditMode) · fixtures \(info.curFixtureCount)"
+        case .guildMemberStatusUpdate(let update):
+            lastGuildMemberStatusUpdate = update
+            lastEvent = "Guild member · \(Self.displayName(update.name)) · online \(update.online)"
+        case .guildNameUpdate(let update):
+            lastGuildNameUpdate = update
+            lastEvent = "Guild rename · \(update.guid) · \(update.name)"
+        case .guildError(let error):
+            lastGuildError = error
+            lastEvent = "Guild error · \(error.messageName)"
+        case .guildInviteAcceptNotification(let notification):
+            lastGuildInviteAcceptNotification = notification
+            lastEvent = "Guild invite accepted · \(Self.displayName(notification.name))"
+        case .guildInviteDeclineNotification(let notification):
+            lastGuildInviteDeclineNotification = notification
+            lastEvent = "Guild invite declined · \(Self.displayName(notification.name)) · timeout \(notification.timedOut)"
+        case .guildRenameCheckReply(let reply):
+            lastGuildRenameCheckReply = reply
+            lastEvent = "Guild rename check · \(reply.result) · \(reply.name)"
+        case .guildPlayerStatusUpdate(let update):
+            lastGuildPlayerStatusUpdate = update
+            lastEvent = "Guild player · \(update.playerGUID) · member \(update.isInGuild)"
+        case .guildCanCreate(let reply):
+            lastGuildCanCreate = reply
+            lastEvent = "Guild create allowed · \(reply.canCreateGuild)"
+        case .guildCreateAllowed(let reply):
+            lastGuildCreateAllowed = reply
+            lastEvent = "Guild create reply · \(reply.createGuild)"
+        case .checkNameResponse(let reply):
+            lastCheckNameResponse = reply
+            lastEvent = "Name check · \(Self.displayName(reply.name)) · \(reply.result)"
+        case .nameChangeResponse(let reply):
+            lastNameChangeResponse = reply
+            lastEvent = "Name change · \(Self.displayName(reply.name)) · \(reply.result)"
+        case .journalQuestUpdate(let update):
+            lastJournalQuestUpdate = update
+            lastEvent = "Journal quests · \(update.questStates.count)"
         case .mapped(let opcode, let subOpcode, let names, let payload):
             for name in names {
                 mappedPacketCounts[name, default: 0] += 1

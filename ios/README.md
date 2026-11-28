@@ -28,7 +28,7 @@ In progress toward full parity:
 - A native in-process engine (`OSFREngine`) owns fixed-step advancement, input, an entity registry, an orthographic camera and a layered scene graph. `MetalWorldView` renders engine frames with a Metal pipeline; no Windows executable, Wine, DirectX, or process execution is used.
 - Native TGA/DDS decoders read the original client textures from `.tga`, `.dds`, `.pack` and `.rcc` sources, and the engine asset pipeline caches decoded textures by manifest-relative path.
 - Native Login UDP authentication performs the complete WebAPI → session → character select → character login flow, and a native gateway UDP transport opens the real `CGAPI_527` connection with the server-supplied ticket, GUID and AES-CCM session. Gateway reliable IDs start at zero, matching `UdpReliableChannel.ReliableIncomingId`; earlier builds acknowledged but never delivered `PacketLogin` and timed out during Join World. The documented client hello sends locale through `PacketTunneledClientWorldPacket` and initialization/finished/ready through `PacketTunneledClientPacket`, matching Sanctuary's handler routing. Continuous gameplay/world packets beyond that hello are not yet simulated.
-- Foundation-only protocol, resource, container, image, gateway, world-simulation, local-session and engine layers have Linux XCTest coverage (246 tests, 1 skipped).
+- Foundation-only protocol, resource, container, image, gateway, world-simulation, local-session and engine layers have Linux XCTest coverage (259 tests, 1 skipped).
 
 Not supported on iOS:
 
@@ -188,8 +188,9 @@ artifact and does not include these source changes. The newer source work is doc
 `sanctuary-audit/30-trade-handshake-codecs.md`,
 `sanctuary-audit/31-housing-instance-list-codec.md`,
 `sanctuary-audit/32-ui-script-dispatch-codecs.md`,
-`sanctuary-audit/33-raw-payload-packet-boundaries.md` and
-`sanctuary-audit/34-ci-trigger-verification.md`; none of those notes claims
+`sanctuary-audit/33-raw-payload-packet-boundaries.md`,
+`sanctuary-audit/34-ci-trigger-verification.md` and
+`sanctuary-audit/35-scalar-reply-codec-expansion.md`; none of those notes claims
 full compiled-client or Lua/gameplay parity. Note 18 records an
 Xcode project omission that would have broken a build of the newer source, and
 the subsequent correction of a 25-packet batch: seven packets whose C#
@@ -241,7 +242,11 @@ the exact length-prefixed boundaries of 57, 149/1, and 152/3 while retaining the
 payload bytes verbatim; their inner formats remain unresolved. Note 34 records
 that neither bulk tree commits nor a contents-API control commit produced check
 suites, so a maintainer must trigger the active workflow manually; it does not
-claim that a fresh IPA exists.
+claim that a fresh IPA exists. Note 35 adds 29 exact scalar or bounded-loop
+reply codecs (chat, command, player/collection, pet, quick chat, friend/ignore,
+housing, guild, name change, and journal) while keeping unresolved nested
+serializers raw; it also records an opcode-35 routing shadow that the fixtures
+caught and corrected.
 
 Bundled resources now use validated relative components appended directly to
 the trusted `Bundle.main` root; there is no path-string prefix comparison and
@@ -274,11 +279,12 @@ Foundation-only logic is verified locally:
 swift test --package-path ios
 ```
 
-The 246 tests (1 skipped) cover XXH64, URL/path safety, manifest v1/v2 and
+The 259 tests (1 skipped) cover XXH64, URL/path safety, manifest v1/v2 and
 case-insensitive manifest locales, embedded-payload manifest matching, packet primitives,
 CRC32, RC4, GUID layout, WebAPI login response decoding, login framing/messages,
 gateway AES-CCM, opcode codecs, scalar hitpoints/mana/effect-tag/quest/pet/
-trade/membership/friend/mount/player-update/client-area/MOTD/animation/composite-effect
+trade/membership/friend/mount/player-update/client-area/MOTD/animation/composite-effect,
+chat/command/collection/quick-chat/ignore/housing/guild/name-change/journal
 decoders and reliable-ID sequencing, the 352-class
 Sanctuary packet routing catalog (including wire-type overlap and source
 direction hints) and raw-payload preservation, byte/int/short sub-opcode
