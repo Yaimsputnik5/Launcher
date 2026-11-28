@@ -424,4 +424,44 @@ enum PacketCatalog {
     static func isRTTIVerified(_ className: String) -> Bool {
         rttiVerifiedClassNames.contains(className)
     }
+
+    // MARK: - Wire-type and direction-aware routing (generated inventory)
+
+    /// The same numeric opcode is legal in both the login (`byte`) and gateway
+    /// (`short`) protocols. Never resolve an opcode without its wire type.
+    enum WireType: String, Hashable, Sendable {
+        case byte
+        case short
+    }
+
+    struct Route: Hashable, Sendable {
+        let className: String
+        let wireType: WireType
+        let direction: String?
+        let rttiVerified: Bool
+    }
+
+    /// Metadata-backed routes. `direction` is a source hint from Sanctuary's
+    /// handlers/serializers, not proof of runtime direction on a live session.
+    static func routes(
+        opcode: Int16,
+        subOpcode: Int16? = nil,
+        wireType: WireType? = nil
+    ) -> [Route] {
+        SanctuaryPacketInventory.packets.compactMap { packet in
+            guard packet.opcode == opcode, packet.subOpcode == subOpcode,
+                  let wire = WireType(rawValue: packet.wireType) else { return nil }
+            if let wireType, wire != wireType { return nil }
+            return Route(
+                className: packet.className,
+                wireType: wire,
+                direction: packet.direction,
+                rttiVerified: packet.rttiVerified
+            )
+        }
+    }
+
+    static func wireTypes(opcode: Int16, subOpcode: Int16? = nil) -> Set<WireType> {
+        Set(routes(opcode: opcode, subOpcode: subOpcode).map(\.wireType))
+    }
 }

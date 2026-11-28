@@ -102,11 +102,27 @@ call.
 `ev_7c56375ea88e387e5f50714933fb27325d6d9b86e4cac50899472ae40d0b2b24`;
 `fcn.0097c280` in `ev_607383fe657b0b463b9b146158a9fce667a5227c943fca38ead64ffee4c064a8`.
 
+## Additional compiled-client evidence (same target)
+
+| Evidence ID | Observation |
+|---|---|
+| `ev_5014d618df8315a595e8576d8c214549bde0444aba317b6298da0cf1d4bf702b` | `aaa; s 0x0090e8a0; axt` finds two call sites: `0x947306` and `0x947c07`. Both sit in a `BaseClient.virtual_108` region and pass a stack argument into `fcn.0090e8a0` immediately before zone-related fields at `[esi+0x784]`/`[esi+0x785]` are written. This is a real zone-transition path, not a config-only helper. |
+| `ev_2f650ee857217b35d1ec7ecb87d2a94597a834e687ff5cca90aa288b7dc4606f` | `fcn.009046e0` constructs an `SoeUtil::IString_char_` value `HUD:SetIsInStartingZone` and dispatches a variant payload (type `5`, a byte/bool value from `arg_4h`). This confirms that the zone-3 flag computed by `fcn.0090e8a0` is observable as a HUD command. |
+| `ev_ae3854a93313ba66c678ca790b60b74181b7b409f9603f9431eabcc42f94a894` | `fcn.0097c260` is a thin wrapper that forwards the cached `PlayerName` global (`0x1be5240`) into `fcn.0097c090`; it has 65 xrefs. |
+| `ev_09898a48dff860e7999ce8d97c45a4cefe6e07779c0735771fcc76358a36fcc4` | `fcn.0097c090` builds the spawn object (calls `fcn.00fc45f0`, `fcn.0097b960` and `fcn.0097bca0`) and is called from the `PlayerName` spawn wrapper and `0x97c243`. The exact spawn transform algorithm is still not decompiled. |
+| `ev_6b7ec6c62e75c043152933de7831df53dbcf210bc5473b0b1fc71768638edeaa` | The `%sStartingZoneLoad.txt` parser at `0x9cdd3e` uses `fcn.00402fd0` to open the file, sets delimiter `'^'` (`0x5e`), skips rows beginning with `'#'`, requires at least 3 non-empty fields, reads into a `0x8000`-byte row buffer, then splits into 0x400-byte fields. The row schema remains unnamed. |
+| `ev_91a9527c4e24c835c8c57054ebc6c27ba1df7a2dbb7ceaa6f3b55cb965083e91`, `ev_b204e9f19f8621296fbc2401f379cb01123bb5e3e592084f03e20260519e9639`, `ev_90c855125b2f6921456b5a2d2edf2cf26382e1dc30f9cae97fb8252f324a9e3c` | String inventory confirms `SetUserOptionsValue` / `GetUserOptionsValue` (`0x182ca30`, `0x182ca44`), `Coins` (`0x1809994`) and `StationCash` (`0x18211d0`) exist in the shipped image. Direct `aaa; axt` requests for the three setter/getter/string addresses returned no references (`ev_484b9bc8c99f1bfb41e334e0e5af19e45d1fc5ca20455ad1f3dfc2c8c58654c4`, `ev_c0e6499c0eff9c49b2cec8f57a8f04f476141db50d02e66efd913989112aec5b`, `ev_34b793ed06af2e9588607fe189777dbd13518ed27bd3eff9cbc4987913820e03`), so no currency-setting semantics are claimed. |
+
+The packet catalog was also extended with metadata-backed routes that preserve
+the `byte` (login) vs `short` (gateway) wire type and the source direction hint
+for each of the 352 classes. Direction is a source-derived hint, not proof of
+runtime direction; it is not used to fabricate or discard live packets.
+
 ## Still unresolved
 
-1. `0x8a9010`, `0x9046e0`, `0x9cdcd0` row parsing and the Lua dispatch targets
-   are not decompiled to semantics; only their string xrefs and call sites are
-   verified here.
+1. `0x8a9010`, the `0x9cdcd0` row schema, `fcn.0097c090` spawn transform and the
+   Lua dispatch targets are not decompiled to semantics; only their string
+   xrefs, call sites and (where shown) dispatch payloads are verified here.
 2. The 352-class packet inventory is a routing/layout catalog. Field codecs for
    most packets, direction-specific handling and server-side behavior are not
    implemented in Swift.

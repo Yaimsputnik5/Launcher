@@ -200,11 +200,12 @@ Foundation-only logic is verified locally:
 swift test --package-path ios
 ```
 
-The 219 tests (1 skipped) cover XXH64, URL/path safety, manifest v1/v2 and
+The 221 tests (1 skipped) cover XXH64, URL/path safety, manifest v1/v2 and
 case-insensitive manifest locales, embedded-payload manifest matching, packet primitives,
 CRC32, RC4, GUID layout, WebAPI login response decoding, login framing/messages,
 gateway AES-CCM, opcode codecs and reliable-ID sequencing, the 352-class
-Sanctuary packet routing catalog and raw-payload preservation, `.pack`/`.rcc`
+Sanctuary packet routing catalog (including wire-type overlap and source
+direction hints) and raw-payload preservation, `.pack`/`.rcc`
 parsing, TGA/DDS decoding, Sanctuary resource schemas, zone/collection/quest
 simulation, offline account/character persistence, host setting application
 (including live in-world updates and non-default starting-zone spawn), world

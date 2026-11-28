@@ -40,6 +40,32 @@ final class PacketCatalogTests: XCTestCase {
         XCTAssertEqual(SanctuaryPacketInventory.packets.filter { $0.rttiVerified }.count, 73)
     }
 
+    func testWireTypeAndDirectionMetadataAreExplicit() {
+        XCTAssertEqual(
+            PacketCatalog.wireTypes(opcode: 1, subOpcode: nil),
+            [.byte, .short]
+        )
+        let login = PacketCatalog.routes(opcode: 1, subOpcode: nil, wireType: .byte)
+        XCTAssertTrue(login.contains { $0.className == "LoginRequest" })
+        XCTAssertFalse(login.contains { $0.className == "PacketLogin" })
+        let gatewayLogin = PacketCatalog.routes(opcode: 1, subOpcode: nil, wireType: .short)
+        XCTAssertTrue(gatewayLogin.contains { $0.className == "PacketLogin" })
+
+        let welcome = PacketCatalog.routes(opcode: 93).first { $0.className == "PacketLoadWelcomeScreen" }
+        XCTAssertTrue(welcome?.direction?.contains("server->client") == true)
+        let questAbandon = PacketCatalog.routes(opcode: 49, subOpcode: 6)
+            .first { $0.className == "QuestAbandonedPacket" }
+        XCTAssertTrue(questAbandon?.direction?.contains("client->server") == true)
+    }
+
+    func testSubOpcodeFamilyIsNotConfusedWithTopLevelRoute() {
+        let topLevel = PacketCatalog.routes(opcode: 74, subOpcode: nil)
+        let family = PacketCatalog.routes(opcode: 74, subOpcode: 1)
+        XCTAssertNotEqual(Set(topLevel.map(\.className)), Set(family.map(\.className)))
+        XCTAssertTrue(family.contains { $0.className == "FriendListPacket" && $0.rttiVerified })
+        XCTAssertEqual(family.first?.wireType, .short)
+    }
+
     func testTopLevelKnownPacketIsPreservedAsRaw() throws {
         let data = framed(93, nil, [0xde, 0xad, 0xbe, 0xef])
         let packet = try GatewayWorldCodec.decodeAny(data)
