@@ -191,10 +191,12 @@ artifact and does not include these source changes. The newer source work is doc
 `sanctuary-audit/33-raw-payload-packet-boundaries.md`,
 `sanctuary-audit/34-ci-trigger-verification.md`,
 `sanctuary-audit/35-scalar-reply-codec-expansion.md`,
-`sanctuary-audit/36-starting-zone-loader-and-callback.md` and
-`sanctuary-audit/37-full-client-reconstruction-charter.md`; none of those notes
-claims full compiled-client or Lua/gameplay parity. Note 37 defines the evidence
-rules and acceptance conditions for the requested complete port. Note 18 records an
+`sanctuary-audit/36-starting-zone-loader-and-callback.md`,
+`sanctuary-audit/37-full-client-reconstruction-charter.md` and
+`sanctuary-audit/38-ios-parity-gap-ledger.md`; none of those notes claims full
+compiled-client or Lua/gameplay parity. Note 37 defines the evidence rules and
+acceptance conditions for the requested complete port, and note 38 records the
+concrete implementation, asset, build, and device gaps still open. Note 18 records an
 Xcode project omission that would have broken a build of the newer source, and
 the subsequent correction of a 25-packet batch: seven packets whose C#
 `Serialize()` calls nested serializers were removed, and seven exact scalar-only
