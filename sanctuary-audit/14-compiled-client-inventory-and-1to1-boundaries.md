@@ -36,9 +36,12 @@ REA's non-Hopper `inspect_with_objdump` path succeeded on the exact artifact:
 | `inspect_with_objdump file_headers` | `ev_2402cedea0a344191caae70074770fa6b4c25c92632dea64527c87ab4437a794` | `pei-i386`, `start address 0x00d83687` |
 | `inspect_with_objdump symbols` | `ev_e5b94ea328a70c2aefb206cf9316f1501e258576f6ae4f99b533c2053c47a3d0` | no COFF symbol table |
 | `inspect_with_objdump relocations` | `ev_6a3e98879aa2da3a84e72689c61b71bdb016e9bc162fe10194ef462e708466a3` | no relocation rows returned by GNU objdump for this PE |
+| `execute-rizin-command pd 8 @ 0xd83687` | `ev_4a0ef83ec51842a5719f090c8020aec307ac84898599267b7831a71608d79886` | `call 0xd95820` followed by `jmp 0xd834a7` |
 
 These are independent confirmations of the entry address already observed in
-`05-compiled-binaries-and-rea.md`.
+`05-compiled-binaries-and-rea.md`. Rizin's tail jump agrees with the Ghidra
+decompilation's second call: the decompiler renders the tail transfer as a
+call followed by `return`.
 
 ## Full Ghidra function and call-graph export
 
