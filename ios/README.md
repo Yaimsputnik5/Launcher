@@ -163,8 +163,10 @@ resource path fix begins at `f568a64430e6a36cb1fae22c2d6dd4a0225d84e4`
 (`Resolve bundled resources without path containment under LiveContainer`), and
 the packet catalog work is at `c43ae1efcc31b74389120c535050b6209ab11830`
 (`Map Sanctuary packet catalog and preserve known raw packets`). A fresh IPA has
-not been published for those commits: GitHub still reports zero Actions runs
-and zero check runs for them. A repository maintainer must re-enable Actions for
+not been published for those commits: GitHub reported zero Actions runs and
+zero check runs for them before the 2026-11-28 trigger commit (this commit is
+intentionally not marked `[skip ci]` so the workflow status can be retested).
+A repository maintainer must re-enable Actions for
 `YaimSputnik5/Launcher`, then re-run the `Build iOS IPA` workflow on `ios-build`.
 The verified release below remains the last built artifact and does not include
 these source changes. The newer source work is documented in
