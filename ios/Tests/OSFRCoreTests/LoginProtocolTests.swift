@@ -146,6 +146,31 @@ final class LoginProtocolTests: XCTestCase {
         XCTAssertEqual(try decoded.accountInfo(), account)
     }
 
+    func testForceDisconnectAndCharacterCreateReplyUseExactFieldOrder() throws {
+        var disconnect = PacketWriter()
+        disconnect.writeUInt8(4)
+        disconnect.writeInt32(9)
+        let forced = LoginProtocol.ForceDisconnect(reason: 9)
+        XCTAssertEqual(LoginPacket.encode(forced), disconnect.data)
+        XCTAssertEqual(try LoginPacket.decode(LoginProtocol.ForceDisconnect.self, from: disconnect.data), forced)
+        XCTAssertEqual(try LoginPacket.decodeAny(from: disconnect.data), .forceDisconnect(forced))
+
+        var create = PacketWriter()
+        create.writeUInt8(6)
+        create.writeInt32(4)
+        create.writeUInt64(0x1122_3344_5566_7788)
+        let reply = LoginProtocol.CharacterCreateReply(result: 4, guid: 0x1122_3344_5566_7788)
+        XCTAssertEqual(LoginPacket.encode(reply), create.data)
+        XCTAssertEqual(try LoginPacket.decode(LoginProtocol.CharacterCreateReply.self, from: create.data), reply)
+        XCTAssertEqual(try LoginPacket.decodeAny(from: create.data), .characterCreateReply(reply))
+
+        var trailing = disconnect.data
+        trailing.append(0x00)
+        XCTAssertThrowsError(try LoginPacket.decode(LoginProtocol.ForceDisconnect.self, from: trailing)) { error in
+            XCTAssertEqual(error as? LoginProtocolError, .trailingBytes(1))
+        }
+    }
+
     // MARK: Character list / select
 
     func testCharacterSelectListRoundTripWithSyntheticBuffer() throws {

@@ -309,6 +309,8 @@ enum LoginPacket {
         switch try opcode(from: data) {
         case .loginRequest: return .sessionRequest(try decode(LoginProtocol.SessionRequest.self, from: data))
         case .loginReply: return .sessionReply(try decode(LoginProtocol.SessionReply.self, from: data))
+        case .forceDisconnect: return .forceDisconnect(try decode(LoginProtocol.ForceDisconnect.self, from: data))
+        case .characterCreateReply: return .characterCreateReply(try decode(LoginProtocol.CharacterCreateReply.self, from: data))
         case .characterSelectInfoRequest: return .characterSelectRequest
         case .characterSelectInfoReply: return .characterSelectReply(try decode(LoginProtocol.CharacterSelectReply.self, from: data))
         case .characterLoginRequest: return .characterLoginRequest(try decode(LoginProtocol.CharacterLoginRequest.self, from: data))
@@ -323,6 +325,8 @@ enum LoginPacket {
 enum LoginDecodedMessage: Equatable {
     case sessionRequest(LoginProtocol.SessionRequest)
     case sessionReply(LoginProtocol.SessionReply)
+    case forceDisconnect(LoginProtocol.ForceDisconnect)
+    case characterCreateReply(LoginProtocol.CharacterCreateReply)
     case characterSelectRequest
     case characterSelectReply(LoginProtocol.CharacterSelectReply)
     case characterLoginRequest(LoginProtocol.CharacterLoginRequest)
@@ -421,6 +425,51 @@ enum LoginProtocol {
             writer.writeInt32(status)
             writer.writeBool(isMember)
             writer.writeData(payload)
+        }
+    }
+
+    /// `Sanctuary.Packet.ForceDisconnect` (byte opcode 4): the server writes a
+    /// single Int32 reason and immediately disconnects the login connection.
+    struct ForceDisconnect: LoginMessage, Equatable {
+        static let opcode: LoginOpcode = .forceDisconnect
+
+        var reason: Int32
+
+        init(reason: Int32) {
+            self.reason = reason
+        }
+
+        init(fieldsFrom reader: inout PacketReader) throws {
+            reason = try reader.readInt32()
+        }
+
+        func appendFields(to writer: inout PacketWriter) {
+            writer.writeInt32(reason)
+        }
+    }
+
+    /// `Sanctuary.Packet.CharacterCreateReply` (byte opcode 6). Sanctuary writes
+    /// `Result` before `Guid`; the iOS launcher does not create characters, but
+    /// decoding the reply keeps the message mapped instead of discarding it.
+    struct CharacterCreateReply: LoginMessage, Equatable {
+        static let opcode: LoginOpcode = .characterCreateReply
+
+        var result: Int32
+        var guid: UInt64
+
+        init(result: Int32, guid: UInt64) {
+            self.result = result
+            self.guid = guid
+        }
+
+        init(fieldsFrom reader: inout PacketReader) throws {
+            result = try reader.readInt32()
+            guid = try reader.readUInt64()
+        }
+
+        func appendFields(to writer: inout PacketWriter) {
+            writer.writeInt32(result)
+            writer.writeUInt64(guid)
         }
     }
 

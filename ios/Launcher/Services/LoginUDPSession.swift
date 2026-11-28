@@ -39,6 +39,7 @@ enum LoginUDPError: LocalizedError {
     case transport(String)
     case protocolError(String)
     case loginRejected(Int32)
+    case forceDisconnected(Int32)
     case noCharacters
     case invalidCharacterReply(Int32)
 
@@ -49,6 +50,7 @@ enum LoginUDPError: LocalizedError {
         case .transport(let detail): return "Login connection failed: \(detail)"
         case .protocolError(let detail): return "Invalid Login UDP packet: \(detail)"
         case .loginRejected(let status): return "The login server rejected the session (status \(status))."
+        case .forceDisconnected(let reason): return "The login server disconnected the session (reason \(reason))."
         case .noCharacters: return "This account has no character available to enter the world."
         case .invalidCharacterReply(let status): return "Character login failed (status \(status))."
         }
@@ -559,6 +561,11 @@ final class LoginUDPSession: @unchecked Sendable {
         switch message {
         case .sessionReply(let reply):
             handleSessionReply(reply)
+        case .forceDisconnect(let disconnect):
+            finish(.failure(LoginUDPError.forceDisconnected(disconnect.reason)))
+        case .characterCreateReply:
+            // Character creation is not exposed by the iOS launcher.
+            break
         case .characterSelectReply(let reply):
             handleCharacterSelectReply(reply)
         case .characterLoginReply(let reply):
