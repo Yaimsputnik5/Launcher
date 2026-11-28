@@ -88,7 +88,12 @@ provided, requested, captured or stored.
 | `PlayerName` | `ev_899aca2b893427f6b1978c7c2f860270f73799edc576ffc51127e4ff338bc6dc`, `ev_607383fe657b0b463b9b146158a9fce667a5227c943fca38ead64ffee4c064a8`; `fcn.0097c280` (`0x97c2d3`) | A lazy getter caches `PlayerName` into global `0x1be5240`. The cached string is then passed as the name of a `"player"` spawn object via `fcn.0097c260`. This is direct evidence that the name setting affects the local player object, not only a UI label. |
 | `ProfileName` | `ev_899aca2b893427f6b1978c7c2f860270f73799edc576ffc51127e4ff338bc6dc`, `ev_2c8d18eee100d421e769b1bddc73c8f871b07c0231c4365d236e7cb442e24fb9`; `fcn.009fad80` (`0x9fb006`) | `ProfileName` is written into an analytics/social payload beside `ProfileId`, `MiniGameId`, `MiniGameType`, `MiniGameCompleted` and `MiniGameResult`. |
 | `%sStartingZoneLoad.txt` | `ev_7413fb40ae8aaf7e343ccc579596fe89ccd4332e8d127f72da35fdbc49a51712`; `fcn.009cdcd0` (`0x9cdd3e`) | `BaseClient.virtual_80` caller formats a zone-specific `StartingZoneLoad.txt` filename, opens it, then parses `^`-delimited rows into 1024/0x400-byte and 0x8000-byte buffers. The exact row schema remains undecoded. |
-| `LuaCall` | `ev_899aca2b893427f6b1978c7c2f860270f73799edc576ffc51127e4ff338bc6dc`; xrefs at `0xa3e1f0`, `0xa414fc` | `LuaCall` is read as a virtual getter result by two unnamed functions. `BindCommandToLua` has no direct xref under `aaa`, so registration may be data-driven; no Lua dispatch semantics are claimed. |
+| `LuaCall` | `ev_899aca2b893427f6b1978c7c2f860270f73799edc576ffc51127e4ff338bc6dc`, `ev_b64e8d9db293291b765fd8fb6ad5cdfe5dd88a477618c1fa21a65fb6b23f387b`, `ev_aa254f63b431114f61ec39b920e05a3aae0c19e31371e219af6e7a5d4eb728ef` | The two xrefs are virtual field-name getters: `0xa3e1f0` belongs to `WhatsNewDataSource.virtual_4` and `0xa414fc` to `NudgeDataSource.virtual_4`; each simply returns `"LuaCall"` beside fields such as `TitleStringId`, `StringParam1` and `Param1`. They expose a server-provided Lua callback field, not a generic Lua dispatcher. `BindCommandToLua` has no direct xref under `aaa`; no Lua dispatch semantics are claimed. |
+
+The string `Lua Spawn and automount: id %d` is a log message in a mount routine
+at `0xbff7ff` (`ev_7569299b1d27716c710eb682869433e88c907c6ebada27930a190e5fc23c190c`),
+written through `ClientMountLog.txt`; it does not by itself prove a Lua script
+call.
 
 `fcn.009fad80` also writes `PlayerName`, `PlayerId`, `Race`, `Gender`,
 `LocationX` and other fields into the same payload
