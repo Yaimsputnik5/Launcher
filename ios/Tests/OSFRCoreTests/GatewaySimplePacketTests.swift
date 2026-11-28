@@ -1072,4 +1072,98 @@ final class GatewaySimplePacketTests: XCTestCase {
         XCTAssertEqual(observation.objectiveTargetUpdate?.guid ?? 0, 88)
         XCTAssertEqual(observation.lastClearedObjectiveUnknown, -7)
     }
+
+
+    func testAdditionalTradePacketsUseExactCSharpFieldOrder() throws {
+        func writeHeader(_ sub: UInt8, to writer: inout PacketWriter) {
+            GatewayWire.appendInt16(GatewayTradeCoinCount.opcode, to: &writer.data)
+            writer.writeUInt8(sub)
+        }
+
+        var endWriter = PacketWriter()
+        writeHeader(GatewayTradeEndSession.subOpcode, to: &endWriter)
+        endWriter.writeInt32(701)
+        let end = try GatewayWorldCodec.decodeAny(endWriter.data)
+        guard case .tradeEndSession(let ended) = end else {
+            return XCTFail("Expected trade end session, got \(end)")
+        }
+        XCTAssertEqual(ended.sessionID, 701)
+
+        var addWriter = PacketWriter()
+        writeHeader(GatewayTradeAddItem.subOpcode, to: &addWriter)
+        addWriter.writeInt32(702)
+        addWriter.writeInt32(4)
+        addWriter.writeBool(true)
+        addWriter.writeInt32(9001)
+        addWriter.writeInt32(17)
+        addWriter.writeInt32(44)
+        addWriter.writeInt32(5)
+        addWriter.writeInt32(6)
+        addWriter.writeInt32(Int32.max)
+        addWriter.writeBool(false)
+        addWriter.writeInt32(2)
+        let add = try GatewayWorldCodec.decodeAny(addWriter.data)
+        guard case .tradeAddItem(let added) = add else {
+            return XCTFail("Expected trade add item, got \(add)")
+        }
+        XCTAssertEqual(added.sessionID, 702)
+        XCTAssertEqual(added.revision, 4)
+        XCTAssertTrue(added.isMine)
+        XCTAssertEqual(added.item.definition, 9001)
+        XCTAssertEqual(added.item.tint, 17)
+        XCTAssertEqual(added.item.id, 44)
+        XCTAssertEqual(added.item.count, 5)
+        XCTAssertEqual(added.item.consumedCount, 6)
+        XCTAssertEqual(added.item.lastCastTime, Int32.max)
+        XCTAssertFalse(added.item.rentalPlaceholder)
+        XCTAssertEqual(added.item.abilityCount, 2)
+
+        var countWriter = PacketWriter()
+        writeHeader(GatewayTradeItemCount.subOpcode, to: &countWriter)
+        countWriter.writeInt32(703)
+        countWriter.writeInt32(8)
+        countWriter.writeBool(false)
+        countWriter.writeInt32(55)
+        countWriter.writeInt32(12)
+        let count = try GatewayWorldCodec.decodeAny(countWriter.data)
+        guard case .tradeItemCount(let counted) = count else {
+            return XCTFail("Expected trade item count, got \(count)")
+        }
+        XCTAssertEqual(counted.sessionID, 703)
+        XCTAssertEqual(counted.itemInstanceID, 55)
+        XCTAssertEqual(counted.offeredTotal, 12)
+
+        var lockWriter = PacketWriter()
+        writeHeader(GatewayTradeLock.subOpcode, to: &lockWriter)
+        lockWriter.writeInt32(704)
+        lockWriter.writeBool(true)
+        let lock = try GatewayWorldCodec.decodeAny(lockWriter.data)
+        guard case .tradeLock(let locked) = lock else {
+            return XCTFail("Expected trade lock, got \(lock)")
+        }
+        XCTAssertEqual(locked.sessionID, 704)
+        XCTAssertTrue(locked.locked)
+
+        var confirmWriter = PacketWriter()
+        writeHeader(GatewayTradeConfirm.subOpcode, to: &confirmWriter)
+        confirmWriter.writeInt32(705)
+        let confirm = try GatewayWorldCodec.decodeAny(confirmWriter.data)
+        guard case .tradeConfirm(let confirmed) = confirm else {
+            return XCTFail("Expected trade confirm, got \(confirm)")
+        }
+        XCTAssertEqual(confirmed.sessionID, 705)
+
+        var observation = GatewayWorldObservation.empty
+        for packet in [end, add, count, lock, confirm] {
+            observation.apply(packet)
+        }
+        XCTAssertEqual(observation.lastEndedTradeSessionID, 701)
+        XCTAssertEqual(observation.lastTradeAddItem?.item.definition, 9001)
+        XCTAssertEqual(observation.lastTradeItemCount?.offeredTotal, 12)
+        XCTAssertEqual(observation.lastTradeLock?.sessionID, 704)
+        XCTAssertTrue(observation.confirmedTradeSessionIDs.contains(705))
+        XCTAssertTrue(observation.positions.isEmpty)
+        XCTAssertTrue(observation.chatMessages.isEmpty)
+        XCTAssertNil(observation.hitpointsCurrent)
+    }
 }

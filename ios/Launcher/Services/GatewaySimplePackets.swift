@@ -1485,3 +1485,157 @@ struct GatewayObjectiveClientClear: Equatable, Sendable {
         guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
     }
 }
+
+/// `BaseTradePacket` (59) / `TradeEndSessionPacket` (5). The sub-opcode is one byte.
+struct GatewayTradeEndSession: Equatable, Sendable {
+    static let opcode: Int16 = 59
+    static let subOpcode: UInt8 = 5
+
+    let sessionID: Int32
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try reader.readUInt8()
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedInternalOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        sessionID = try reader.readInt32()
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `Sanctuary.Packet.Common.ItemInstance` as serialized by
+/// `TradeUpdateAddItemPacket`. `ItemRecord.Serialize` writes `Definition` and
+/// `Tint`; `ItemInstance.Serialize` then writes the remaining fields, a hard-coded
+/// rental placeholder, and `AbilityCount`. Names come from the C# source only.
+struct GatewayTradeItemInstance: Equatable, Sendable {
+    let definition: Int32
+    let tint: Int32
+    let id: Int32
+    let count: Int32
+    let consumedCount: Int32
+    let lastCastTime: Int32
+    let rentalPlaceholder: Bool
+    let abilityCount: Int32
+
+    init(reader: inout PacketReader) throws {
+        definition = try reader.readInt32()
+        tint = try reader.readInt32()
+        id = try reader.readInt32()
+        count = try reader.readInt32()
+        consumedCount = try reader.readInt32()
+        lastCastTime = try reader.readInt32()
+        rentalPlaceholder = try reader.readBool()
+        abilityCount = try reader.readInt32()
+    }
+}
+
+/// `BaseTradePacket` (59) / `TradeUpdateAddItemPacket` (12). Its nested
+/// `ItemInstance.Serialize(writer)` is scalar-only, so it is decoded here
+/// instead of falling back to raw bytes.
+struct GatewayTradeAddItem: Equatable, Sendable {
+    static let opcode: Int16 = 59
+    static let subOpcode: UInt8 = 12
+
+    let sessionID: Int32
+    let revision: Int32
+    let isMine: Bool
+    let item: GatewayTradeItemInstance
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try reader.readUInt8()
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedInternalOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        sessionID = try reader.readInt32()
+        revision = try reader.readInt32()
+        isMine = try reader.readBool()
+        item = try GatewayTradeItemInstance(reader: &reader)
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `BaseTradePacket` (59) / `TradeUpdateItemCountPacket` (13).
+struct GatewayTradeItemCount: Equatable, Sendable {
+    static let opcode: Int16 = 59
+    static let subOpcode: UInt8 = 13
+
+    let sessionID: Int32
+    let revision: Int32
+    let isMine: Bool
+    let itemInstanceID: Int32
+    let offeredTotal: Int32
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try reader.readUInt8()
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedInternalOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        sessionID = try reader.readInt32()
+        revision = try reader.readInt32()
+        isMine = try reader.readBool()
+        itemInstanceID = try reader.readInt32()
+        offeredTotal = try reader.readInt32()
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `BaseTradePacket` (59) / `TradeUpdateLockPacket` (17).
+struct GatewayTradeLock: Equatable, Sendable {
+    static let opcode: Int16 = 59
+    static let subOpcode: UInt8 = 17
+
+    let sessionID: Int32
+    let locked: Bool
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try reader.readUInt8()
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedInternalOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        sessionID = try reader.readInt32()
+        locked = try reader.readBool()
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `BaseTradePacket` (59) / `TradeConfirmPacket` (18).
+struct GatewayTradeConfirm: Equatable, Sendable {
+    static let opcode: Int16 = 59
+    static let subOpcode: UInt8 = 18
+
+    let sessionID: Int32
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try reader.readUInt8()
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedInternalOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        sessionID = try reader.readInt32()
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}

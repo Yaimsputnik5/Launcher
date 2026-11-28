@@ -2303,6 +2303,11 @@ enum GatewayWorldPacket: Equatable {
     case petActive(GatewayPetActive)
     case tradeCoinCount(GatewayTradeCoinCount)
     case tradeMessage(GatewayTradeMessage)
+    case tradeEndSession(GatewayTradeEndSession)
+    case tradeAddItem(GatewayTradeAddItem)
+    case tradeItemCount(GatewayTradeItemCount)
+    case tradeLock(GatewayTradeLock)
+    case tradeConfirm(GatewayTradeConfirm)
     case membership(GatewayMembershipInfo)
     case lookAtTarget(GatewayLookAtTarget)
     case expectedSpeed(GatewayExpectedSpeed)
@@ -2517,6 +2522,16 @@ enum GatewayWorldCodec {
                 return .tradeCoinCount(try GatewayTradeCoinCount(data: data))
             case GatewayTradeMessage.subOpcode:
                 return .tradeMessage(try GatewayTradeMessage(data: data))
+            case GatewayTradeEndSession.subOpcode:
+                return .tradeEndSession(try GatewayTradeEndSession(data: data))
+            case GatewayTradeAddItem.subOpcode:
+                return .tradeAddItem(try GatewayTradeAddItem(data: data))
+            case GatewayTradeItemCount.subOpcode:
+                return .tradeItemCount(try GatewayTradeItemCount(data: data))
+            case GatewayTradeLock.subOpcode:
+                return .tradeLock(try GatewayTradeLock(data: data))
+            case GatewayTradeConfirm.subOpcode:
+                return .tradeConfirm(try GatewayTradeConfirm(data: data))
             default:
                 return Self.mappedOrUnknown(opcode: opcode, data: data)
             }
@@ -2687,6 +2702,11 @@ struct GatewayWorldObservation: Equatable, Sendable {
     var activePetGUIDs: [Int32: UInt64] = [:]
     var tradeCoinCounts: [Int32: GatewayTradeCoinCount] = [:]
     var lastTradeMessage: GatewayTradeMessage?
+    var lastEndedTradeSessionID: Int32?
+    var lastTradeAddItem: GatewayTradeAddItem?
+    var lastTradeItemCount: GatewayTradeItemCount?
+    var lastTradeLock: GatewayTradeLock?
+    var confirmedTradeSessionIDs: Set<Int32> = []
     var membershipInfo: GatewayMembershipInfo?
     /// Player state below is accumulated only from decoded player-update packets.
     var lookTargets: [UInt64: UInt64] = [:]
@@ -3007,6 +3027,21 @@ struct GatewayWorldObservation: Equatable, Sendable {
         case .tradeMessage(let message):
             lastTradeMessage = message
             lastEvent = "Trade message · \(message.messageCode)"
+        case .tradeEndSession(let update):
+            lastEndedTradeSessionID = update.sessionID
+            lastEvent = "Trade ended · \(update.sessionID)"
+        case .tradeAddItem(let update):
+            lastTradeAddItem = update
+            lastEvent = "Trade item · \(update.sessionID) · \(update.item.definition)"
+        case .tradeItemCount(let update):
+            lastTradeItemCount = update
+            lastEvent = "Trade item count · \(update.sessionID) · \(update.offeredTotal)"
+        case .tradeLock(let update):
+            lastTradeLock = update
+            lastEvent = "Trade lock · \(update.sessionID) · \(update.locked)"
+        case .tradeConfirm(let update):
+            confirmedTradeSessionIDs.insert(update.sessionID)
+            lastEvent = "Trade confirmed · \(update.sessionID)"
         case .membership(let info):
             membershipInfo = info
             lastEvent = "Membership · member \(info.isMember) · referee \(info.isReferee)"
