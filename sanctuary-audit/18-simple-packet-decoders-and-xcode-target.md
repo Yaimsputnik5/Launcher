@@ -5,7 +5,7 @@ Neither is a 1:1 completeness claim.
 
 ## 1. Scalar server-to-client packets
 
-Three small `Sanctuary.Packet` classes had exact `Serialize()` layouts in the
+Eleven small `Sanctuary.Packet` classes had exact `Serialize()` layouts in the
 compiled C# source but were still falling through the Swift codec as raw
 packets. They are now decoded from packet bytes only.
 
@@ -19,11 +19,17 @@ packets. They are now decoded from packet bytes only.
 | `QuestCompletePacket` | `BaseQuestPacket/QuestCompletePacket.cs` | `short 49`, **int** `4`, `int QuestId` | `GatewayQuestComplete` | `.completedQuestIDs` |
 | `QuestFailedPacket` | `BaseQuestPacket/QuestFailedPacket.cs` | `short 49`, **int** `5`, `int QuestId` | `GatewayQuestFailed` | `.failedQuestIDs` |
 | `CompletedQuestCountUpdatePacket` | `BaseQuestPacket/CompletedQuestCountUpdatePacket.cs` | `short 49`, **int** `12`, `int Count` | `GatewayCompletedQuestCount` | `.completedQuestCount` |
+| `PetStatusPacket` | `PetBasePacket/PetStatusPacket.cs` | `short 53`, **byte** `3`, `int PetId`, four `float` values | `GatewayPetStatus` | `.lastPetStatus` |
+| `PetActivePacket` | `PetBasePacket/PetActivePacket.cs` | `short 53`, **byte** `9`, `int PetId`, `ulong PetGuid` | `GatewayPetActive` | `.activePetGUIDs` |
+| `TradeUpdateCoinCountPacket` | `BaseTradePacket/TradeUpdateCoinCountPacket.cs` | `short 59`, **byte** `11`, `int SessionId`, `int Revision`, `bool IsMine`, `int OfferedCoins` | `GatewayTradeCoinCount` | `.tradeCoinCounts` |
+| `TradeMessagePacket` | `BaseTradePacket/TradeMessagePacket.cs` | `short 59`, **byte** `15`, byte `PartnerDisconnected`, byte `Completed`, byte `MessageCode` | `GatewayTradeMessage` | `.lastTradeMessage` |
+| `PacketMembershipSubscriptionInfo` | `PacketMembershipSubscriptionInfo.cs` | `short 189`, `bool IsMember`, `bool IsReferee` | `GatewayMembershipInfo` | `.membershipInfo` |
 
-The quest family is the first decoder here whose sub-opcode is a 4-byte `int`
-rather than a 2-byte `short`; its tests assert that exact layout. Hitpoints,
-mana, client area and completed-quest count are also shown in the remote
-`Gateway packet view` only when the corresponding packet has been decoded.
+The quest family uses a 4-byte `int` sub-opcode, while `PetBasePacket` and
+`BaseTradePacket` use one-byte sub-opcodes; the tests assert both layouts
+explicitly. Hitpoints, mana, client area, completed-quest count, pet and
+membership state are shown in the remote `Gateway packet view` only when the
+corresponding packet has been decoded.
 
 The Swift initializers require an exact opcode/sub-opcode, reject trailing
 bytes, and are dispatched from `GatewayWorldCodec.decodeAny` before the generic
@@ -64,7 +70,7 @@ Local Foundation-only suite after these changes:
 TMPDIR=/tmp/opencode swift test --package-path ios --scratch-path /tmp/opencode/osfr-swift-test-chunks
 ```
 
-Result: 229 tests, 1 skipped, 0 failures. SwiftUI/UIKit/Network/Metal and
+Result: 232 tests, 1 skipped, 0 failures. SwiftUI/UIKit/Network/Metal and
 actual IPA compilation still require macOS GitHub Actions; no local iOS SDK is
 available from this Linux host.
 

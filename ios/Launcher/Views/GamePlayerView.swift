@@ -593,6 +593,21 @@ private struct RemoteWorldView: View {
                         LabeledContent("Completed quests", value: "\(count)")
                             .font(.caption2)
                     }
+                    if let pet = observation.lastPetStatus {
+                        LabeledContent("Pet", value: "\(pet.petID) · mood \(Int(pet.mood))")
+                            .font(.caption2)
+                    }
+                    if let membership = observation.membershipInfo {
+                        LabeledContent(
+                            "Membership",
+                            value: membership.isMember ? "Member" : (membership.isReferee ? "Referee" : "None")
+                        )
+                        .font(.caption2)
+                    }
+                    if !observation.tradeCoinCounts.isEmpty {
+                        LabeledContent("Trade sessions", value: "\(observation.tradeCoinCounts.count)")
+                            .font(.caption2)
+                    }
                     if observation.chatMessages.isEmpty {
                         Text("No server chat received yet.")
                             .font(.caption2)

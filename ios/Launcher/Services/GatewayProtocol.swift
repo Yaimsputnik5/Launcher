@@ -2299,6 +2299,11 @@ enum GatewayWorldPacket: Equatable {
     case questComplete(GatewayQuestComplete)
     case questFailed(GatewayQuestFailed)
     case completedQuestCount(GatewayCompletedQuestCount)
+    case petStatus(GatewayPetStatus)
+    case petActive(GatewayPetActive)
+    case tradeCoinCount(GatewayTradeCoinCount)
+    case tradeMessage(GatewayTradeMessage)
+    case membership(GatewayMembershipInfo)
     case clientArea(GatewayClientAreaUpdate)
     case messageOfTheDay(GatewayMessageOfTheDay)
     /// A packet whose opcode/sub-opcode is known from Sanctuary or the compiled
@@ -2390,6 +2395,28 @@ enum GatewayWorldCodec {
             default:
                 return Self.mappedOrUnknown(opcode: opcode, data: data)
             }
+        case GatewayPetStatus.opcode:
+            let sub = try reader.readUInt8()
+            switch sub {
+            case GatewayPetStatus.subOpcode:
+                return .petStatus(try GatewayPetStatus(data: data))
+            case GatewayPetActive.subOpcode:
+                return .petActive(try GatewayPetActive(data: data))
+            default:
+                return Self.mappedOrUnknown(opcode: opcode, data: data)
+            }
+        case GatewayTradeCoinCount.opcode:
+            let sub = try reader.readUInt8()
+            switch sub {
+            case GatewayTradeCoinCount.subOpcode:
+                return .tradeCoinCount(try GatewayTradeCoinCount(data: data))
+            case GatewayTradeMessage.subOpcode:
+                return .tradeMessage(try GatewayTradeMessage(data: data))
+            default:
+                return Self.mappedOrUnknown(opcode: opcode, data: data)
+            }
+        case GatewayMembershipInfo.opcode:
+            return .membership(try GatewayMembershipInfo(data: data))
         case GatewayMessageOfTheDay.opcode:
             return .messageOfTheDay(try GatewayMessageOfTheDay(data: data))
         case GatewayClientAreaUpdate.opcode:
@@ -2474,6 +2501,11 @@ struct GatewayWorldObservation: Equatable, Sendable {
     var completedQuestIDs: Set<Int32> = []
     var failedQuestIDs: Set<Int32> = []
     var completedQuestCount: Int32?
+    var lastPetStatus: GatewayPetStatus?
+    var activePetGUIDs: [Int32: UInt64] = [:]
+    var tradeCoinCounts: [Int32: GatewayTradeCoinCount] = [:]
+    var lastTradeMessage: GatewayTradeMessage?
+    var membershipInfo: GatewayMembershipInfo?
     /// Packet-backed only: set by `PacketSetClientArea` / `PacketMOTD`.
     var activeClientAreaID: Int32?
     var clientAreaEnabled: Bool?
@@ -2741,6 +2773,21 @@ struct GatewayWorldObservation: Equatable, Sendable {
         case .completedQuestCount(let update):
             completedQuestCount = update.count
             lastEvent = "Completed quests · \(update.count)"
+        case .petStatus(let status):
+            lastPetStatus = status
+            lastEvent = "Pet \(status.petID) · hunger \(status.hunger) · mood \(status.mood)"
+        case .petActive(let pet):
+            activePetGUIDs[pet.petID] = pet.petGUID
+            lastEvent = "Active pet \(pet.petID) · \(pet.petGUID)"
+        case .tradeCoinCount(let update):
+            tradeCoinCounts[update.sessionID] = update
+            lastEvent = "Trade \(update.sessionID) · offered \(update.offeredCoins)"
+        case .tradeMessage(let message):
+            lastTradeMessage = message
+            lastEvent = "Trade message · \(message.messageCode)"
+        case .membership(let info):
+            membershipInfo = info
+            lastEvent = "Membership · member \(info.isMember) · referee \(info.isReferee)"
         case .clientArea(let area):
             activeClientAreaID = area.areaID
             clientAreaEnabled = area.enabled
