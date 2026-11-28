@@ -28,7 +28,7 @@ In progress toward full parity:
 - A native in-process engine (`OSFREngine`) owns fixed-step advancement, input, an entity registry, an orthographic camera and a layered scene graph. `MetalWorldView` renders engine frames with a Metal pipeline; no Windows executable, Wine, DirectX, or process execution is used.
 - Native TGA/DDS decoders read the original client textures from `.tga`, `.dds`, `.pack` and `.rcc` sources, and the engine asset pipeline caches decoded textures by manifest-relative path.
 - Native Login UDP authentication performs the complete WebAPI → session → character select → character login flow, and a native gateway UDP transport opens the real `CGAPI_527` connection with the server-supplied ticket, GUID and AES-CCM session. Gateway reliable IDs start at zero, matching `UdpReliableChannel.ReliableIncomingId`; earlier builds acknowledged but never delivered `PacketLogin` and timed out during Join World. The documented client hello sends locale through `PacketTunneledClientWorldPacket` and initialization/finished/ready through `PacketTunneledClientPacket`, matching Sanctuary's handler routing. Continuous gameplay/world packets beyond that hello are not yet simulated.
-- Foundation-only protocol, resource, container, image, gateway, world-simulation, local-session and engine layers have Linux XCTest coverage (259 tests, 1 skipped).
+- Foundation-only protocol, resource, container, image, gateway, world-simulation, local-session and engine layers have Linux XCTest coverage (261 tests, 1 skipped).
 
 Not supported on iOS:
 
@@ -189,9 +189,10 @@ artifact and does not include these source changes. The newer source work is doc
 `sanctuary-audit/31-housing-instance-list-codec.md`,
 `sanctuary-audit/32-ui-script-dispatch-codecs.md`,
 `sanctuary-audit/33-raw-payload-packet-boundaries.md`,
-`sanctuary-audit/34-ci-trigger-verification.md` and
-`sanctuary-audit/35-scalar-reply-codec-expansion.md`; none of those notes claims
-full compiled-client or Lua/gameplay parity. Note 18 records an
+`sanctuary-audit/34-ci-trigger-verification.md`,
+`sanctuary-audit/35-scalar-reply-codec-expansion.md` and
+`sanctuary-audit/36-starting-zone-loader-and-callback.md`; none of those notes
+claims full compiled-client or Lua/gameplay parity. Note 18 records an
 Xcode project omission that would have broken a build of the newer source, and
 the subsequent correction of a 25-packet batch: seven packets whose C#
 `Serialize()` calls nested serializers were removed, and seven exact scalar-only
@@ -225,9 +226,11 @@ constructor, destructor, `Resources/` row-reader call site, and two virtual slot
 the reader builds `%sStartingZoneLoad.txt`, skips `#` comments and rows with fewer
 than three `^` separators, while slot 0 walks a per-row count before selecting the
 next entry. Note 28 resolves slot 0's first callee as a Lua-facing loader/registrar
-by its `LuaErrors.log` literal, typed-value pusher, and 160-byte record loop; the
-parsed boolean at row+4 is inferred to be `IS_BACKGROUND_LOAD`, but callback
-semantics and the full row-to-header mapping remain unverified. Note 29 decodes
+by its `LuaErrors.log` literal, typed-value pusher, and 160-byte record loop. Note
+36 resolves the Lua C API callees, confirms `row+4` as `IS_BACKGROUND_LOAD` from
+the parsed `0x00726440` write, reconstructs `HUD.StartingZoneLoaded` from
+`ScriptsBase.bin`, and adds a native descriptor parser for the four verified
+rows; it does not execute Lua or claim renderer parity. Note 29 decodes
 login opcodes 4 and 6 from their exact C# `Serialize()` order and turns
 `ForceDisconnect` into a terminal login failure; character creation remains
 unimplemented and the live UDP failure path is not covered by Linux tests. Note
@@ -246,7 +249,9 @@ claim that a fresh IPA exists. Note 35 adds 29 exact scalar or bounded-loop
 reply codecs (chat, command, player/collection, pet, quick chat, friend/ignore,
 housing, guild, name change, and journal) while keeping unresolved nested
 serializers raw; it also records an opcode-35 routing shadow that the fixtures
-caught and corrected.
+caught and corrected. Note 36 completes the starting-zone loader REA, resolves
+the Lua C API names and the exact `HUD.StartingZoneLoaded` bytecode, and adds a
+native load-plan descriptor; no Lua execution or full gameplay parity is claimed.
 
 Bundled resources now use validated relative components appended directly to
 the trusted `Bundle.main` root; there is no path-string prefix comparison and
@@ -279,7 +284,7 @@ Foundation-only logic is verified locally:
 swift test --package-path ios
 ```
 
-The 259 tests (1 skipped) cover XXH64, URL/path safety, manifest v1/v2 and
+The 261 tests (1 skipped) cover XXH64, URL/path safety, manifest v1/v2 and
 case-insensitive manifest locales, embedded-payload manifest matching, packet primitives,
 CRC32, RC4, GUID layout, WebAPI login response decoding, login framing/messages,
 gateway AES-CCM, opcode codecs, scalar hitpoints/mana/effect-tag/quest/pet/
@@ -293,7 +298,8 @@ parsing, TGA/DDS decoding, Sanctuary resource schemas, zone/collection/quest
 simulation, offline account/character persistence, host setting application
 (including live in-world updates and non-default starting-zone spawn), world
 gating, fixed-step engine advancement, input events, camera projection, entity
-registration and scene layering. Packets whose C# serializer delegates to
+registration, scene layering, and verified `StartingZoneLoad.txt` row parsing.
+Packets whose C# serializer delegates to
 nested codecs remain raw-preserving `.mapped` packets and set no fabricated
 observation state. SwiftUI and iOS framework code can only be compiled by the
 macOS workflow.

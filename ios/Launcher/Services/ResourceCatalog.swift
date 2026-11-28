@@ -1448,3 +1448,95 @@ struct ResourceCatalog: Equatable {
         return result
     }
 }
+
+// MARK: - Starting-zone load plan
+
+/// One parsed row of `Resources/StartingZoneLoad.txt`.
+///
+/// This is a descriptor of the shipped client's load order, recovered from the
+/// compiled `ClientStartingZoneLoader`. It does not execute Lua or claim that
+/// the native engine loads these asset files.
+struct StartingZoneLoadRow: Equatable, Sendable {
+    enum Callback: Equatable, Sendable {
+        case hudStartingZoneLoaded
+        case other(String)
+
+        var scriptPath: String {
+            switch self {
+            case .hudStartingZoneLoaded: return "HUD.StartingZoneLoaded"
+            case .other(let path): return path
+            }
+        }
+    }
+
+    let loadOrder: Int32
+    let assetList: String
+    let callback: Callback?
+    let isBackgroundLoad: Bool
+}
+
+/// Parses the caret-delimited starting-zone manifest into a deterministic load
+/// plan. The compiled reader skips comments and rows with fewer than three `^`
+/// separators; this parser does the same and additionally rejects numeric or
+/// boolean fields it cannot interpret instead of inventing values.
+enum StartingZoneLoadPlan {
+    static func parse(_ text: String) -> [StartingZoneLoadRow] {
+        var parsed: [(index: Int, row: StartingZoneLoadRow)] = []
+        for rawLine in text.components(separatedBy: .newlines) {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line.isEmpty || line.hasPrefix("#") { continue }
+            let columns = line.components(separatedBy: "^")
+            guard columns.count >= 4 else { continue }
+
+            let orderText = columns[0].trimmingCharacters(in: .whitespaces)
+            guard let loadOrder = Int32(orderText) else { continue }
+
+            let assetList = columns[1].trimmingCharacters(in: .whitespaces)
+            guard !assetList.isEmpty else { continue }
+
+            let callbackText = columns[2].trimmingCharacters(in: .whitespaces)
+            let callback: StartingZoneLoadRow.Callback?
+            if callbackText.isEmpty {
+                callback = nil
+            } else if callbackText == "HUD.StartingZoneLoaded" {
+                callback = .hudStartingZoneLoaded
+            } else {
+                callback = .other(callbackText)
+            }
+
+            let flagText = columns[3].trimmingCharacters(in: .whitespaces)
+            let isBackgroundLoad: Bool
+            switch flagText {
+            case "0": isBackgroundLoad = false
+            case "1": isBackgroundLoad = true
+            default: continue
+            }
+
+            parsed.append((
+                index: parsed.count,
+                row: StartingZoneLoadRow(
+                    loadOrder: loadOrder,
+                    assetList: assetList,
+                    callback: callback,
+                    isBackgroundLoad: isBackgroundLoad
+                )
+            ))
+        }
+        return parsed
+            .sorted { lhs, rhs in
+                if lhs.row.loadOrder != rhs.row.loadOrder {
+                    return lhs.row.loadOrder < rhs.row.loadOrder
+                }
+                return lhs.index < rhs.index
+            }
+            .map(\.row)
+    }
+
+    static func foregroundRows(in rows: [StartingZoneLoadRow]) -> [StartingZoneLoadRow] {
+        rows.filter { !$0.isBackgroundLoad }
+    }
+
+    static func backgroundRows(in rows: [StartingZoneLoadRow]) -> [StartingZoneLoadRow] {
+        rows.filter(\.isBackgroundLoad)
+    }
+}

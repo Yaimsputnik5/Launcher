@@ -4,7 +4,8 @@ This note extends note 24 with directly observed call sites and virtual-table
 slots for `ClientStartingZoneLoader` in the shipped `FreeRealms.exe`
 (SHA-256 `26cc1c522a45e71fb57882da515f65bac45c8c8b8c8b7e740c0cea81c52a733351`).
 It is static REA evidence only: no target execution, no runtime observation, and
-no claim that the iOS port reproduces this startup pipeline.
+no claim that the iOS port reproduces this startup pipeline. Note 36 later
+confirms the row-field mapping, Lua C API callees, and callback semantics.
 
 ## Identity and vtables
 

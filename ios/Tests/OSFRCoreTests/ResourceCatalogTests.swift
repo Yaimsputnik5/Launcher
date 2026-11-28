@@ -173,6 +173,57 @@ final class ResourceCatalogTests: XCTestCase {
         XCTAssertThrowsError(try ResourceCatalog(rootURL: root.appendingPathComponent("Npcs.json")))
     }
 
+    func testStartingZoneLoadPlanUsesVerifiedHeaderAndSelectorOrder() {
+        let manifest = """
+        #LOAD_ORDER^ASSET_LIST^CALLBACK^IS_BACKGROUND_LOAD^
+        100^FilteredCommonAssets.txt^^1^
+        1^UiAssets.txt^^0^
+        20^MinigameAssets.txt^^1^
+        10^HighRoadAssets.txt^HUD.StartingZoneLoaded^0^
+        broken^row^only^three^
+        """
+
+        let plan = StartingZoneLoadPlan.parse(manifest)
+        XCTAssertEqual(plan.map(\.assetList), [
+            "UiAssets.txt",
+            "HighRoadAssets.txt",
+            "MinigameAssets.txt",
+            "FilteredCommonAssets.txt"
+        ])
+        XCTAssertEqual(plan.map(\.loadOrder), [1, 10, 20, 100])
+        XCTAssertEqual(StartingZoneLoadPlan.foregroundRows(in: plan).map(\.assetList), [
+            "UiAssets.txt",
+            "HighRoadAssets.txt"
+        ])
+        XCTAssertEqual(StartingZoneLoadPlan.backgroundRows(in: plan).map(\.assetList), [
+            "MinigameAssets.txt",
+            "FilteredCommonAssets.txt"
+        ])
+        XCTAssertEqual(plan[1].callback, .hudStartingZoneLoaded)
+        XCTAssertEqual(plan[1].callback?.scriptPath, "HUD.StartingZoneLoaded")
+        XCTAssertNil(plan[0].callback)
+        XCTAssertFalse(plan[0].isBackgroundLoad)
+        XCTAssertTrue(plan[2].isBackgroundLoad)
+    }
+
+    func testStartingZoneLoadPlanSkipsUnusableRowsWithoutInventingValues() {
+        let manifest = """
+        # comment
+        2^Good.txt^Custom.Path^0^
+        nope^BadOrder.txt^^0^
+        3^^^0^
+        4^MissingFlag.txt^^
+        5^BadFlag.txt^^2^
+        6^Tie.txt^^0^
+        1^EarlierTie.txt^^0^
+        """
+
+        let plan = StartingZoneLoadPlan.parse(manifest)
+        XCTAssertEqual(plan.map(\.assetList), ["EarlierTie.txt", "Good.txt", "Tie.txt"])
+        XCTAssertEqual(plan[1].callback, .other("Custom.Path"))
+        XCTAssertEqual(plan[1].callback?.scriptPath, "Custom.Path")
+    }
+
     private static let npcsJSON = """
     [
       {

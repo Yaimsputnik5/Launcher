@@ -2,7 +2,8 @@
 
 This note resolves two callees left unnamed in note 27. It remains static REA
 evidence from the shipped `FreeRealms.exe` and does not claim that the iOS port
-executes this pipeline or that Lua/gameplay semantics were reproduced.
+executes this pipeline or that Lua/gameplay semantics were reproduced. Note 36
+later assigns the Lua C API names and reconstructs the configured callback.
 
 ## `0x9797a0` is Lua-facing
 
