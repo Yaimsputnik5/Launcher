@@ -152,6 +152,9 @@ final class AppState: ObservableObject {
     func updateHostConfiguration(_ update: (inout LocalHostConfiguration) -> Void) {
         var configuration = settings.hostConfiguration
         update(&configuration)
+        // The global game language is authoritative for offline play; never let
+        // a stale copy in the host configuration reach the live engine.
+        configuration.locale = settings.locale
         settings.hostConfiguration = configuration
         persistSettings()
 
@@ -162,7 +165,7 @@ final class AppState: ObservableObject {
         var world = current.configuration
         world.profileName = configuration.accountName
         world.characterName = configuration.characterName
-        world.locale = effectiveHostConfiguration().locale
+        world.locale = configuration.locale
         world.localConfiguration = configuration
         activeSession = ActiveWorldSession(
             id: current.id,
@@ -334,6 +337,9 @@ final class AppState: ObservableObject {
     func setLocale(_ locale: GameLocale) {
         settings.locale = locale
         persistSettings()
+        // Locale is part of the offline world snapshot too; update a running
+        // session instead of waiting for the next launch.
+        updateHostConfiguration { $0.locale = locale }
     }
 
     func notify(_ message: String, isError: Bool = false, persistent: Bool = false) {
