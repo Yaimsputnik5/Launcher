@@ -188,8 +188,9 @@ these source changes. The newer source work is documented in
 `sanctuary-audit/29-external-login-scalar-replies.md`,
 `sanctuary-audit/30-trade-handshake-codecs.md`,
 `sanctuary-audit/31-housing-instance-list-codec.md`,
-`sanctuary-audit/32-ui-script-dispatch-codecs.md` and
-`sanctuary-audit/33-raw-payload-packet-boundaries.md`; none of those notes claims
+`sanctuary-audit/32-ui-script-dispatch-codecs.md`,
+`sanctuary-audit/33-raw-payload-packet-boundaries.md` and
+`sanctuary-audit/34-ci-trigger-verification.md`; none of those notes claims
 full compiled-client or Lua/gameplay parity. Note 18 records an
 Xcode project omission that would have broken a build of the newer source, and
 the subsequent correction of a 25-packet batch: seven packets whose C#
@@ -238,7 +239,9 @@ count; 127/28 remains raw because its C# serializer is unresolved. Note 32
 decodes 47/7 and 47/8 as UI method selectors and arguments without executing
 them, and consolidates the 47 switch so 47/14 remains decoded. Note 33 decodes
 the exact length-prefixed boundaries of 57, 149/1, and 152/3 while retaining their
-payload bytes verbatim; their inner formats remain unresolved.
+payload bytes verbatim; their inner formats remain unresolved. Note 34 records
+why bulk tree commits did not start Actions and which contents-API commit was used
+to request a normal push-triggered build; it does not claim that build succeeded.
 
 Bundled resources now use validated relative components appended directly to
 the trusted `Bundle.main` root; there is no path-string prefix comparison and
