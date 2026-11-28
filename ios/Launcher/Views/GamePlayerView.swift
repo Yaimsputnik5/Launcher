@@ -626,6 +626,38 @@ private struct RemoteWorldView: View {
                         )
                         .font(.caption2)
                     }
+                    if let coins = observation.coinCount {
+                        LabeledContent("Wallet", value: "\(coins)")
+                            .font(.caption2)
+                    }
+                    if !observation.inventoryItemCounts.isEmpty {
+                        LabeledContent("Inventory items", value: "\(observation.inventoryItemCounts.count)")
+                            .font(.caption2)
+                    }
+                    if !observation.effectTags.isEmpty {
+                        LabeledContent("Effect tags", value: "\(observation.effectTags.count)")
+                            .font(.caption2)
+                    }
+                    if !observation.walkAnimations.isEmpty
+                        || !observation.idleAnimations.isEmpty
+                        || !observation.queuedAnimations.isEmpty {
+                        LabeledContent(
+                            "Animations",
+                            value: "\(observation.walkAnimations.count + observation.idleAnimations.count + observation.queuedAnimations.count)"
+                        )
+                        .font(.caption2)
+                    }
+                    if !observation.compositeEffectTags.isEmpty {
+                        LabeledContent(
+                            "Composite tags",
+                            value: "\(observation.compositeEffectTags.count)"
+                        )
+                        .font(.caption2)
+                    }
+                    if !observation.castingAbilities.isEmpty {
+                        LabeledContent("Casting", value: "\(observation.castingAbilities.count)")
+                            .font(.caption2)
+                    }
                     if observation.chatMessages.isEmpty {
                         Text("No server chat received yet.")
                             .font(.caption2)

@@ -532,4 +532,444 @@ final class GatewaySimplePacketTests: XCTestCase {
         XCTAssertEqual(observation.lastPetTrickNotification?.trickID, 515)
         XCTAssertNil(observation.membershipInfo)
     }
+
+    func testTopLevelScalarPacketsUseExactFieldOrder() throws {
+        var shutdownWriter = PacketWriter()
+        GatewayWire.appendInt16(GatewayWorldShutdownNotice.opcode, to: &shutdownWriter.data)
+        shutdownWriter.writeInt32(45)
+        shutdownWriter.writeString("Maintenance")
+        shutdownWriter.writeInt32(7)
+        let shutdown = try GatewayWorldCodec.decodeAny(shutdownWriter.data)
+        guard case .worldShutdownNotice(let notice) = shutdown else {
+            return XCTFail("Expected shutdown notice, got \(shutdown)")
+        }
+        XCTAssertEqual(notice.timeRemaining, 45)
+        XCTAssertEqual(notice.reason, "Maintenance")
+        XCTAssertEqual(notice.reasonID, 7)
+
+        var poiWriter = PacketWriter()
+        GatewayWire.appendInt16(GatewayPOIChange.opcode, to: &poiWriter.data)
+        poiWriter.writeInt32(10)
+        poiWriter.writeInt32(20)
+        poiWriter.writeInt32(30)
+        let poi = try GatewayWorldCodec.decodeAny(poiWriter.data)
+        guard case .poiChange(let change) = poi else {
+            return XCTFail("Expected POI change, got \(poi)")
+        }
+        XCTAssertEqual(change.nameID, 10)
+        XCTAssertEqual(change.zoneID, 20)
+        XCTAssertEqual(change.areaID, 30)
+
+        var observation = GatewayWorldObservation.empty
+        observation.apply(shutdown)
+        observation.apply(poi)
+        XCTAssertEqual(observation.worldShutdownNotice?.reasonID, 7)
+        XCTAssertEqual(observation.lastPOIChange?.areaID, 30)
+    }
+
+    func testClientUpdateScalarPacketsUseShortSubOpcodes() throws {
+        func clientPacket(
+            _ subOpcode: Int16,
+            _ body: (inout PacketWriter) -> Void
+        ) throws -> GatewayWorldPacket {
+            var writer = PacketWriter()
+            GatewayWire.appendInt16(GatewayCoinCount.opcode, to: &writer.data)
+            GatewayWire.appendInt16(subOpcode, to: &writer.data)
+            body(&writer)
+            return try GatewayWorldCodec.decodeAny(writer.data)
+        }
+
+        let coins = try clientPacket(GatewayCoinCount.subOpcode) { $0.writeInt32(12345) }
+        guard case .coinCount(let count) = coins else {
+            return XCTFail("Expected coin count, got \(coins)")
+        }
+        XCTAssertEqual(count.coins, 12345)
+
+        let deletion = try clientPacket(GatewayItemDelete.subOpcode) { $0.writeInt32(77) }
+        guard case .itemDelete(let deleted) = deletion else {
+            return XCTFail("Expected item delete, got \(deletion)")
+        }
+        XCTAssertEqual(deleted.itemGUID, 77)
+
+        let unequip = try clientPacket(GatewaySlotUnequip.subOpcode) { writer in
+            writer.writeInt32(2)
+            writer.writeInt32(3)
+        }
+        guard case .slotUnequipped(let slot) = unequip else {
+            return XCTFail("Expected slot unequip, got \(unequip)")
+        }
+        XCTAssertEqual(slot.slot, 2)
+        XCTAssertEqual(slot.profileID, 3)
+
+        let itemUpdate = try clientPacket(GatewayItemUpdate.subOpcode) { writer in
+            writer.writeInt32(1)
+            writer.writeInt32(5)
+            writer.writeInt32(-1)
+            writer.writeInt32(2)
+            writer.writeInt32(4)
+            writer.writeInt64(999)
+        }
+        guard case .itemUpdate(let update) = itemUpdate else {
+            return XCTFail("Expected item update, got \(itemUpdate)")
+        }
+        XCTAssertEqual(update.actionBarID, -1)
+        XCTAssertEqual(update.rentalExpirationTime, 999)
+
+        let activation = try clientPacket(GatewayImmediateActivationCheck.subOpcode) { writer in
+            writer.writeInt32(1)
+            writer.writeInt32(2)
+            writer.writeInt32(3)
+            writer.writeInt32(4)
+            writer.writeInt32(5)
+            writer.writeBool(true)
+        }
+        guard case .immediateActivationCheck(let check) = activation else {
+            return XCTFail("Expected activation check, got \(activation)")
+        }
+        XCTAssertTrue(check.success)
+
+        var observation = GatewayWorldObservation.empty
+        for packet in [coins, deletion, unequip, itemUpdate, activation] {
+            observation.apply(packet)
+        }
+        XCTAssertEqual(observation.coinCount, 12345)
+        XCTAssertNil(observation.inventoryItemCounts[77])
+        XCTAssertEqual(observation.inventoryItemCounts[1], 5)
+        XCTAssertEqual(observation.lastUnequippedSlot?.profileID, 3)
+        XCTAssertTrue(observation.lastImmediateActivationCheck?.success == true)
+    }
+
+    func testQuestScalarPacketsUseIntSubOpcodes() throws {
+        func questPacket(
+            _ subOpcode: Int32,
+            _ body: (inout PacketWriter) -> Void
+        ) throws -> GatewayWorldPacket {
+            var writer = PacketWriter()
+            GatewayWire.appendInt16(GatewayQuestAbandoned.opcode, to: &writer.data)
+            writer.writeInt32(subOpcode)
+            body(&writer)
+            return try GatewayWorldCodec.decodeAny(writer.data)
+        }
+
+        let abandoned = try questPacket(GatewayQuestAbandoned.subOpcode) { writer in
+            writer.writeInt32(1002)
+            writer.writeBool(false)
+        }
+        guard case .questAbandoned(let quest) = abandoned else {
+            return XCTFail("Expected quest abandoned, got \(abandoned)")
+        }
+        XCTAssertFalse(quest.literalFalse)
+
+        let blocked = try questPacket(GatewayQuestEndBlocked.subOpcode) { writer in
+            writer.writeUInt64(99)
+            writer.writeInt32(1003)
+            writer.writeInt32(88)
+        }
+        guard case .questEndBlocked(let questBlock) = blocked else {
+            return XCTFail("Expected blocked quest end, got \(blocked)")
+        }
+        XCTAssertEqual(questBlock.textID, 88)
+
+        var observation = GatewayWorldObservation.empty
+        for packet in [abandoned, blocked] {
+            observation.apply(packet)
+        }
+        XCTAssertTrue(observation.abandonedQuestIDs.contains(1002))
+        XCTAssertEqual(observation.blockedQuestEndsByID[1003]?.textID, 88)
+    }
+
+    func testFriendScalarPacketsUseByteSubOpcodes() throws {
+        func friendPacket(
+            _ subOpcode: UInt8,
+            _ body: (inout PacketWriter) -> Void
+        ) throws -> GatewayWorldPacket {
+            var writer = PacketWriter()
+            GatewayWire.appendInt16(GatewayFriendOnline.opcode, to: &writer.data)
+            writer.writeUInt8(subOpcode)
+            body(&writer)
+            return try GatewayWorldCodec.decodeAny(writer.data)
+        }
+
+        var onlineWriter = PacketWriter()
+        GatewayWire.appendInt16(GatewayFriendOnline.opcode, to: &onlineWriter.data)
+        onlineWriter.writeUInt8(GatewayFriendOnline.subOpcode)
+        onlineWriter.writeString("Old")
+        onlineWriter.writeUInt64(1)
+        onlineWriter.writeBool(true)
+        let online = try GatewayWorldCodec.decodeAny(onlineWriter.data)
+
+        let offline = try friendPacket(GatewayFriendOffline.subOpcode) {
+            $0.writeUInt64(1)
+        }
+        guard case .friendOffline(let update) = offline else {
+            return XCTFail("Expected friend offline, got \(offline)")
+        }
+        XCTAssertEqual(update.guid, 1)
+
+        let remove = try friendPacket(GatewayFriendRemove.subOpcode) {
+            $0.writeUInt64(2)
+        }
+        guard case .friendRemove(let update) = remove else {
+            return XCTFail("Expected friend remove, got \(remove)")
+        }
+        XCTAssertEqual(update.guid, 2)
+
+        let rename = try friendPacket(GatewayFriendRename.subOpcode) { writer in
+            writer.writeString("Iris")
+            writer.writeUInt64(3)
+        }
+        guard case .friendRename(let update) = rename else {
+            return XCTFail("Expected friend rename, got \(rename)")
+        }
+        XCTAssertEqual(update.name, "Iris")
+
+        var observation = GatewayWorldObservation.empty
+        for packet in [online, rename, offline, remove] {
+            observation.apply(packet)
+        }
+        XCTAssertNil(observation.friendPresence[1])
+        XCTAssertEqual(observation.friendNames[3], "Iris")
+    }
+
+    func testChatAndAbilityScalarPacketsUseExactFieldOrder() throws {
+        var areaWriter = PacketWriter()
+        GatewayWire.appendInt16(GatewayChatEnterArea.opcode, to: &areaWriter.data)
+        GatewayWire.appendInt16(GatewayChatEnterArea.subOpcode, to: &areaWriter.data)
+        areaWriter.writeInt32(55)
+        let area = try GatewayWorldCodec.decodeAny(areaWriter.data)
+        guard case .chatEnterArea(let entered) = area else {
+            return XCTFail("Expected chat enter area, got \(area)")
+        }
+        XCTAssertEqual(entered.areaNameID, 55)
+
+        var localizedWriter = PacketWriter()
+        GatewayWire.appendInt16(GatewayChatFromStringID.opcode, to: &localizedWriter.data)
+        GatewayWire.appendInt16(GatewayChatFromStringID.subOpcode, to: &localizedWriter.data)
+        localizedWriter.writeUInt64(0x1111_2222_3333_4444)
+        localizedWriter.writeInt32(9001)
+        localizedWriter.writeBool(false)
+        localizedWriter.writeBool(true)
+        localizedWriter.writeBool(true)
+        localizedWriter.writeInt32(4)
+        localizedWriter.writeUInt64(5)
+        localizedWriter.writeUInt64(6)
+        localizedWriter.writeInt32(7)
+        let localized = try GatewayWorldCodec.decodeAny(localizedWriter.data)
+        guard case .chatFromStringID(let chat) = localized else {
+            return XCTFail("Expected localized chat, got \(localized)")
+        }
+        XCTAssertEqual(chat.stringID, 9001)
+        XCTAssertEqual(chat.targetGUID, 5)
+        XCTAssertEqual(chat.elapsedTime, 7)
+
+        func abilityPacket(
+            _ subOpcode: Int16,
+            _ body: (inout PacketWriter) -> Void
+        ) throws -> GatewayWorldPacket {
+            var writer = PacketWriter()
+            GatewayWire.appendInt16(GatewayAbilityFailed.opcode, to: &writer.data)
+            GatewayWire.appendInt16(subOpcode, to: &writer.data)
+            body(&writer)
+            return try GatewayWorldCodec.decodeAny(writer.data)
+        }
+
+        let failure = try abilityPacket(GatewayAbilityFailed.subOpcode) { $0.writeInt32(9) }
+        guard case .abilityFailed(let failed) = failure else {
+            return XCTFail("Expected ability failure, got \(failure)")
+        }
+        XCTAssertEqual(failed.stringID, 9)
+
+        let casting = try abilityPacket(GatewayAbilityStartCasting.subOpcode) { writer in
+            writer.writeUInt64(101)
+            writer.writeUInt64(0)
+            writer.writeInt32(700)
+            writer.writeInt32(8)
+            writer.writeInt32(42)
+            writer.writeFloat(1.25)
+            writer.writeBool(true)
+        }
+        guard case .abilityStartCasting(let cast) = casting else {
+            return XCTFail("Expected ability start casting, got \(casting)")
+        }
+        XCTAssertEqual(cast.abilityID, 42)
+        XCTAssertEqual(cast.actionTime, 1.25)
+        XCTAssertTrue(cast.hasActionProgress)
+
+        var observation = GatewayWorldObservation.empty
+        for packet in [area, localized, failure, casting] {
+            observation.apply(packet)
+        }
+        XCTAssertEqual(observation.lastEnteredAreaNameID, 55)
+        XCTAssertEqual(observation.lastChatFromStringID?.stringID, 9001)
+        XCTAssertEqual(observation.lastAbilityFailure?.stringID, 9)
+        XCTAssertEqual(observation.castingAbilities[101]?.abilityID, 42)
+    }
+
+    func testScalarPlayerUpdatePacketsUseShortSubOpcodes() throws {
+        func playerPacket(
+            _ subOpcode: Int16,
+            _ body: (inout PacketWriter) -> Void
+        ) throws -> GatewayWorldPacket {
+            var writer = PacketWriter()
+            GatewayWire.appendInt16(GatewayWalkAnimationUpdate.opcode, to: &writer.data)
+            GatewayWire.appendInt16(subOpcode, to: &writer.data)
+            body(&writer)
+            return try GatewayWorldCodec.decodeAny(writer.data)
+        }
+
+        let walk = try playerPacket(GatewayWalkAnimationUpdate.subOpcode) { writer in
+            writer.writeUInt64(11)
+            writer.writeInt32(700)
+        }
+        guard case .walkAnimation(let update) = walk else {
+            return XCTFail("Expected walk animation, got \(walk)")
+        }
+        XCTAssertEqual(update.animation, 700)
+
+        let idle = try playerPacket(GatewayIdleAnimationUpdate.subOpcode) { writer in
+            writer.writeUInt64(11)
+            writer.writeInt32(701)
+        }
+        guard case .idleAnimation(let update) = idle else {
+            return XCTFail("Expected idle animation, got \(idle)")
+        }
+        XCTAssertEqual(update.animationID, 701)
+
+        let queued = try playerPacket(GatewayQueuedAnimation.subOpcode) { writer in
+            writer.writeUInt64(11)
+            writer.writeInt32(22)
+            writer.writeInt32(2)
+            writer.writeFloat(1.5)
+            writer.writeFloat(0.25)
+            writer.writeFloat(3.75)
+            writer.writeBool(true)
+            writer.writeBool(false)
+            writer.writeBool(true)
+        }
+        guard case .queuedAnimation(let update) = queued else {
+            return XCTFail("Expected queued animation, got \(queued)")
+        }
+        XCTAssertEqual(update.loopCount, 2)
+        XCTAssertTrue(update.useAnimationPriority)
+
+        let animation = try playerPacket(GatewaySetAnimation.subOpcode) { writer in
+            writer.writeUInt64(12)
+            writer.writeInt32(31)
+            writer.writeInt32(-2)
+            writer.writeUInt8(7)
+        }
+        guard case .setAnimation(let update) = animation else {
+            return XCTFail("Expected set animation, got \(animation)")
+        }
+        XCTAssertEqual(update.unknown, -2)
+        XCTAssertEqual(update.flags, 7)
+
+        let addTag = try playerPacket(GatewayAddCompositeEffectTag.subOpcode) { writer in
+            writer.writeUInt64(13)
+            writer.writeInt32(8)
+            writer.writeInt32(900)
+            writer.writeUInt64(14)
+            writer.writeInt32(-1)
+            writer.writeInt32(-2)
+        }
+        guard case .addCompositeEffectTag(let update) = addTag else {
+            return XCTFail("Expected composite tag addition, got \(addTag)")
+        }
+        XCTAssertEqual(update.sourceGUID, 14)
+        XCTAssertEqual(update.unknown2, -2)
+
+        let removeTag = try playerPacket(GatewayRemoveCompositeEffectTag.subOpcode) { writer in
+            writer.writeUInt64(13)
+            writer.writeInt32(8)
+        }
+        guard case .removeCompositeEffectTag(let update) = removeTag else {
+            return XCTFail("Expected composite tag removal, got \(removeTag)")
+        }
+        XCTAssertEqual(update.tagID, 8)
+
+        let enable = try playerPacket(GatewayCompositeEffectsEnabled.subOpcode) {
+            $0.writeBool(true)
+        }
+        guard case .compositeEffectsEnabled(let update) = enable else {
+            return XCTFail("Expected composite effects toggle, got \(enable)")
+        }
+        XCTAssertTrue(update.enabled)
+
+        var observation = GatewayWorldObservation.empty
+        for packet in [walk, idle, queued, animation, addTag, removeTag, enable] {
+            observation.apply(packet)
+        }
+        XCTAssertEqual(observation.walkAnimations[11], 700)
+        XCTAssertEqual(observation.idleAnimations[11], 701)
+        XCTAssertEqual(observation.queuedAnimations[11]?.endTime, 3.75)
+        XCTAssertEqual(observation.setAnimations[12]?.flags, 7)
+        XCTAssertTrue(observation.compositeEffectTags[13]?.isEmpty == true)
+        XCTAssertEqual(observation.compositeEffectsEnabled, true)
+    }
+
+    /// Packets whose C# `Serialize()` delegates to nested codecs are not decoded
+    /// until those nested codecs exist. They must still preserve their bytes and
+    /// must never populate decoded observation state.
+    func testNestedSerializerPacketsRemainRawAndSetNoDecodedState() throws {
+        func rawPacket(_ opcode: Int16, _ build: (inout PacketWriter) -> Void) -> Data {
+            var writer = PacketWriter()
+            GatewayWire.appendInt16(opcode, to: &writer.data)
+            build(&writer)
+            return writer.data
+        }
+
+        let cases: [(String, Data)] = [
+            ("38/16", rawPacket(38) { writer in
+                GatewayWire.appendInt16(16, to: &writer.data)
+                writer.writeInt32(9)
+            }),
+            ("49/1", rawPacket(49) { writer in
+                writer.writeInt32(1)
+                writer.writeInt32(1001)
+            }),
+            ("49/7", rawPacket(49) { writer in
+                writer.writeInt32(7)
+                writer.writeInt32(1001)
+            }),
+            ("49/3", rawPacket(49) { writer in
+                writer.writeInt32(3)
+                writer.writeBool(true)
+            }),
+            ("49/13", rawPacket(49) { writer in
+                writer.writeInt32(13)
+                writer.writeUInt64(99)
+            }),
+            ("74/9", rawPacket(74) { writer in
+                writer.writeUInt8(9)
+                writer.writeString("Bloom")
+                writer.writeUInt64(3)
+            }),
+            ("36/5", rawPacket(36) { writer in
+                GatewayWire.appendInt16(5, to: &writer.data)
+                writer.writeInt32(2)
+            })
+        ]
+
+        for (route, data) in cases {
+            let packet = try GatewayWorldCodec.decodeAny(data)
+            guard case .mapped(_, let subOpcode, let names, let payload) = packet else {
+                return XCTFail("Expected raw-preserving mapped packet for \(route), got \(packet)")
+            }
+            XCTAssertFalse(names.isEmpty, "Expected catalog route for \(route)")
+            XCTAssertEqual(payload, data)
+            XCTAssertNotNil(subOpcode)
+
+            var observation = GatewayWorldObservation.empty
+            observation.apply(packet)
+            XCTAssertEqual(observation.lastMappedPayload, data)
+            XCTAssertFalse(observation.mappedPacketCounts.isEmpty)
+            XCTAssertTrue(observation.effectTags.isEmpty)
+            XCTAssertTrue(observation.abandonedQuestIDs.isEmpty)
+            XCTAssertTrue(observation.blockedQuestEndsByID.isEmpty)
+            XCTAssertTrue(observation.friendNames.isEmpty)
+            XCTAssertTrue(observation.castingAbilities.isEmpty)
+            XCTAssertTrue(observation.walkAnimations.isEmpty)
+            XCTAssertTrue(observation.setAnimations.isEmpty)
+        }
+    }
 }

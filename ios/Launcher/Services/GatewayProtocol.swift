@@ -2316,6 +2316,29 @@ enum GatewayWorldPacket: Equatable {
     case questObjectiveComplete(GatewayQuestObjectiveComplete)
     case questObjectiveFailed(GatewayQuestObjectiveFailed)
     case petTrickNotification(GatewayPetTrickNotification)
+    case worldShutdownNotice(GatewayWorldShutdownNotice)
+    case poiChange(GatewayPOIChange)
+    case coinCount(GatewayCoinCount)
+    case itemDelete(GatewayItemDelete)
+    case slotUnequipped(GatewaySlotUnequip)
+    case itemUpdate(GatewayItemUpdate)
+    case immediateActivationCheck(GatewayImmediateActivationCheck)
+    case questAbandoned(GatewayQuestAbandoned)
+    case questEndBlocked(GatewayQuestEndBlocked)
+    case friendOffline(GatewayFriendOffline)
+    case friendRemove(GatewayFriendRemove)
+    case friendRename(GatewayFriendRename)
+    case chatEnterArea(GatewayChatEnterArea)
+    case chatFromStringID(GatewayChatFromStringID)
+    case abilityFailed(GatewayAbilityFailed)
+    case abilityStartCasting(GatewayAbilityStartCasting)
+    case walkAnimation(GatewayWalkAnimationUpdate)
+    case idleAnimation(GatewayIdleAnimationUpdate)
+    case queuedAnimation(GatewayQueuedAnimation)
+    case setAnimation(GatewaySetAnimation)
+    case removeCompositeEffectTag(GatewayRemoveCompositeEffectTag)
+    case compositeEffectsEnabled(GatewayCompositeEffectsEnabled)
+    case addCompositeEffectTag(GatewayAddCompositeEffectTag)
     case clientArea(GatewayClientAreaUpdate)
     case messageOfTheDay(GatewayMessageOfTheDay)
     /// A packet whose opcode/sub-opcode is known from Sanctuary or the compiled
@@ -2334,9 +2357,16 @@ enum GatewayWorldCodec {
             return .positionUpdate(try WorldPositionUpdate(data: data))
         case GatewayChatMessage.opcode:
             let sub = try GatewayWire.readInt16(&reader)
-            return sub == GatewayChatMessage.subOpcode
-                ? .chat(try GatewayChatMessage(data: data))
-                : Self.mappedOrUnknown(opcode: opcode, data: data)
+            switch sub {
+            case GatewayChatMessage.subOpcode:
+                return .chat(try GatewayChatMessage(data: data))
+            case GatewayChatEnterArea.subOpcode:
+                return .chatEnterArea(try GatewayChatEnterArea(data: data))
+            case GatewayChatFromStringID.subOpcode:
+                return .chatFromStringID(try GatewayChatFromStringID(data: data))
+            default:
+                return Self.mappedOrUnknown(opcode: opcode, data: data)
+            }
         case GatewayEntityAddition.opcode:
             let sub = try GatewayWire.readInt16(&reader)
             switch sub {
@@ -2370,6 +2400,20 @@ enum GatewayWorldCodec {
                 return .thoughtBubble(try GatewayThoughtBubble(data: data))
             case GatewayCollidableUpdate.subOpcode:
                 return .collidable(try GatewayCollidableUpdate(data: data))
+            case GatewayWalkAnimationUpdate.subOpcode:
+                return .walkAnimation(try GatewayWalkAnimationUpdate(data: data))
+            case GatewayIdleAnimationUpdate.subOpcode:
+                return .idleAnimation(try GatewayIdleAnimationUpdate(data: data))
+            case GatewayQueuedAnimation.subOpcode:
+                return .queuedAnimation(try GatewayQueuedAnimation(data: data))
+            case GatewaySetAnimation.subOpcode:
+                return .setAnimation(try GatewaySetAnimation(data: data))
+            case GatewayRemoveCompositeEffectTag.subOpcode:
+                return .removeCompositeEffectTag(try GatewayRemoveCompositeEffectTag(data: data))
+            case GatewayCompositeEffectsEnabled.subOpcode:
+                return .compositeEffectsEnabled(try GatewayCompositeEffectsEnabled(data: data))
+            case GatewayAddCompositeEffectTag.subOpcode:
+                return .addCompositeEffectTag(try GatewayAddCompositeEffectTag(data: data))
             default:
                 return Self.mappedOrUnknown(opcode: opcode, data: data)
             }
@@ -2387,6 +2431,16 @@ enum GatewayWorldCodec {
             return .zoneDoneSendingInitialData
         case GatewayClientBeginZoning.opcode:
             return .beginZoning(try GatewayClientBeginZoning(data: data))
+        case GatewayAbilityFailed.opcode:
+            let sub = try GatewayWire.readInt16(&reader)
+            switch sub {
+            case GatewayAbilityFailed.subOpcode:
+                return .abilityFailed(try GatewayAbilityFailed(data: data))
+            case GatewayAbilityStartCasting.subOpcode:
+                return .abilityStartCasting(try GatewayAbilityStartCasting(data: data))
+            default:
+                return Self.mappedOrUnknown(opcode: opcode, data: data)
+            }
         case 38:
             let sub = try GatewayWire.readInt16(&reader)
             switch sub {
@@ -2400,6 +2454,16 @@ enum GatewayWorldCodec {
                 return .mana(try GatewayManaUpdate(data: data))
             case GatewayEffectTagRemoval.subOpcode:
                 return .removeEffectTag(try GatewayEffectTagRemoval(data: data))
+            case GatewayCoinCount.subOpcode:
+                return .coinCount(try GatewayCoinCount(data: data))
+            case GatewayItemDelete.subOpcode:
+                return .itemDelete(try GatewayItemDelete(data: data))
+            case GatewaySlotUnequip.subOpcode:
+                return .slotUnequipped(try GatewaySlotUnequip(data: data))
+            case GatewayItemUpdate.subOpcode:
+                return .itemUpdate(try GatewayItemUpdate(data: data))
+            case GatewayImmediateActivationCheck.subOpcode:
+                return .immediateActivationCheck(try GatewayImmediateActivationCheck(data: data))
             default:
                 return Self.mappedOrUnknown(opcode: opcode, data: data)
             }
@@ -2420,6 +2484,10 @@ enum GatewayWorldCodec {
                 return .questObjectiveComplete(try GatewayQuestObjectiveComplete(data: data))
             case GatewayQuestObjectiveFailed.subOpcode:
                 return .questObjectiveFailed(try GatewayQuestObjectiveFailed(data: data))
+            case GatewayQuestAbandoned.subOpcode:
+                return .questAbandoned(try GatewayQuestAbandoned(data: data))
+            case GatewayQuestEndBlocked.subOpcode:
+                return .questEndBlocked(try GatewayQuestEndBlocked(data: data))
             default:
                 return Self.mappedOrUnknown(opcode: opcode, data: data)
             }
@@ -2447,9 +2515,18 @@ enum GatewayWorldCodec {
             }
         case GatewayFriendOnline.opcode:
             let sub = try reader.readUInt8()
-            return sub == GatewayFriendOnline.subOpcode
-                ? .friendOnline(try GatewayFriendOnline(data: data))
-                : Self.mappedOrUnknown(opcode: opcode, data: data)
+            switch sub {
+            case GatewayFriendOnline.subOpcode:
+                return .friendOnline(try GatewayFriendOnline(data: data))
+            case GatewayFriendOffline.subOpcode:
+                return .friendOffline(try GatewayFriendOffline(data: data))
+            case GatewayFriendRemove.subOpcode:
+                return .friendRemove(try GatewayFriendRemove(data: data))
+            case GatewayFriendRename.subOpcode:
+                return .friendRename(try GatewayFriendRename(data: data))
+            default:
+                return Self.mappedOrUnknown(opcode: opcode, data: data)
+            }
         case GatewayMountState.opcode:
             let sub = try reader.readUInt8()
             switch sub {
@@ -2460,6 +2537,10 @@ enum GatewayWorldCodec {
             default:
                 return Self.mappedOrUnknown(opcode: opcode, data: data)
             }
+        case GatewayWorldShutdownNotice.opcode:
+            return .worldShutdownNotice(try GatewayWorldShutdownNotice(data: data))
+        case GatewayPOIChange.opcode:
+            return .poiChange(try GatewayPOIChange(data: data))
         case GatewayMembershipInfo.opcode:
             return .membership(try GatewayMembershipInfo(data: data))
         case GatewayMessageOfTheDay.opcode:
@@ -2476,6 +2557,11 @@ enum GatewayWorldCodec {
         }
     }
 
+    /// Sub-opcode widths come from the C# base packet serializers, not from the
+    /// outer opcode width. Mismatching them would read body bytes as routing.
+    private static let byteSubOpcodeFamilies: Set<Int16> = [45, 47, 53, 59, 74, 98, 112, 149, 168, 194]
+    private static let intSubOpcodeFamilies: Set<Int16> = [49, 152, 209]
+
     /// Preserve a known opcode/sub-opcode as raw data instead of discarding it.
     /// Top-level opcodes are checked first so payload bytes are never mistaken
     /// for a sub-opcode when the family has no sub-opcodes.
@@ -2488,10 +2574,18 @@ enum GatewayWorldCodec {
             return .mapped(opcode, nil, topLevel, data)
         }
         var reader = PacketReader(Data(data))
-        guard let ignoredOpcode = try? GatewayWire.readInt16(&reader), ignoredOpcode == opcode,
-              let sub = try? GatewayWire.readInt16(&reader) else {
+        guard let ignoredOpcode = try? GatewayWire.readInt16(&reader), ignoredOpcode == opcode else {
             return .unknown(opcode, data)
         }
+        let sub: Int16?
+        if byteSubOpcodeFamilies.contains(opcode) {
+            sub = (try? reader.readUInt8()).map(Int16.init)
+        } else if intSubOpcodeFamilies.contains(opcode) {
+            sub = (try? reader.readInt32()).map { Int16(truncatingIfNeeded: $0) }
+        } else {
+            sub = try? GatewayWire.readInt16(&reader)
+        }
+        guard let sub else { return .unknown(opcode, data) }
         let names = PacketCatalog.names(opcode: opcode, subOpcode: sub)
         return names.isEmpty ? .unknown(opcode, data) : .mapped(opcode, sub, names, data)
     }
@@ -2525,7 +2619,7 @@ struct GatewayWorldObservation: Equatable, Sendable {
     }
 
     struct FriendPresence: Equatable, Sendable {
-        let name: String
+        var name: String
         let isLocal: Bool
     }
 
@@ -2574,6 +2668,27 @@ struct GatewayWorldObservation: Equatable, Sendable {
     var completedQuestObjectiveIDs: Set<QuestObjectiveKey> = []
     var failedQuestObjectiveIDs: Set<QuestObjectiveKey> = []
     var lastPetTrickNotification: GatewayPetTrickNotification?
+    /// Packet-backed state added from exact C# scalar-only layouts.
+    var worldShutdownNotice: GatewayWorldShutdownNotice?
+    var lastPOIChange: GatewayPOIChange?
+    var coinCount: Int32?
+    var inventoryItemCounts: [Int32: Int32] = [:]
+    var effectTags: Set<Int32> = []
+    var lastUnequippedSlot: GatewaySlotUnequip?
+    var lastImmediateActivationCheck: GatewayImmediateActivationCheck?
+    var abandonedQuestIDs: Set<Int32> = []
+    var blockedQuestEndsByID: [Int32: GatewayQuestEndBlocked] = [:]
+    var friendNames: [UInt64: String] = [:]
+    var lastEnteredAreaNameID: Int32?
+    var lastChatFromStringID: GatewayChatFromStringID?
+    var lastAbilityFailure: GatewayAbilityFailed?
+    var castingAbilities: [UInt64: GatewayAbilityStartCasting] = [:]
+    var walkAnimations: [UInt64: Int32] = [:]
+    var idleAnimations: [UInt64: Int32] = [:]
+    var queuedAnimations: [UInt64: GatewayQueuedAnimation] = [:]
+    var setAnimations: [UInt64: GatewaySetAnimation] = [:]
+    var compositeEffectTags: [UInt64: Set<Int32>] = [:]
+    var compositeEffectsEnabled: Bool?
     /// Packet-backed only: set by `PacketSetClientArea` / `PacketMOTD`.
     var activeClientAreaID: Int32?
     var clientAreaEnabled: Bool?
@@ -2831,6 +2946,7 @@ struct GatewayWorldObservation: Equatable, Sendable {
             lastEvent = "Mana · \(mana.current)/\(mana.max) · overhead \(mana.showOverHead)"
         case .removeEffectTag(let removal):
             lastRemovedEffectTagID = removal.tagID
+            effectTags.remove(removal.tagID)
             lastEvent = "Removed effect tag · \(removal.tagID)"
         case .questComplete(let quest):
             completedQuestIDs.insert(quest.questID)
@@ -2872,8 +2988,30 @@ struct GatewayWorldObservation: Equatable, Sendable {
         case .collidable(let update):
             collidableByGUID[update.guid] = update.collidable
             lastEvent = "Collidable · \(update.guid) · \(update.collidable)"
+        case .walkAnimation(let update):
+            walkAnimations[update.guid] = update.animation
+            lastEvent = "Walk animation · \(update.animation) · GUID \(update.guid)"
+        case .idleAnimation(let update):
+            idleAnimations[update.guid] = update.animationID
+            lastEvent = "Idle animation · \(update.animationID) · GUID \(update.guid)"
+        case .queuedAnimation(let update):
+            queuedAnimations[update.guid] = update
+            lastEvent = "Queued animation \(update.animationGroupID) · GUID \(update.guid)"
+        case .setAnimation(let update):
+            setAnimations[update.guid] = update
+            lastEvent = "Animation \(update.animationID) · GUID \(update.guid)"
+        case .removeCompositeEffectTag(let update):
+            compositeEffectTags[update.guid, default: []].remove(update.tagID)
+            lastEvent = "Composite tag removed · \(update.tagID) · GUID \(update.guid)"
+        case .compositeEffectsEnabled(let update):
+            compositeEffectsEnabled = update.enabled
+            lastEvent = "Composite effects · \(update.enabled)"
+        case .addCompositeEffectTag(let update):
+            compositeEffectTags[update.guid, default: []].insert(update.tagID)
+            lastEvent = "Composite tag \(update.tagID) · GUID \(update.guid)"
         case .friendOnline(let friend):
             friendPresence[friend.guid] = FriendPresence(name: friend.name, isLocal: friend.isLocal)
+            friendNames[friend.guid] = friend.name
             lastEvent = "Friend online · \(friend.name) · \(friend.guid)"
         case .mountState(let mount):
             mountStates[mount.riderGUID] = mount
@@ -2901,6 +3039,60 @@ struct GatewayWorldObservation: Equatable, Sendable {
         case .petTrickNotification(let notification):
             lastPetTrickNotification = notification
             lastEvent = "Pet trick · \(notification.petID) · \(notification.trickID)"
+        case .worldShutdownNotice(let notice):
+            worldShutdownNotice = notice
+            lastEvent = "World shutdown · \(notice.timeRemaining)s · \(notice.reason)"
+        case .poiChange(let change):
+            lastPOIChange = change
+            lastEvent = "Point of interest · \(change.nameID) · zone \(change.zoneID)"
+        case .coinCount(let update):
+            coinCount = update.coins
+            lastEvent = "Coins · \(update.coins)"
+        case .itemDelete(let deletion):
+            inventoryItemCounts.removeValue(forKey: deletion.itemGUID)
+            lastEvent = "Item delete · \(deletion.itemGUID)"
+        case .slotUnequipped(let unequip):
+            lastUnequippedSlot = unequip
+            lastEvent = "Unequip slot \(unequip.slot) · profile \(unequip.profileID)"
+        case .itemUpdate(let update):
+            inventoryItemCounts[update.itemGUID] = update.count
+            lastEvent = "Item \(update.itemGUID) · \(update.count)"
+        case .immediateActivationCheck(let check):
+            lastImmediateActivationCheck = check
+            lastEvent = "Activation \(check.itemGUID) · \(check.success)"
+        case .questAbandoned(let abandoned):
+            abandonedQuestIDs.insert(abandoned.questID)
+            lastEvent = "Quest abandoned · \(abandoned.questID)"
+        case .questEndBlocked(let blocked):
+            blockedQuestEndsByID[blocked.questID] = blocked
+            lastEvent = "Quest end blocked · \(blocked.questID)"
+        case .friendOffline(let friend):
+            friendPresence.removeValue(forKey: friend.guid)
+            friendNames.removeValue(forKey: friend.guid)
+            lastEvent = "Friend offline · \(friend.guid)"
+        case .friendRemove(let friend):
+            friendPresence.removeValue(forKey: friend.guid)
+            friendNames.removeValue(forKey: friend.guid)
+            lastEvent = "Friend removed · \(friend.guid)"
+        case .friendRename(let friend):
+            friendNames[friend.guid] = friend.name
+            if var presence = friendPresence[friend.guid] {
+                presence.name = friend.name
+                friendPresence[friend.guid] = presence
+            }
+            lastEvent = "Friend renamed · \(friend.name) · \(friend.guid)"
+        case .chatEnterArea(let chat):
+            lastEnteredAreaNameID = chat.areaNameID
+            lastEvent = "Entered area · \(chat.areaNameID)"
+        case .chatFromStringID(let chat):
+            lastChatFromStringID = chat
+            lastEvent = "Localized chat · \(chat.stringID)"
+        case .abilityFailed(let failure):
+            lastAbilityFailure = failure
+            lastEvent = "Ability failed · \(failure.stringID)"
+        case .abilityStartCasting(let casting):
+            castingAbilities[casting.casterGUID] = casting
+            lastEvent = "Casting \(casting.abilityID) · GUID \(casting.casterGUID)"
         case .clientArea(let area):
             activeClientAreaID = area.areaID
             clientAreaEnabled = area.enabled

@@ -120,6 +120,30 @@ call.
 | `ev_ee5de12820bfa7ff184ac273ed9f11a8ff3567fea09f240a789ad6708bc25b43` | The same loop advances to the next row via `fcn.00fbe130`, ends the row list at `0x9cde63`, and destructs the row buffer with `fcn.00fbdae0`; `0x9cde7e` then performs a reference-count release. This is a concrete row-allocation/lifecycle path, not just a string xref. |
 | `ev_821e8f49a30afce572f893e35c13a00ada2003345091968dafb5c763c0001d6d` | `fcn.009cdbe0` calls a virtual allocator at vtable slot `+0x08`, stores the caller's collection pointer at `object+0x2c`, clears `object+0x28`, links the object into a doubly linked list through `collection+0x04`/`+0x08`, and increments a count at `collection+0x0c`. It is a generic list-node constructor; the field names still come from the resource file header, not from binary symbols. |
 
+### Later probe ledger
+
+These retained records complete the evidence IDs that were pending from the
+same exact `FreeRealms.exe` target. They are listed with the limits of what was
+observed; no unnamed function is promoted to a decoded semantic routine.
+
+| Evidence ID | Observation |
+|---|---|
+| `ev_4325d1a317f7f221674d996af55dc0bfe92aef5afbf9963078dbb02407ee9e15` | `aaa; s 0x0097c090; pdc` completed with no retained stdout. It adds no spawn-transform semantics. |
+| `ev_f857dcce73efc58091046d3f87af81e692ab7364f52a2ff59997d3d22e85cec6` | `aaa; s 0x008a9010; pdc` completed with no retained stdout. It adds no zone-transition semantics. |
+| `ev_00621355c7152e8abfaacaf3c842939552fdb5d69dfedc5f46e5583b424e295e` | `izz~BindCommandToLua` finds only the `.rdata` string `BindCommandToLua` at VA `0x0180b17c`. |
+| `ev_17847849fa85331c4043c4ccd135f462a4abfc140b858838b2214a49f92e9b74` | `aaa; s 0x0180b17c; axt` returns no code/data references. Lua command registration is still unmapped. |
+| `ev_15a8fe55382e71c56e5e5fe179134314f0782bb874fc8b85792d62d8d03669f6` | `izz~UserOptions` finds `UserOptions` (`0x0175b364`), `UserOptions.ini` (`0x0175b370`), `SaveUserOptions` (`0x0182c908`), `SetUserOptionsValue` (`0x0182ca30`) and `GetUserOptionsValue` (`0x0182ca44`). |
+| `ev_742ceb6bab6676693f217a6a341e426dc773e3969f4f84482e0c5d1703178d28` | `izz~SaveUserOptions` finds the string at VA `0x0182c908`; no call semantics were recovered. |
+| `ev_7c6eb6fd49f79444bfb45549f08f9b074c37b098580e39d6f75e1365638d6b72` | `aaa; s 0x0175b370; axt` finds `UserOptions.ini` referenced by `main` at `0x403552` and by `fcn.008ed640` at `0x8ed648`. |
+| `ev_71be071eae2c18fc32e3e3c699d4d795c520d00ed0fe3813d93a8ebbbff16b57` | `pd 90 @ 0x008ed640` confirms `fcn.008ed640` defaults an empty argument to `UserOptions.ini` and jumps to `fcn.00402ce0`; the call xref is from `main` at `0x40383d`. The remaining disassembly shown belongs to following functions and is not attributed here. |
+| `ev_cbc9c1dcb942c3487421952192a70583b4559850ba5bea9898e97e8edfe43389` | `aaa; s 0x01811604; axt` finds `ProfileName` referenced by `fcn.009fad80` at `0x9fb006`. |
+| `ev_0358024728c08fe864b09e577b8c00363334e20537524b69c902156e294007ab` | `pd 70 @ 0x009fafd0` shows `fcn.009fad80` reading `LocationHeading`, `ProfileName`, `ProfileId`, `MiniGameId` and related values through option-getter calls into an analytics/social payload. Field meanings beyond the literal key names are not inferred. |
+| `ev_3583df71f9b483d9382fc0829ba886a3a4bc64bd0b6a3f3b282795afc63d85da` | `aaa; s 0x0180b584; axt` finds `PlayerName` at `0x97c2d3` in `fcn.0097c280`, at `0x9fae9f` in `fcn.009fad80`, and at five unnamed addresses (`0xa7c824`, `0xc4e7a8`, `0xc653c8`, `0x126ac78`, `0x126af7d`). |
+| `ev_c0d4fd331034ece9324589c20d329eb9fda8f35cbbb548b482411e57330f201a` | `aaa; s 0x01804d68; axt` finds the two already-documented `StartingZone` references in `fcn.0090e8a0` at `0x90e8c5` and `0x90e8d1`. |
+| `ev_77514fc62e763b7a158654dc2e062d9fd9b07e2b5879738622facd018674c233` | `pd 120 @ 0x008a9010` confirms a call xref from `fcn.0090e8a0` at `0x90e8de`; the function reads `[esi+0x668]`, allocates/reloads an options object, logs `Failed to reload options manager [prefix=%s].` on failure, stores the result back to `[esi+0x668]`, and reaches a call through `[ecx+0x280]` near the displayed tail. The zone argument transform is still unnamed. |
+| `ev_f3767c1059fbe9b17f723a4d49794edc514d0870dd68b24dfc14363857562ae0` | `pd 110 @ 0x0097b960` confirms call xrefs from `fcn.0097bf40` and `fcn.0097c090`; it queries named keys `speaker`, `listener` and `target` through helper calls. This is a token/argument lookup path, not a recovered spawn transform. |
+| `ev_9ca348284267d533438458de6584fae5a6ddd81a0550a72cda321c6e364e6bf5` | `pd 80 @ 0x0097c260` shows that this 65-xref wrapper forwards five arguments to `fcn.0097c090` with the caller's argument array pointer appended; it does not rename or decode those arguments. |
+
 The embedded `StartingZoneLoad.txt` header explicitly names the columns
 `LOAD_ORDER^ASSET_LIST^CALLBACK^IS_BACKGROUND_LOAD`. The disassembly above
 independently confirms that the first two `^` fields become strings on a row

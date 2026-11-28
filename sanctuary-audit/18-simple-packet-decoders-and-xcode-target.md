@@ -46,6 +46,53 @@ in the remote `Gateway packet view` only when the corresponding packet has been
 decoded. Fields named `Unknown`/`Unknown2`/`Unknown5`/`Unknown6` in the C#
 source are kept verbatim rather than assigned invented meanings.
 
+### Corrected second batch
+
+A later batch of 25 candidates was audited against the exact C# `Serialize()`
+bodies before publication. Seven candidates were rejected because their C#
+serializers call nested `Serialize(writer)`/`WritePayload(...)` codecs that are
+not implemented in Swift. No field was decoded for them:
+
+| Rejected packet | Route | Reason |
+|---|---|---|
+| `ClientUpdatePacketAddEffectTag` | `38/16` | nested effect-tag serializer |
+| `QuestInfoPacket` | `49/1` | nested quest payload |
+| `QuestObjectiveAddedPacket` | `49/7` | nested objective payload |
+| `QuestAddPacket` | `49/3` | nested quest payload |
+| `QuestEndPacket` | `49/13` | nested dialog/camera payload |
+| `FriendStatusPacket` | `74/9` | nested friend payload |
+| `AbilityPacketSetDefinition` | `36/5` | nested ability definition |
+
+These seven now fall through to `GatewayWorldPacket.mapped(...)`, which retains
+the exact raw payload and records only a packet-backed catalog count. A test
+asserts that applying them leaves effect tags, quest IDs, friend names and
+ability state empty; no local simulation value is present in their place.
+
+They were replaced with seven `BasePlayerUpdatePacket` classes whose C#
+serializers write only scalar fields. All use an `Int16` outer opcode `35` and
+an `Int16` sub-opcode:
+
+| Packet | Route | Wire layout from C# | Swift decoder | Observation fields |
+|---|---|---|---|---|
+| `PlayerUpdatePacketUpdateWalkAnim` | `35/21` | `ulong Guid`, `int Animation` | `GatewayWalkAnimationUpdate` | `.walkAnimations` |
+| `PlayerUpdatePacketUpdateIdleAnim` | `35/26` | `ulong Guid`, `int AnimationId` | `GatewayIdleAnimationUpdate` | `.idleAnimations` |
+| `PlayerUpdatePacketSetAnimation` | `35/8` | `ulong Guid`, `int AnimationId`, `int Unknown`, `byte Flags` | `GatewaySetAnimation` | `.setAnimations` |
+| `PlayerUpdatePacketRemoveEffectTagCompositeEffect` | `35/42` | `ulong Guid`, `int TagId` | `GatewayRemoveCompositeEffectTag` | `.compositeEffectTags` |
+| `PlayerUpdatePacketEffectTagCompositeEffectsEnable` | `35/43` | `bool Enabled` | `GatewayCompositeEffectsEnabled` | `.compositeEffectsEnabled` |
+| `PlayerUpdatePacketAddEffectTagCompositeEffect` | `35/41` | `ulong Guid`, `int TagId`, `int CompositeEffectId`, `ulong SourceGuid`, `int Unknown`, `int Unknown2` | `GatewayAddCompositeEffectTag` | `.compositeEffectTags` |
+| `PlayerUpdatePacketQueueAnimation` | `35/22` | `ulong Guid`, `int AnimationGroupId`, `int LoopCount`, `float PlaybackSpeed`, `float Delay`, `float EndTime`, `bool EaseOutLoopingAnimations`, `bool UseTransitions`, `bool UseAnimationPriority` | `GatewayQueuedAnimation` | `.queuedAnimations` |
+
+`PlayerUpdatePacketUpdateCharacterState` (`35/20`) was also considered but is
+not part of the new structs: that route is already decoded by the older
+`GatewayCharacterState` codec. Registering a second decoder for the same
+opcode/sub-opcode would be ambiguous and is unnecessary.
+
+The mapped fallback now reads each family's sub-opcode at its source width:
+one byte for the C# base families at opcodes `45`, `47`, `53`, `59`, `74`,
+`98`, `112`, `149`, `168` and `194`; four bytes for `49`, `152` and `209`; two
+bytes otherwise. This prevents body bytes from being mistaken for routing
+metadata. It is a routing correction only; it does not decode those packets.
+
 The Swift initializers require an exact opcode/sub-opcode, reject trailing
 bytes, and are dispatched from `GatewayWorldCodec.decodeAny` before the generic
 raw-preserving catalog fallback. A wrong sub-opcode such as `38/99` is still
@@ -85,14 +132,16 @@ Local Foundation-only suite after these changes:
 TMPDIR=/tmp/opencode swift test --package-path ios --scratch-path /tmp/opencode/osfr-swift-test-chunks
 ```
 
-Result: 238 tests, 1 skipped, 0 failures. SwiftUI/UIKit/Network/Metal and
-actual IPA compilation still require macOS GitHub Actions; no local iOS SDK is
-available from this Linux host.
+Result after the corrected batch and the raw-fallback test: 245 tests,
+1 skipped, 0 failures. SwiftUI/UIKit/Network/Metal and actual IPA compilation
+still require macOS GitHub Actions; no local iOS SDK is available from this
+Linux host.
 
 ## Still open
 
-- The remaining 352-class catalog is routing/layout metadata, not 226 decoded
-  gameplay codecs.
+- The remaining 352-class catalog is routing/layout metadata, not 352 decoded
+  gameplay codecs; the seven nested-serializer packets above are deliberately
+  raw-only until their nested codecs exist.
 - Lua command registration, zone-load row names, spawn transforms, engine
   material/tile fidelity and live-session parity remain unresolved.
 - The verified release IPA predates this source; do not treat it as containing

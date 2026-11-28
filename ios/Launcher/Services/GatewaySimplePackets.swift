@@ -692,3 +692,632 @@ struct GatewayPetTrickNotification: Equatable, Sendable {
         guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
     }
 }
+
+// MARK: - Additional top-level scalar packets
+
+/// `PacketWorldShutdownNotice` (92).
+struct GatewayWorldShutdownNotice: Equatable, Sendable {
+    static let opcode: Int16 = 92
+
+    let timeRemaining: Int32
+    let reason: String
+    let reasonID: Int32
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        timeRemaining = try reader.readInt32()
+        reason = try reader.readString()
+        reasonID = try reader.readInt32()
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `PacketPOIChangeMessage` (104).
+struct GatewayPOIChange: Equatable, Sendable {
+    static let opcode: Int16 = 104
+
+    let nameID: Int32
+    let zoneID: Int32
+    let areaID: Int32
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        nameID = try reader.readInt32()
+        zoneID = try reader.readInt32()
+        areaID = try reader.readInt32()
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+// MARK: - Additional client-update packets (38)
+
+/// `BaseClientUpdatePacket` (38) / `ClientUpdatePacketCoinCount` (19).
+struct GatewayCoinCount: Equatable, Sendable {
+    static let opcode: Int16 = 38
+    static let subOpcode: Int16 = 19
+
+    let coins: Int32
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try GatewayWire.readInt16(&reader)
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        coins = try reader.readInt32()
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `BaseClientUpdatePacket` (38) / `ClientUpdatePacketItemDelete` (4).
+struct GatewayItemDelete: Equatable, Sendable {
+    static let opcode: Int16 = 38
+    static let subOpcode: Int16 = 4
+
+    let itemGUID: Int32
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try GatewayWire.readInt16(&reader)
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        itemGUID = try reader.readInt32()
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `BaseClientUpdatePacket` (38) / `ClientUpdatePacketUnequipSlot` (6).
+struct GatewaySlotUnequip: Equatable, Sendable {
+    static let opcode: Int16 = 38
+    static let subOpcode: Int16 = 6
+
+    let slot: Int32
+    let profileID: Int32
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try GatewayWire.readInt16(&reader)
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        slot = try reader.readInt32()
+        profileID = try reader.readInt32()
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `BaseClientUpdatePacket` (38) / `ClientUpdatePacketItemUpdate` (3).
+struct GatewayItemUpdate: Equatable, Sendable {
+    static let opcode: Int16 = 38
+    static let subOpcode: Int16 = 3
+
+    let itemGUID: Int32
+    let count: Int32
+    let actionBarID: Int32
+    let consumedCount: Int32
+    let abilityCount: Int32
+    let rentalExpirationTime: Int64
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try GatewayWire.readInt16(&reader)
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        itemGUID = try reader.readInt32()
+        count = try reader.readInt32()
+        actionBarID = try reader.readInt32()
+        consumedCount = try reader.readInt32()
+        abilityCount = try reader.readInt32()
+        rentalExpirationTime = try reader.readInt64()
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `BaseClientUpdatePacket` (38) / `ClientUpdatePacketImmediateActivationCheck` (30).
+struct GatewayImmediateActivationCheck: Equatable, Sendable {
+    static let opcode: Int16 = 38
+    static let subOpcode: Int16 = 30
+
+    let itemGUID: Int32
+    let categoryID: Int32
+    let bundleID: Int32
+    let titleStringID: Int32
+    let bodyStringID: Int32
+    let success: Bool
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try GatewayWire.readInt16(&reader)
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        itemGUID = try reader.readInt32()
+        categoryID = try reader.readInt32()
+        bundleID = try reader.readInt32()
+        titleStringID = try reader.readInt32()
+        bodyStringID = try reader.readInt32()
+        success = try reader.readBool()
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+// MARK: - Additional quest packets (49)
+
+/// `BaseQuestPacket` (49) / `QuestAbandonedPacket` (6). The C# writer sends a
+/// literal `false` after the quest ID; the field is kept verbatim.
+struct GatewayQuestAbandoned: Equatable, Sendable {
+    static let opcode: Int16 = 49
+    static let subOpcode: Int32 = 6
+
+    let questID: Int32
+    let literalFalse: Bool
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try reader.readInt32()
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedOpcode(
+                expected: Int16(Self.subOpcode),
+                actual: Int16(truncatingIfNeeded: sub)
+            )
+        }
+        questID = try reader.readInt32()
+        literalFalse = try reader.readBool()
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `BaseQuestPacket` (49) / `QuestEndBlockedPacket` (16).
+struct GatewayQuestEndBlocked: Equatable, Sendable {
+    static let opcode: Int16 = 49
+    static let subOpcode: Int32 = 16
+
+    let npcGUID: UInt64
+    let questID: Int32
+    let textID: Int32
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try reader.readInt32()
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedOpcode(
+                expected: Int16(Self.subOpcode),
+                actual: Int16(truncatingIfNeeded: sub)
+            )
+        }
+        npcGUID = try reader.readUInt64()
+        questID = try reader.readInt32()
+        textID = try reader.readInt32()
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+// MARK: - Additional friend packets (74)
+
+/// `BaseFriendPacket` (74) / `FriendOfflinePacket` (3).
+struct GatewayFriendOffline: Equatable, Sendable {
+    static let opcode: Int16 = 74
+    static let subOpcode: UInt8 = 3
+
+    let guid: UInt64
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try reader.readUInt8()
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedInternalOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        guid = try reader.readUInt64()
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `BaseFriendPacket` (74) / `FriendRemovePacket` (7).
+struct GatewayFriendRemove: Equatable, Sendable {
+    static let opcode: Int16 = 74
+    static let subOpcode: UInt8 = 7
+
+    let guid: UInt64
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try reader.readUInt8()
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedInternalOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        guid = try reader.readUInt64()
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `BaseFriendPacket` (74) / `FriendRenamePacket` (10).
+struct GatewayFriendRename: Equatable, Sendable {
+    static let opcode: Int16 = 74
+    static let subOpcode: UInt8 = 10
+
+    let name: String
+    let guid: UInt64
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try reader.readUInt8()
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedInternalOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        name = try reader.readString()
+        guid = try reader.readUInt64()
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+// MARK: - Additional chat packets (15)
+
+/// `BaseChatPacket` (15) / `ChatPacketEnterArea` (2).
+struct GatewayChatEnterArea: Equatable, Sendable {
+    static let opcode: Int16 = 15
+    static let subOpcode: Int16 = 2
+
+    let areaNameID: Int32
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try GatewayWire.readInt16(&reader)
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        areaNameID = try reader.readInt32()
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `BaseChatPacket` (15) / `ChatPacketFromStringId` (4). The string ID is kept
+/// as a numeric ID; no localized text is fabricated by the client.
+struct GatewayChatFromStringID: Equatable, Sendable {
+    static let opcode: Int16 = 15
+    static let subOpcode: Int16 = 4
+
+    let speakerGUID: UInt64
+    let stringID: Int32
+    let isEmote: Bool
+    let isChatLogged: Bool
+    let hasColor: Bool
+    let colorID: Int32
+    let targetGUID: UInt64
+    let ownerGUID: UInt64
+    let elapsedTime: Int32
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try GatewayWire.readInt16(&reader)
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        speakerGUID = try reader.readUInt64()
+        stringID = try reader.readInt32()
+        isEmote = try reader.readBool()
+        isChatLogged = try reader.readBool()
+        hasColor = try reader.readBool()
+        colorID = try reader.readInt32()
+        targetGUID = try reader.readUInt64()
+        ownerGUID = try reader.readUInt64()
+        elapsedTime = try reader.readInt32()
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+// MARK: - Ability packets (36)
+
+/// `BaseAbilityPacket` (36) / `AbilityPacketFailed` (1).
+struct GatewayAbilityFailed: Equatable, Sendable {
+    static let opcode: Int16 = 36
+    static let subOpcode: Int16 = 1
+
+    let stringID: Int32
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try GatewayWire.readInt16(&reader)
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        stringID = try reader.readInt32()
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `BaseAbilityPacket` (36) / `AbilityPacketStartCasting` (3). The C# field
+/// named `Unused` is preserved verbatim.
+struct GatewayAbilityStartCasting: Equatable, Sendable {
+    static let opcode: Int16 = 36
+    static let subOpcode: Int16 = 3
+
+    let casterGUID: UInt64
+    let unused: UInt64
+    let compositeEffectID: Int32
+    let animation: Int32
+    let abilityID: Int32
+    let actionTime: Float
+    let hasActionProgress: Bool
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try GatewayWire.readInt16(&reader)
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        casterGUID = try reader.readUInt64()
+        unused = try reader.readUInt64()
+        compositeEffectID = try reader.readInt32()
+        animation = try reader.readInt32()
+        abilityID = try reader.readInt32()
+        actionTime = try reader.readFloat()
+        hasActionProgress = try reader.readBool()
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+// MARK: - Additional scalar-only player updates (35)
+
+/// `BasePlayerUpdatePacket` (35) / `PlayerUpdatePacketUpdateWalkAnim` (21).
+struct GatewayWalkAnimationUpdate: Equatable, Sendable {
+    static let opcode: Int16 = 35
+    static let subOpcode: Int16 = 21
+
+    let guid: UInt64
+    let animation: Int32
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try GatewayWire.readInt16(&reader)
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        guid = try reader.readUInt64()
+        animation = try reader.readInt32()
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `BasePlayerUpdatePacket` (35) / `PlayerUpdatePacketUpdateIdleAnim` (26).
+struct GatewayIdleAnimationUpdate: Equatable, Sendable {
+    static let opcode: Int16 = 35
+    static let subOpcode: Int16 = 26
+
+    let guid: UInt64
+    let animationID: Int32
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try GatewayWire.readInt16(&reader)
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        guid = try reader.readUInt64()
+        animationID = try reader.readInt32()
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `BasePlayerUpdatePacket` (35) / `PlayerUpdatePacketSetAnimation` (8).
+/// `Unknown` and `Flags` are kept with their source names and wire types.
+struct GatewaySetAnimation: Equatable, Sendable {
+    static let opcode: Int16 = 35
+    static let subOpcode: Int16 = 8
+
+    let guid: UInt64
+    let animationID: Int32
+    let unknown: Int32
+    let flags: UInt8
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try GatewayWire.readInt16(&reader)
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        guid = try reader.readUInt64()
+        animationID = try reader.readInt32()
+        unknown = try reader.readInt32()
+        flags = try reader.readUInt8()
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `BasePlayerUpdatePacket` (35) /
+/// `PlayerUpdatePacketRemoveEffectTagCompositeEffect` (42).
+struct GatewayRemoveCompositeEffectTag: Equatable, Sendable {
+    static let opcode: Int16 = 35
+    static let subOpcode: Int16 = 42
+
+    let guid: UInt64
+    let tagID: Int32
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try GatewayWire.readInt16(&reader)
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        guid = try reader.readUInt64()
+        tagID = try reader.readInt32()
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `BasePlayerUpdatePacket` (35) /
+/// `PlayerUpdatePacketEffectTagCompositeEffectsEnable` (43).
+struct GatewayCompositeEffectsEnabled: Equatable, Sendable {
+    static let opcode: Int16 = 35
+    static let subOpcode: Int16 = 43
+
+    let enabled: Bool
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try GatewayWire.readInt16(&reader)
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        enabled = try reader.readBool()
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `BasePlayerUpdatePacket` (35) /
+/// `PlayerUpdatePacketAddEffectTagCompositeEffect` (41). Fields named
+/// `Unknown`/`Unknown2` are preserved verbatim.
+struct GatewayAddCompositeEffectTag: Equatable, Sendable {
+    static let opcode: Int16 = 35
+    static let subOpcode: Int16 = 41
+
+    let guid: UInt64
+    let tagID: Int32
+    let compositeEffectID: Int32
+    let sourceGUID: UInt64
+    let unknown: Int32
+    let unknown2: Int32
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try GatewayWire.readInt16(&reader)
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        guid = try reader.readUInt64()
+        tagID = try reader.readInt32()
+        compositeEffectID = try reader.readInt32()
+        sourceGUID = try reader.readUInt64()
+        unknown = try reader.readInt32()
+        unknown2 = try reader.readInt32()
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `BasePlayerUpdatePacket` (35) / `PlayerUpdatePacketQueueAnimation` (22).
+/// Unknown literals are absent; all fields below are written by C#.
+struct GatewayQueuedAnimation: Equatable, Sendable {
+    static let opcode: Int16 = 35
+    static let subOpcode: Int16 = 22
+
+    let guid: UInt64
+    let animationGroupID: Int32
+    let loopCount: Int32
+    let playbackSpeed: Float
+    let delay: Float
+    let endTime: Float
+    let easeOutLoopingAnimations: Bool
+    let useTransitions: Bool
+    let useAnimationPriority: Bool
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try GatewayWire.readInt16(&reader)
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        guid = try reader.readUInt64()
+        animationGroupID = try reader.readInt32()
+        loopCount = try reader.readInt32()
+        playbackSpeed = try reader.readFloat()
+        delay = try reader.readFloat()
+        endTime = try reader.readFloat()
+        easeOutLoopingAnimations = try reader.readBool()
+        useTransitions = try reader.readBool()
+        useAnimationPriority = try reader.readBool()
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}

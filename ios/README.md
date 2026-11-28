@@ -28,7 +28,7 @@ In progress toward full parity:
 - A native in-process engine (`OSFREngine`) owns fixed-step advancement, input, an entity registry, an orthographic camera and a layered scene graph. `MetalWorldView` renders engine frames with a Metal pipeline; no Windows executable, Wine, DirectX, or process execution is used.
 - Native TGA/DDS decoders read the original client textures from `.tga`, `.dds`, `.pack` and `.rcc` sources, and the engine asset pipeline caches decoded textures by manifest-relative path.
 - Native Login UDP authentication performs the complete WebAPI → session → character select → character login flow, and a native gateway UDP transport opens the real `CGAPI_527` connection with the server-supplied ticket, GUID and AES-CCM session. Gateway reliable IDs start at zero, matching `UdpReliableChannel.ReliableIncomingId`; earlier builds acknowledged but never delivered `PacketLogin` and timed out during Join World. The documented client hello sends locale through `PacketTunneledClientWorldPacket` and initialization/finished/ready through `PacketTunneledClientPacket`, matching Sanctuary's handler routing. Continuous gameplay/world packets beyond that hello are not yet simulated.
-- Foundation-only protocol, resource, container, image, gateway, world-simulation, local-session and engine layers have Linux XCTest coverage (206 tests, 1 skipped).
+- Foundation-only protocol, resource, container, image, gateway, world-simulation, local-session and engine layers have Linux XCTest coverage (245 tests, 1 skipped).
 
 Not supported on iOS:
 
@@ -176,7 +176,11 @@ these source changes. The newer source work is documented in
 `sanctuary-audit/17-embedded-lua-and-gameplay-boundary.md` and
 `sanctuary-audit/18-simple-packet-decoders-and-xcode-target.md`; none of those
 notes claims full compiled-client or Lua/gameplay parity. The last note records
-an Xcode project omission that would have broken a build of the newer source.
+an Xcode project omission that would have broken a build of the newer source,
+and the subsequent correction of a 25-packet batch: seven packets whose C#
+`Serialize()` calls nested serializers were removed, and seven exact scalar-only
+`BasePlayerUpdatePacket` layouts were added instead. The removed packets still
+retain their raw bytes through the catalog fallback.
 
 Bundled resources now use validated relative components appended directly to
 the trusted `Bundle.main` root; there is no path-string prefix comparison and
@@ -209,20 +213,23 @@ Foundation-only logic is verified locally:
 swift test --package-path ios
 ```
 
-The 238 tests (1 skipped) cover XXH64, URL/path safety, manifest v1/v2 and
+The 245 tests (1 skipped) cover XXH64, URL/path safety, manifest v1/v2 and
 case-insensitive manifest locales, embedded-payload manifest matching, packet primitives,
 CRC32, RC4, GUID layout, WebAPI login response decoding, login framing/messages,
 gateway AES-CCM, opcode codecs, scalar hitpoints/mana/effect-tag/quest/pet/
-trade/membership/friend/mount/player-update/client-area/MOTD decoders and
-reliable-ID sequencing, the 352-class
+trade/membership/friend/mount/player-update/client-area/MOTD/animation/composite-effect
+decoders and reliable-ID sequencing, the 352-class
 Sanctuary packet routing catalog (including wire-type overlap and source
-direction hints) and raw-payload preservation, `.pack`/`.rcc`
+direction hints) and raw-payload preservation, byte/int/short sub-opcode
+routing for mapped fallback, `.pack`/`.rcc`
 parsing, TGA/DDS decoding, Sanctuary resource schemas, zone/collection/quest
 simulation, offline account/character persistence, host setting application
 (including live in-world updates and non-default starting-zone spawn), world
 gating, fixed-step engine advancement, input events, camera projection, entity
-registration and scene layering.
-SwiftUI and iOS framework code can only be compiled by the macOS workflow.
+registration and scene layering. Packets whose C# serializer delegates to
+nested codecs remain raw-preserving `.mapped` packets and set no fabricated
+observation state. SwiftUI and iOS framework code can only be compiled by the
+macOS workflow.
 
 ## Device-side verification checklist
 
