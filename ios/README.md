@@ -28,7 +28,7 @@ In progress toward full parity:
 - A native in-process engine (`OSFREngine`) owns fixed-step advancement, input, an entity registry, an orthographic camera and a layered scene graph. `MetalWorldView` renders engine frames with a Metal pipeline; no Windows executable, Wine, DirectX, or process execution is used.
 - Native TGA/DDS decoders read the original client textures from `.tga`, `.dds`, `.pack` and `.rcc` sources, and the engine asset pipeline caches decoded textures by manifest-relative path.
 - Native Login UDP authentication performs the complete WebAPI → session → character select → character login flow, and a native gateway UDP transport opens the real `CGAPI_527` connection with the server-supplied ticket, GUID and AES-CCM session. Gateway reliable IDs start at zero, matching `UdpReliableChannel.ReliableIncomingId`; earlier builds acknowledged but never delivered `PacketLogin` and timed out during Join World. The documented client hello sends locale through `PacketTunneledClientWorldPacket` and initialization/finished/ready through `PacketTunneledClientPacket`, matching Sanctuary's handler routing. Continuous gameplay/world packets beyond that hello are not yet simulated.
-- Foundation-only protocol, resource, container, image, gateway, world-simulation, local-session and engine layers have Linux XCTest coverage (266 tests, 2 skipped without a local client tree).
+- Foundation-only protocol, resource, container, image, gateway, world-simulation, local-session and engine layers have Linux XCTest coverage (267 tests, 2 skipped without a local client tree).
 
 Not supported on iOS:
 
@@ -302,7 +302,7 @@ Foundation-only logic is verified locally:
 swift test --package-path ios
 ```
 
-The 266 tests (2 skipped without `OSFR_LOCAL_CLIENT_DIR`) cover XXH64, URL/path safety, manifest v1/v2 and
+The 267 tests (2 skipped without `OSFR_LOCAL_CLIENT_DIR`) cover XXH64, URL/path safety, manifest v1/v2 and
 case-insensitive manifest locales, embedded-payload manifest matching, packet primitives,
 CRC32, RC4, GUID layout, WebAPI login response decoding, login framing/messages,
 gateway AES-CCM, opcode codecs, scalar hitpoints/mana/effect-tag/quest/pet/

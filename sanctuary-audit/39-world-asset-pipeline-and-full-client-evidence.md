@@ -67,6 +67,29 @@ Three comma-delimited manifests use `name,crc32,size`:
 | `assets/assetpack000_manifest.txt` | 9,756 | 489,469,125 |
 | `tcg/AssetsTcg_manifest.txt` | 58 | 87,193,879 |
 
+A direct crosswalk against all 13 pack indexes:
+
+| Manifest | Rows | Exact names | Exact CRC | Exact size | After stripping `.z` | CRC after stripping | Size after stripping |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `Assets_manifest.txt` | 162,652 | 1,498 | 1,498 | 1,498 | 66,649 | 66,647 | 1,498 |
+| `assets/assetpack000_manifest.txt` | 9,756 | 1,835 | 1,835 | 1,835 | 2,128 | 2,128 | 1,835 |
+| `tcg/AssetsTcg_manifest.txt` | 58 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+Exact non-`.z` names match perfectly: 3,333 / 3,333 rows agree with pack CRC
+and size. After stripping `.z`, the manifest `size` field no longer matches
+the stored payload, confirming it records the delivered compressed size. CRC
+agrees for 66,647 / 66,649 main rows and 2,128 / 2,128 assetpack rows. The two
+exceptions are:
+
+| Pack entry | Pack | Pack bytes | Pack CRC | Manifest row | Manifest CRC | Manifest size |
+|---|---|---:|---:|---|---:|---:|
+| `FabledRealmsAreas.xml` | `Assets_000.pack` | 563,796 | 1,790,632,247 | `FabledRealmsAreas.xml.z` | 1,689,797,938 | 32,468 |
+| `ActorSoundEmitterDefinitions.xml` | `Assets_003.pack` | 2,608,086 | 3,854,020,472 | `ActorSoundEmitterDefinitions.xml.z` | 1,405,558,202 | 126,778 |
+
+Both also have loose copies under `custom/`. The manifest CRC is likely over
+the compressed `.z` bytes for those two rows, but that is an inference, not
+observed decompression evidence.
+
 All 13 `.pack` files were indexed: 68,777 unique names, 0 CRC-32 mismatches,
 877,633,987 payload bytes, 3,863,778 bytes of directory overhead. The two
 world packs now available locally contain:
@@ -135,12 +158,17 @@ heuristic; they are not proven reference-manager xrefs. No executable was run.
    comma-delimited manifests with byte-level CRLF handling, bounds checks,
    unsafe-path rejection, and duplicate counting. It indexes the chained
    directories of all 13 packs with `FileHandle`, reads individual payloads by
-   offset, verifies both pack CRC-32 and manifest CRC-32, and never loads an
-   entire 200 MB pack into memory.
+   offset, verifies pack CRC-32 for every payload, and never loads an entire
+   200 MB pack into memory. Manifest CRC-32 is also enforced when the manifest
+   name exactly equals the pack name (verified 3,333 / 3,333 in the real
+   crosswalk). For `.z` rows resolved to a stripped pack name, a CRC difference
+   is exposed through `compressedManifestCRCDisagreement(for:)` instead of
+   rejecting a valid pack payload.
 3. `TextureLoader` now treats a manifest name such as
    `img10888699995024875749.dds.z` as a lookup through `WorldAssetCatalog`.
-   The stored pack payload is passed to the existing DDS/TGA/PNG decoder. A
-   manifest/pack CRC disagreement is an explicit error, not a fallback.
+   The stored pack payload is passed to the existing DDS/TGA/PNG decoder. An
+   exact-name manifest/pack CRC disagreement is an explicit error, not a
+   fallback.
 4. `Package.swift` and `Launcher.xcodeproj/project.pbxproj` include the new
    service so both Linux tests and the Xcode app build see the same code.
 
@@ -157,11 +185,12 @@ fileCount 1797 totalBytes 1229239830
 The opt-in acceptance test
 `WorldAssetCatalogTests.testRealClientCatalogSmoke` passed with
 `OSFR_LOCAL_CLIENT_DIR` set: it parsed 162,652 manifest rows, indexed 68,777
-pack records, and decoded a real `FabledRealms_BlacksporeCave_Tile_*.dds.z`
-pack payload to a valid DDS header.
+pack records, decoded a real `FabledRealms_BlacksporeCave_Tile_*.dds.z` pack
+payload to a valid DDS header, and resolved both compressed-CRC exception XML
+rows with a diagnostic disagreement.
 
-The full Foundation-only suite passes: **266 tests, 2 skipped, 0 failures**
-without `OSFR_LOCAL_CLIENT_DIR`; with the local smoke source set, 266 tests,
+The full Foundation-only suite passes: **267 tests, 2 skipped, 0 failures**
+without `OSFR_LOCAL_CLIENT_DIR`; with the local smoke source set, 267 tests,
 1 skipped, 0 failures.
 
 ## Still unresolved
@@ -173,7 +202,9 @@ without `OSFR_LOCAL_CLIENT_DIR`; with the local smoke source set, 266 tests,
   a normal GitHub blob. The local staged payload is therefore not in the
   pushed source tree.
 - Loose `.z` files not present in a pack are reported as not found. Their
-  compression/runtime semantics were not exercised.
+  compression/runtime semantics were not exercised. The two compressed-CRC
+  exception rows are resolved from their verified pack payloads, but the
+  manifest CRC is only diagnosed; no `.z` decompressor is claimed.
 - `StartingZoneName` resolves to string ID `427651`, but no shipped locale or
   scanned client data supplies that value.
 - The three non-stub starting-zone asset lists are absent locally.

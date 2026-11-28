@@ -119,11 +119,11 @@ final class WorldAssetCatalogTests: XCTestCase {
         }
     }
 
-    func testCatalogRejectsManifestPackCRCDisagreement() throws {
+    func testCatalogRejectsExactNameManifestPackCRCDisagreement() throws {
         let root = try makeRoot()
         let payload = sampleDDS()
         let crc = CRC32.checksum(payload) ^ 1
-        try Data("img1.dds.z,\(crc),999\n".utf8)
+        try Data("img1.dds,\(crc),\(payload.count)\n".utf8)
             .write(to: root.appendingPathComponent("Assets_manifest.txt"))
         try makePack(entries: [("img1.dds", payload)])
             .write(to: root.appendingPathComponent("Assets_000.pack"))
@@ -133,11 +133,35 @@ final class WorldAssetCatalogTests: XCTestCase {
             manifestPaths: ["Assets_manifest.txt"],
             packPaths: ["Assets_000.pack"]
         )
-        XCTAssertThrowsError(try catalog.payload(for: "img1.dds.z")) { error in
+        XCTAssertThrowsError(try catalog.payload(for: "img1.dds")) { error in
             guard case WorldAssetCatalogError.manifestPackMismatch = error else {
                 return XCTFail("Expected manifestPackMismatch, got \(error)")
             }
         }
+    }
+
+    func testCompressedManifestCRCDisagreementStillReturnsPackPayload() throws {
+        let root = try makeRoot()
+        let payload = sampleDDS()
+        let packCRC = CRC32.checksum(payload)
+        try Data("img1.dds.z,\(packCRC ^ 1),999\n".utf8)
+            .write(to: root.appendingPathComponent("Assets_manifest.txt"))
+        try makePack(entries: [("img1.dds", payload)])
+            .write(to: root.appendingPathComponent("Assets_000.pack"))
+
+        let catalog = try WorldAssetCatalog(
+            root: root,
+            manifestPaths: ["Assets_manifest.txt"],
+            packPaths: ["Assets_000.pack"]
+        )
+        XCTAssertEqual(try catalog.payload(for: "img1.dds.z"), payload)
+        let disagreement = try XCTUnwrap(
+            catalog.compressedManifestCRCDisagreement(for: "img1.dds.z")
+        )
+        XCTAssertEqual(disagreement.manifestName, "img1.dds.z")
+        XCTAssertEqual(disagreement.manifestCRC, packCRC ^ 1)
+        XCTAssertEqual(disagreement.packName, "img1.dds")
+        XCTAssertEqual(disagreement.packCRC, packCRC)
     }
 
     func testTextureLoaderDecodesManifestWorldTexture() throws {
@@ -179,5 +203,20 @@ final class WorldAssetCatalogTests: XCTestCase {
         let payload = try catalog.payload(for: name)
         XCTAssertEqual(Data(payload.prefix(4)), Data("DDS ".utf8))
         XCTAssertGreaterThan(payload.count, 128)
+
+        // The crosswalk found exactly two `.z` rows whose CRC describes
+        // compressed bytes rather than the stored pack payload. They must
+        // still resolve; the disagreement is diagnostic, not fatal.
+        for compressedName in [
+            "FabledRealmsAreas.xml.z",
+            "ActorSoundEmitterDefinitions.xml.z"
+        ] {
+            let xml = try catalog.payload(for: compressedName)
+            XCTAssertGreaterThan(xml.count, 1_000)
+            XCTAssertNotNil(
+                catalog.compressedManifestCRCDisagreement(for: compressedName),
+                "Expected a compressed-CRC diagnostic for \(compressedName)"
+            )
+        }
     }
 }

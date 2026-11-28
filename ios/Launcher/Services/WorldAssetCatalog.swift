@@ -159,13 +159,29 @@ public struct WorldPackEntry: Equatable, Sendable {
     public let crc32: UInt32
 }
 
+/// A manifest row ending in `.z` whose CRC does not match the stored payload.
+///
+/// The crosswalk over the real client shows that these CRCs usually match the
+/// uncompressed pack payload, but two rows do not; their manifest CRC is likely
+/// computed over the delivered compressed `.z` bytes. Those bytes are not here,
+/// so the disagreement is reported diagnostically rather than guessed.
+public struct WorldCompressedManifestCRCDisagreement: Equatable, Sendable {
+    public let manifestName: String
+    public let manifestCRC: UInt32
+    public let packRelativePath: String
+    public let packName: String
+    public let packCRC: UInt32
+}
+
 /// Index-over-manifests for the original client's world asset payload.
 ///
-/// This reader never decompresses or executes anything. It verifies that a
-/// manifest row's CRC-32 matches the CRC-32 of the stored pack payload, then
-/// returns those exact bytes to an existing native image decoder. Runtime
-/// `.z` files that are not present in a pack are reported as not found rather
-/// than guessed.
+/// This reader never decompresses or executes anything. It verifies pack-entry
+/// CRC-32 for every returned payload. Manifest/pack CRC is also enforced when
+/// the manifest name exactly matches the pack name. For `.z` manifest rows that
+/// map to a stripped pack name, a CRC difference is exposed by
+/// `compressedManifestCRCDisagreement(for:)` because the manifest CRC can
+/// describe compressed bytes. Runtime `.z` files that are not present in a pack
+/// are reported as not found rather than guessed.
 public final class WorldAssetCatalog: @unchecked Sendable {
     public static let defaultManifestPaths = [
         "Assets_manifest.txt",
@@ -292,7 +308,10 @@ public final class WorldAssetCatalog: @unchecked Sendable {
                         expected: entry.crc32, actual: actual, entry: entry.name
                     )
                 }
+                // Exact non-`.z` rows were verified 3,333/3,333 against their
+                // pack entries. Only those can safely require matching CRCs.
                 if let manifestEntry = manifestEntry(for: name),
+                   manifestEntry.name == entry.name,
                    manifestEntry.crc32 != entry.crc32 {
                     throw WorldAssetCatalogError.manifestPackMismatch(
                         entry: entry.name,
@@ -304,6 +323,25 @@ public final class WorldAssetCatalog: @unchecked Sendable {
             }
         }
         throw WorldAssetCatalogError.notFound(name)
+    }
+
+    /// Reports a CRC difference for a `.z` manifest row resolved to a stripped
+    /// pack name. `nil` means names are not both present or the CRCs agree.
+    public func compressedManifestCRCDisagreement(
+        for name: String
+    ) -> WorldCompressedManifestCRCDisagreement? {
+        guard name.hasSuffix(".z"),
+              let manifest = manifestEntry(for: name),
+              let pack = packEntry(for: name),
+              manifest.crc32 != pack.crc32
+        else { return nil }
+        return WorldCompressedManifestCRCDisagreement(
+            manifestName: manifest.name,
+            manifestCRC: manifest.crc32,
+            packRelativePath: pack.packRelativePath,
+            packName: pack.name,
+            packCRC: pack.crc32
+        )
     }
 
     private func manifestEntry(for name: String) -> WorldAssetManifestEntry? {
