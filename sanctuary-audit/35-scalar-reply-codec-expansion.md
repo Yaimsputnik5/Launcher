@@ -28,7 +28,7 @@ offline value was used to fill a field.
 | 74/8 | `FriendMessagePacket` | byte `FriendMessageType`, UInt64 `Guid`, `NameData Name`, `NameData NewName` |
 | 112/3 | `IgnoreRemovePacket` | UInt64 `Guid` |
 | 127/44 | `HousingPacketUpdateHouseInfo` | bool `InEditMode`, private Int32 `Unused`, bool `IsLocked`, bool `IsFloraAllowed`, bool `PetAutospawn`, Int32 `CurFixtureCount`, Int32 `CurLandmarkCount`, Int32 `FurnitureScore` |
-| 129/17 | `GuildMemberStatusUpdatePacket` | UInt64 `GuildGuid`, UInt64 `MemberGuid`, `NameData Name`, Int32 `Role`, bool `Online`, six following Int32 fields |
+| 129/17 | `GuildMemberStatusUpdatePacket` | UInt64 `GuildGuid`, UInt64 `MemberGuid`, `NameData Name`, Int32 `Role`, bool `Online`, five following Int32 fields (`Type`, `WorldId`, `Unknown`, `ProfileId`, `ProfileRank`) |
 | 129/18 | `GuildNameUpdatePacket` | UInt64 `Guid`, string `Name` |
 | 129/23 | `GuildErrorPacket` | string `MessageName` |
 | 129/27 | `GuildInviteAcceptNotificationPacket` | `NameData Name` |
