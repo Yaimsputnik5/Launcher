@@ -185,7 +185,9 @@ retain their raw bytes through the catalog fallback. Note 19 resolves the
 `StartingZone` argument to a resource prefix (`StartingZone` or empty) that
 selects zone-specific option/controller/help files, and narrows the
 `StartingZoneLoad.txt` parser to one startup call site; it does not claim the
-parsed row list has a recovered consumer.
+parsed row list has a recovered consumer. Note 20 corrects `fcn.0097c090` to a
+localized name/template formatter and maps the data-driven Lua command
+registration table, without claiming Lua script semantics.
 
 Bundled resources now use validated relative components appended directly to
 the trusted `Bundle.main` root; there is no path-string prefix comparison and
