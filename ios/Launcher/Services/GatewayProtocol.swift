@@ -2305,6 +2305,9 @@ enum GatewayWorldPacket: Equatable {
     case petStatus(GatewayPetStatus)
     case petActive(GatewayPetActive)
     case tradeCoinCount(GatewayTradeCoinCount)
+    case tradeInvite(GatewayTradeInvite)
+    case tradeStartSession(GatewayTradeStartSession)
+    case tradeRejected(GatewayTradeRejected)
     case tradeMessage(GatewayTradeMessage)
     case tradeEndSession(GatewayTradeEndSession)
     case tradeAddItem(GatewayTradeAddItem)
@@ -2540,6 +2543,12 @@ enum GatewayWorldCodec {
             switch sub {
             case GatewayTradeCoinCount.subOpcode:
                 return .tradeCoinCount(try GatewayTradeCoinCount(data: data))
+            case GatewayTradeInvite.subOpcode:
+                return .tradeInvite(try GatewayTradeInvite(data: data))
+            case GatewayTradeStartSession.subOpcode:
+                return .tradeStartSession(try GatewayTradeStartSession(data: data))
+            case GatewayTradeRejected.subOpcode:
+                return .tradeRejected(try GatewayTradeRejected(data: data))
             case GatewayTradeMessage.subOpcode:
                 return .tradeMessage(try GatewayTradeMessage(data: data))
             case GatewayTradeEndSession.subOpcode:
@@ -2767,6 +2776,9 @@ struct GatewayWorldObservation: Equatable, Sendable {
     var lastPetStatus: GatewayPetStatus?
     var activePetGUIDs: [Int32: UInt64] = [:]
     var tradeCoinCounts: [Int32: GatewayTradeCoinCount] = [:]
+    var tradeInvites: [Int32: GatewayTradeInvite] = [:]
+    var lastTradeStartSession: GatewayTradeStartSession?
+    var lastTradeRejection: GatewayTradeRejected?
     var lastTradeMessage: GatewayTradeMessage?
     var lastEndedTradeSessionID: Int32?
     var lastTradeAddItem: GatewayTradeAddItem?
@@ -3107,6 +3119,15 @@ struct GatewayWorldObservation: Equatable, Sendable {
         case .tradeCoinCount(let update):
             tradeCoinCounts[update.sessionID] = update
             lastEvent = "Trade \(update.sessionID) · offered \(update.offeredCoins)"
+        case .tradeInvite(let invite):
+            tradeInvites[invite.sessionID] = invite
+            lastEvent = "Trade invite \(invite.sessionID) · \(Self.displayName(invite.inviterName))"
+        case .tradeStartSession(let start):
+            lastTradeStartSession = start
+            lastEvent = "Trade started \(start.sessionID) · \(Self.displayName(start.partnerName))"
+        case .tradeRejected(let rejection):
+            lastTradeRejection = rejection
+            lastEvent = "Trade rejected · \(Self.displayName(rejection.rejectingPlayer))"
         case .tradeMessage(let message):
             lastTradeMessage = message
             lastEvent = "Trade message · \(message.messageCode)"

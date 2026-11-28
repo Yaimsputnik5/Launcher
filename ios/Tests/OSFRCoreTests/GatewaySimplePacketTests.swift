@@ -1166,6 +1166,71 @@ final class GatewaySimplePacketTests: XCTestCase {
         XCTAssertNil(observation.hitpointsCurrent)
     }
 
+    func testTradeHandshakePacketsUseVerifiedNameDataOrder() throws {
+        let inviter = GatewayName(
+            firstNameID: 11, lastNamePrefixID: 12, lastNameSuffixID: 13,
+            firstName: "Ada", lastName: "Meridian"
+        )
+        let partner = GatewayName(
+            firstNameID: 21, lastNamePrefixID: 22, lastNameSuffixID: 23,
+            firstName: "Lin", lastName: ""
+        )
+        let rejecter = GatewayName(
+            firstNameID: 31, lastNamePrefixID: 32, lastNameSuffixID: 33,
+            firstName: "Rin", lastName: "Vale"
+        )
+
+        func header(_ sub: UInt8, to writer: inout PacketWriter) {
+            GatewayWire.appendInt16(GatewayTradeInvite.opcode, to: &writer.data)
+            writer.writeUInt8(sub)
+        }
+
+        var inviteWriter = PacketWriter()
+        header(GatewayTradeInvite.subOpcode, to: &inviteWriter)
+        inviter.append(to: &inviteWriter)
+        inviteWriter.writeUInt64(0x1122_3344_5566_7788)
+        inviteWriter.writeInt32(710)
+        let invite = try GatewayWorldCodec.decodeAny(inviteWriter.data)
+        guard case .tradeInvite(let decodedInvite) = invite else {
+            return XCTFail("Expected trade invite, got \(invite)")
+        }
+        XCTAssertEqual(decodedInvite.inviterName, inviter)
+        XCTAssertEqual(decodedInvite.inviterGUID, 0x1122_3344_5566_7788)
+        XCTAssertEqual(decodedInvite.sessionID, 710)
+
+        var startWriter = PacketWriter()
+        header(GatewayTradeStartSession.subOpcode, to: &startWriter)
+        startWriter.writeUInt64(0x8877_6655_4433_2211)
+        partner.append(to: &startWriter)
+        startWriter.writeInt32(711)
+        let start = try GatewayWorldCodec.decodeAny(startWriter.data)
+        guard case .tradeStartSession(let decodedStart) = start else {
+            return XCTFail("Expected trade start session, got \(start)")
+        }
+        XCTAssertEqual(decodedStart.partnerGUID, 0x8877_6655_4433_2211)
+        XCTAssertEqual(decodedStart.partnerName, partner)
+        XCTAssertEqual(decodedStart.sessionID, 711)
+
+        var rejectedWriter = PacketWriter()
+        header(GatewayTradeRejected.subOpcode, to: &rejectedWriter)
+        rejecter.append(to: &rejectedWriter)
+        let rejected = try GatewayWorldCodec.decodeAny(rejectedWriter.data)
+        guard case .tradeRejected(let decodedRejection) = rejected else {
+            return XCTFail("Expected trade rejection, got \(rejected)")
+        }
+        XCTAssertEqual(decodedRejection.rejectingPlayer, rejecter)
+
+        var observation = GatewayWorldObservation.empty
+        for packet in [invite, start, rejected] {
+            observation.apply(packet)
+        }
+        XCTAssertEqual(observation.tradeInvites[710]?.inviterName, inviter)
+        XCTAssertEqual(observation.lastTradeStartSession?.sessionID, 711)
+        XCTAssertEqual(observation.lastTradeRejection?.rejectingPlayer, rejecter)
+        XCTAssertNil(observation.lastTradeMessage)
+        XCTAssertTrue(observation.confirmedTradeSessionIDs.isEmpty)
+    }
+
     func testStoreBundlesDecoderMatchesNestedCSharpFieldOrder() throws {
         var writer = PacketWriter()
         GatewayWire.appendInt16(GatewayInGamePurchaseStoreBundles.opcode, to: &writer.data)

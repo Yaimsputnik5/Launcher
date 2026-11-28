@@ -282,6 +282,82 @@ struct GatewayTradeCoinCount: Equatable, Sendable {
     }
 }
 
+/// `BaseTradePacket` (59) / `TradeInvitePacket` (2). `NameData.Serialize`
+/// writes three Int32 ids followed by two length-prefixed strings.
+struct GatewayTradeInvite: Equatable, Sendable {
+    static let opcode: Int16 = 59
+    static let subOpcode: UInt8 = 2
+
+    let inviterName: GatewayName
+    let inviterGUID: UInt64
+    let sessionID: Int32
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try reader.readUInt8()
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedInternalOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        inviterName = try GatewayName(reader: &reader)
+        inviterGUID = try reader.readUInt64()
+        sessionID = try reader.readInt32()
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `BaseTradePacket` (59) / `TradeStartSessionPacket` (4). The GUID is written
+/// before `NameData`, unlike the invite packet.
+struct GatewayTradeStartSession: Equatable, Sendable {
+    static let opcode: Int16 = 59
+    static let subOpcode: UInt8 = 4
+
+    let partnerGUID: UInt64
+    let partnerName: GatewayName
+    let sessionID: Int32
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try reader.readUInt8()
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedInternalOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        partnerGUID = try reader.readUInt64()
+        partnerName = try GatewayName(reader: &reader)
+        sessionID = try reader.readInt32()
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `BaseTradePacket` (59) / `TradeRejectedPacket` (16).
+struct GatewayTradeRejected: Equatable, Sendable {
+    static let opcode: Int16 = 59
+    static let subOpcode: UInt8 = 16
+
+    let rejectingPlayer: GatewayName
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try reader.readUInt8()
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedInternalOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        rejectingPlayer = try GatewayName(reader: &reader)
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
 /// `BaseTradePacket` (59) / `TradeMessagePacket` (15).
 struct GatewayTradeMessage: Equatable, Sendable {
     static let opcode: Int16 = 59

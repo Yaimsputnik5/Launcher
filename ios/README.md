@@ -184,8 +184,9 @@ these source changes. The newer source work is documented in
 `sanctuary-audit/25-additional-commerce-response-codecs.md`,
 `sanctuary-audit/26-broadcast-and-housing-zone-codecs.md`,
 `sanctuary-audit/27-client-starting-zone-loader-call-sites.md`,
-`sanctuary-audit/28-starting-zone-lua-dispatch.md` and
-`sanctuary-audit/29-external-login-scalar-replies.md`; none of those notes claims full
+`sanctuary-audit/28-starting-zone-lua-dispatch.md`,
+`sanctuary-audit/29-external-login-scalar-replies.md` and
+`sanctuary-audit/30-trade-handshake-codecs.md`; none of those notes claims full
 compiled-client or Lua/gameplay parity. Note 18 records an
 Xcode project omission that would have broken a build of the newer source, and
 the subsequent correction of a 25-packet batch: seven packets whose C#
@@ -225,7 +226,10 @@ parsed boolean at row+4 is inferred to be `IS_BACKGROUND_LOAD`, but callback
 semantics and the full row-to-header mapping remain unverified. Note 29 decodes
 login opcodes 4 and 6 from their exact C# `Serialize()` order and turns
 `ForceDisconnect` into a terminal login failure; character creation remains
-unimplemented and the live UDP failure path is not covered by Linux tests.
+unimplemented and the live UDP failure path is not covered by Linux tests. Note
+30 decodes trade invite, session-start, and rejection packets through the
+verified `NameData` order while keeping unresolved trade opcodes raw; no trade
+UI or outbound trade protocol is claimed.
 
 Bundled resources now use validated relative components appended directly to
 the trusted `Bundle.main` root; there is no path-string prefix comparison and
