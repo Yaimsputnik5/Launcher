@@ -27,7 +27,7 @@ In progress toward full parity:
 - The **World** tab is backed by Sanctuary zone, collection-spawn, quest and NPC data. It runs 10 Hz/1 Hz simulation ticks, gathers exact collection nodes, advances quest goals, persists per-goal progress, grants items and persists a local character.
 - A native in-process engine (`OSFREngine`) owns fixed-step advancement, input, an entity registry, an orthographic camera and a layered scene graph. `MetalWorldView` renders engine frames with a Metal pipeline; no Windows executable, Wine, DirectX, or process execution is used.
 - Native TGA/DDS decoders read the original client textures from `.tga`, `.dds`, `.pack` and `.rcc` sources, and the engine asset pipeline caches decoded textures by manifest-relative path.
-- Native Login UDP authentication performs the complete WebAPI → session → character select → character login flow, and a native gateway UDP transport opens the real `CGAPI_527` connection with the server-supplied ticket, GUID and AES-CCM session. Gateway reliable IDs start at zero, matching `UdpReliableChannel.ReliableIncomingId`; earlier builds acknowledged but never delivered `PacketLogin` and timed out during Join World. The documented client hello sends locale through `PacketTunneledClientWorldPacket` and initialization/finished/ready through `PacketTunneledClientPacket`, matching Sanctuary's handler routing. Continuous gameplay/world packets beyond that hello are not yet simulated.
+- Native Login UDP authentication performs the complete WebAPI â session â character select â character login flow, and a native gateway UDP transport opens the real `CGAPI_527` connection with the server-supplied ticket, GUID and AES-CCM session. Gateway reliable IDs start at zero, matching `UdpReliableChannel.ReliableIncomingId`; earlier builds acknowledged but never delivered `PacketLogin` and timed out during Join World. The documented client hello sends locale through `PacketTunneledClientWorldPacket` and initialization/finished/ready through `PacketTunneledClientPacket`, matching Sanctuary's handler routing. Continuous gameplay/world packets beyond that hello are not yet simulated.
 - Foundation-only protocol, resource, container, image, gateway, world-simulation, local-session and engine layers have Linux XCTest coverage (206 tests, 1 skipped).
 
 Not supported on iOS:
@@ -72,11 +72,11 @@ Not supported on iOS:
    The script uses `CODE_SIGNING_ALLOWED=NO`, builds `Launcher.ipa`, and leaves
    signing to AltStore/SideStore.
 4. Open AltStore or SideStore, choose **Install IPA**, and select
-   `ios/Launcher.ipa`. The store app applies your Apple ID signature.
+   `ios/Launcher.ip``. The store app applies your Apple ID signature.
 5. Trust the developer certificate on the device if prompted.
 
 If you prefer signing directly from Xcode, set your own Team in the target
-signing settings and use **Product → Archive** instead of the script.
+signing settings and use **Product â Archive** instead of the script.
 
 ### CI build settings
 
@@ -103,7 +103,7 @@ quickest way to diagnose a failed macOS build.
 | Embedded client payload | `Launcher.app/ClientAssets/...` (build-time only, ignored by git) |
 | Embedded Sanctuary data | `Launcher.app/SanctuaryResources/...` (build-time only, ignored by git) |
 | Remembered passwords | iOS Keychain, service `<bundle-id>.passwords`, account = server UUID |
-| Logs | `Application Support/OSFRLauncher/Logs/` (rotating, 2 MiB × 4 files) |
+| Logs | `Application Support/OSFRLauncher/Logs/` (rotating, 2 MiB Ã 4 files) |
 
 Files are shared through the Files app because `UIFileSharingEnabled` is set.
 
@@ -122,8 +122,8 @@ Files are shared through the Files app because `UIFileSharingEnabled` is set.
 | `ServerStatusHelper` | `ServerStatusClient` (Network.framework UDP) |
 | `ViewModels/*` + `Views/*` | `AppState` / `ServerRuntime` + SwiftUI views |
 | Sanctuary `UdpLibrary` / `LoginUdp_6` | `ProtocolPrimitives`, `LoginProtocol` and `LoginUDPSession` (session + character flow) |
-| Sanctuary gateway `CGAPI_527` | `GatewayProtocol` codecs and `GatewayUDPSession` UDP transport |
-| Sanctuary `Resources/*` | `ResourceCatalog` typed loaders |
+| Sanctuary gateway `CGAPI_527` | `GatewayProtocol` codes and `GatewayUDPSession` UDP transport |
+| Sanctuary `Resources/*` | `ResourceCatalog`` typed loaders |
 | Sanctuary `BaseZone` / `CollectionNode` / `QuestManager` | `WorldSimulation` and `CollectionSpawnCatalog` |
 | Sanctuary starting zone / profile and title unlock data | `LocalHostConfiguration` + `ResourceCatalog` + `WorldPlayOptions` |
 | Sanctuary world database | `LocalSession` offline JSON store (first layer) |
@@ -158,13 +158,25 @@ macOS runner:
 - Local artifact: `ios/Launcher.ipa` (375,200,997 bytes)
 - SHA-256: `e5a48f13bab8da1daa4c9a5c26475f57855cd2e49176665cf251baed7ec21307`
 
-Bundled resources are validated by lexical containment and validated path
-components. Trusted read-only bundle roots explicitly skip symlink resolution
-because LiveContainer can expose those files through a canonical path that no
-longer shares the literal `Bundle.main` prefix. Writable roots still require
-symlink-resolution containment checks, so escape symlinks cannot redirect a
-download or persisted file. Path-traversal and component validation remain
-active for both read-only and writable roots.
+Current `ios-build` source: `f568a64430e6a36cb1fae22c2d6dd4a0225d84e4`
+(`Resolve bundled resources without path containment under LiveContainer`),
+followed by trigger commit `ca10578af737c95a3eba8938df310096142e01cf`. A fresh
+IPA has not yet been published for those commits: GitHub currently reports that
+workflows are not being run on this fork. A repository maintainer must
+re-enable Actions for `YaimSputnik5/Launcher`, then re-run the
+`Build iOS IPA` workflow on `ios-build`. The verified release below remains the
+last built artifact and does not include this source change.
+
+Bundled resources now use validated relative components appended directly to
+the trusted `Bundle.main` root; there is no path-string prefix comparison and
+no symlink resolution for read-only bundle files. That avoids a LiveContainer
+canonical path such as
+`/private/var/mobile/Containers/Shared/AppGroup/.../LiveContainer/Applications/dev.opensourcefreerealms.launcher.app/SanctuaryResources/Npcs.json`
+being rejected because it does not literally share the bundle prefix. Writable
+roots still require symlink-resolution containment checks, so escape symlinks
+cannot redirect a download or persisted file. Path-traversal, separator, NUL,
+control-character, and dot-segment validation remain active for bundled
+resources.
 
 Both the IPA build and the release-publishing steps succeeded. The checksum above
 was read from the GitHub release asset digest and verified against a fully
@@ -208,7 +220,7 @@ credentials.
    Backgrounding during a download should show `Cannot close the launcher while
    downloading.` and the stable `.part` file should resume on next launch.
 2. **Join Server**: sign in with your own account on an HTTPS server; confirm
-   WebAPI → session → character select → character login → gateway join. Before
+   WebAPI â session â character select â character login â gateway join. Before
    join succeeds, **World** must do nothing. After join, **World** must show only
    decoded packet-derived state, with no offline/static art injected.
 3. **Play Offline**: start an offline game, then confirm the World tab activates.
