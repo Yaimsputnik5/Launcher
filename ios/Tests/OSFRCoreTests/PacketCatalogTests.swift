@@ -95,6 +95,24 @@ final class PacketCatalogTests: XCTestCase {
         XCTAssertEqual(payload, data)
     }
 
+    func testRawMappedAndUnknownPacketsNeverFabricateWorldState() throws {
+        var observation = GatewayWorldObservation.empty
+        observation.apply(try GatewayWorldCodec.decodeAny(framed(93, nil, [0xde, 0xad])))
+        observation.apply(try GatewayWorldCodec.decodeAny(framed(250, nil, [0xbe, 0xef])))
+
+        XCTAssertTrue(observation.positions.isEmpty)
+        XCTAssertTrue(observation.names.isEmpty)
+        XCTAssertTrue(observation.chatMessages.isEmpty)
+        XCTAssertNil(observation.playerGUID)
+        XCTAssertNil(observation.zoneName)
+        XCTAssertNil(observation.zoneID)
+        XCTAssertNil(observation.geometryID)
+        XCTAssertNil(observation.gameTime)
+        XCTAssertFalse(observation.zoneDataComplete)
+        XCTAssertEqual(observation.mappedPacketCounts["PacketLoadWelcomeScreen"], 1)
+        XCTAssertEqual(observation.lastMappedPayload, framed(93, nil, [0xde, 0xad]))
+    }
+
     func testUnknownOpcodeStaysUnknown() throws {
         let data = framed(250, nil, [0x01])
         let packet = try GatewayWorldCodec.decodeAny(data)

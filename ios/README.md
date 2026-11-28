@@ -167,7 +167,11 @@ not been published for those commits: GitHub still reports zero Actions runs
 and zero check runs for them. A repository maintainer must re-enable Actions for
 `YaimSputnik5/Launcher`, then re-run the `Build iOS IPA` workflow on `ios-build`.
 The verified release below remains the last built artifact and does not include
-these source changes.
+these source changes. The newer source work is documented in
+`sanctuary-audit/15-packet-catalog-and-config-xrefs.md`,
+`sanctuary-audit/16-offline-host-settings-wiring.md` and
+`sanctuary-audit/17-embedded-lua-and-gameplay-boundary.md`; none of those notes
+claims full compiled-client or Lua/gameplay parity.
 
 Bundled resources now use validated relative components appended directly to
 the trusted `Bundle.main` root; there is no path-string prefix comparison and
@@ -200,7 +204,7 @@ Foundation-only logic is verified locally:
 swift test --package-path ios
 ```
 
-The 221 tests (1 skipped) cover XXH64, URL/path safety, manifest v1/v2 and
+The 222 tests (1 skipped) cover XXH64, URL/path safety, manifest v1/v2 and
 case-insensitive manifest locales, embedded-payload manifest matching, packet primitives,
 CRC32, RC4, GUID layout, WebAPI login response decoding, login framing/messages,
 gateway AES-CCM, opcode codecs and reliable-ID sequencing, the 352-class
