@@ -80,6 +80,7 @@ enum GatewayProtocolError: Error, LocalizedError, Equatable {
     case wire(ProtocolError)
     case invalidState(expected: String, actual: String)
     case invalidASCII
+    case invalidCollectionCount(String)
     case malformedFrame(String)
 
     var errorDescription: String? {
@@ -142,6 +143,8 @@ enum GatewayProtocolError: Error, LocalizedError, Equatable {
             return "Invalid gateway session state: expected \(expected), found \(actual)."
         case .invalidASCII:
             return "Gateway protocol name or connect data is not ASCII."
+        case .invalidCollectionCount(let name):
+            return "Invalid \(name) collection count in gateway packet."
         case .malformedFrame(let detail):
             return "Malformed gateway frame: \(detail)"
         }
@@ -2347,6 +2350,7 @@ enum GatewayWorldPacket: Equatable {
     case petUtilityNotification(GatewayPetUtilityNotification)
     case inGamePurchasePaymentSources(GatewayInGamePurchasePaymentSources)
     case inGamePurchaseMarketplace(GatewayInGamePurchaseMarketplace)
+    case inGamePurchaseStoreBundles(GatewayInGamePurchaseStoreBundles)
     case objectiveTargetUpdate(GatewayObjectiveTargetUpdate)
     case objectiveClientClear(GatewayObjectiveClientClear)
     case clientArea(GatewayClientAreaUpdate)
@@ -2581,6 +2585,8 @@ enum GatewayWorldCodec {
                 return .inGamePurchasePaymentSources(try GatewayInGamePurchasePaymentSources(data: data))
             case GatewayInGamePurchaseMarketplace.subOpcode:
                 return .inGamePurchaseMarketplace(try GatewayInGamePurchaseMarketplace(data: data))
+            case GatewayInGamePurchaseStoreBundles.subOpcode:
+                return .inGamePurchaseStoreBundles(try GatewayInGamePurchaseStoreBundles(data: data))
             default:
                 return Self.mappedOrUnknown(opcode: opcode, data: data)
             }
@@ -2745,6 +2751,7 @@ struct GatewayWorldObservation: Equatable, Sendable {
     var lastPetUtilityNotification: GatewayPetUtilityNotification?
     var inGamePurchasePaymentSources: GatewayInGamePurchasePaymentSources?
     var inGamePurchaseMarketplaceEnabled: Bool?
+    var inGamePurchaseStoreBundles: GatewayInGamePurchaseStoreBundles?
     var objectiveTargetUpdate: GatewayObjectiveTargetUpdate?
     var lastClearedObjectiveUnknown: Int32?
     /// Packet-backed only: set by `PacketSetClientArea` / `PacketMOTD`.
@@ -3175,6 +3182,9 @@ struct GatewayWorldObservation: Equatable, Sendable {
         case .inGamePurchaseMarketplace(let marketplace):
             inGamePurchaseMarketplaceEnabled = marketplace.enabled
             lastEvent = "Marketplace · \(marketplace.enabled)"
+        case .inGamePurchaseStoreBundles(let bundles):
+            inGamePurchaseStoreBundles = bundles
+            lastEvent = "Store bundles · store \(bundles.storeID) · \(bundles.store.bundles.count) bundles"
         case .objectiveTargetUpdate(let update):
             objectiveTargetUpdate = update
             lastEvent = "Objective target · active \(update.active)"

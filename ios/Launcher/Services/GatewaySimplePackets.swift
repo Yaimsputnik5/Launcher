@@ -1639,3 +1639,226 @@ struct GatewayTradeConfirm: Equatable, Sendable {
         guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
     }
 }
+
+// MARK: - Store bundles (66/5/1)
+
+private enum GatewayStoreCodec {
+    static let maxCollectionCount = 65_536
+
+    static func readCount(_ reader: inout PacketReader, _ name: String) throws -> Int {
+        let raw = try reader.readInt32()
+        guard raw >= 0, raw <= maxCollectionCount else {
+            throw GatewayProtocolError.invalidCollectionCount(name)
+        }
+        return Int(raw)
+    }
+}
+
+/// `ImageDataDefinition.Serialize`: two length-prefixed UTF-8 strings. C#
+/// writes `null` and `""` as the same zero-length field; the decoded value is
+/// therefore the wire string, not a reconstructed nil.
+struct GatewayStoreImageData: Equatable, Sendable {
+    let image: String
+    let tint: String
+
+    init(reader: inout PacketReader) throws {
+        image = try reader.readString()
+        tint = try reader.readString()
+    }
+}
+
+/// `MarketingBundleDefinition.Entry.Serialize`.
+struct GatewayStoreMarketingEntry: Equatable, Sendable {
+    let quantity: Int32
+    let gameItemID: Int32
+    let marketingItemID: Int32
+    let imageTintOverride: String
+
+    init(reader: inout PacketReader) throws {
+        quantity = try reader.readInt32()
+        gameItemID = try reader.readInt32()
+        marketingItemID = try reader.readInt32()
+        imageTintOverride = try reader.readString()
+    }
+}
+
+/// `MarketingBundleDefinition.Serialize`. `DateTimeOffset` is written as
+/// seconds since the Unix epoch by `PacketWriter`, so it is kept here as an
+/// `Int64` rather than converted into an inferred local time.
+struct GatewayStoreMarketingBundle: Equatable, Sendable {
+    let id: Int32
+    let nameID: Int32
+    let descriptionID: Int32
+    let status: Int32
+    let image: GatewayStoreImageData
+    let isTintable: Bool
+    let tintGroup: String
+    let currencyType: Int32
+    let price: Int32
+    let altCurrencyPrice: Int32
+    let altPrice: Int32
+    let partnerID: Int32
+    let launchTimeSeconds: Int64
+    let expireTimeSeconds: Int64
+    let unknown: Int32
+    let unknown2: Bool
+    let repeatedLaunchTimeSeconds: Int64
+    let repeatedExpireTimeSeconds: Int64
+    let entries: [GatewayStoreMarketingEntry]
+
+    init(reader: inout PacketReader) throws {
+        id = try reader.readInt32()
+        nameID = try reader.readInt32()
+        descriptionID = try reader.readInt32()
+        status = try reader.readInt32()
+        image = try GatewayStoreImageData(reader: &reader)
+        isTintable = try reader.readBool()
+        tintGroup = try reader.readString()
+        currencyType = try reader.readInt32()
+        price = try reader.readInt32()
+        altCurrencyPrice = try reader.readInt32()
+        altPrice = try reader.readInt32()
+        partnerID = try reader.readInt32()
+        launchTimeSeconds = try reader.readInt64()
+        expireTimeSeconds = try reader.readInt64()
+        unknown = try reader.readInt32()
+        unknown2 = try reader.readBool()
+        repeatedLaunchTimeSeconds = try reader.readInt64()
+        repeatedExpireTimeSeconds = try reader.readInt64()
+        let count = try GatewayStoreCodec.readCount(&reader, "marketing bundle entries")
+        var decoded: [GatewayStoreMarketingEntry] = []
+        decoded.reserveCapacity(count)
+        for _ in 0..<count {
+            decoded.append(try GatewayStoreMarketingEntry(reader: &reader))
+        }
+        entries = decoded
+    }
+}
+
+/// `StoreBundleDefinition.Serialize`, including its inherited
+/// `MarketingBundleDefinition` fields.
+struct GatewayStoreBundleDefinition: Equatable, Sendable {
+    let marketing: GatewayStoreMarketingBundle
+    let storeID: Int32
+    let categoryGroupID: Int32
+    let isVisible: Bool
+    let maxPerOrder: Int32
+    let displayOrder: Int32
+    let categoryDisplayOrder: Int32
+    let discountType: Int32
+    let skuID: Int32
+    let discountValue: Int32
+    let unknown3: Int32
+    let unknown4: Int32
+    let termsAndConditionsID: UInt8
+    let isNew: Bool
+    let isViewOnly: Bool
+
+    init(reader: inout PacketReader) throws {
+        marketing = try GatewayStoreMarketingBundle(reader: &reader)
+        storeID = try reader.readInt32()
+        categoryGroupID = try reader.readInt32()
+        isVisible = try reader.readBool()
+        maxPerOrder = try reader.readInt32()
+        displayOrder = try reader.readInt32()
+        categoryDisplayOrder = try reader.readInt32()
+        discountType = try reader.readInt32()
+        skuID = try reader.readInt32()
+        discountValue = try reader.readInt32()
+        unknown3 = try reader.readInt32()
+        unknown4 = try reader.readInt32()
+        termsAndConditionsID = try reader.readUInt8()
+        isNew = try reader.readBool()
+        isViewOnly = try reader.readBool()
+    }
+}
+
+/// `AppStoreBundleDefinition.Serialize`, including its inherited
+/// `StoreBundleDefinition` fields. The write order of the final booleans differs
+/// from their declaration order in C#, so the decoder follows `Serialize()`.
+struct GatewayAppStoreBundleDefinition: Equatable, Sendable {
+    let bundle: GatewayStoreBundleDefinition
+    let memberDiscount: Int32
+    let limitedSeriesID: Int32
+    let isMembersOnly: Bool
+    let vipRank: Int32
+    let membersOnlyPrice: Int32
+    let salePrice: Int32
+    let isMerchantOnly: Bool
+    let isLimitedTime: Bool
+    let forceCanPreview: Int32
+    let previewAnimID: Int32
+
+    init(reader: inout PacketReader) throws {
+        bundle = try GatewayStoreBundleDefinition(reader: &reader)
+        memberDiscount = try reader.readInt32()
+        limitedSeriesID = try reader.readInt32()
+        isMembersOnly = try reader.readBool()
+        vipRank = try reader.readInt32()
+        membersOnlyPrice = try reader.readInt32()
+        salePrice = try reader.readInt32()
+        isMerchantOnly = try reader.readBool()
+        isLimitedTime = try reader.readBool()
+        forceCanPreview = try reader.readInt32()
+        previewAnimID = try reader.readInt32()
+    }
+}
+
+/// `StoreDefinition.Serialize`: three ints, `ImageDataDefinition`, then an
+/// `IDictionary<int, AppStoreBundleDefinition>` written as an int32 count
+/// followed by int32 keys and serialized values.
+struct GatewayStoreDefinition: Equatable, Sendable {
+    let id: Int32
+    let nameID: Int32
+    let descriptionID: Int32
+    let image: GatewayStoreImageData
+    let bundles: [Int32: GatewayAppStoreBundleDefinition]
+
+    init(reader: inout PacketReader) throws {
+        id = try reader.readInt32()
+        nameID = try reader.readInt32()
+        descriptionID = try reader.readInt32()
+        image = try GatewayStoreImageData(reader: &reader)
+        let count = try GatewayStoreCodec.readCount(&reader, "store definition bundles")
+        var decoded: [Int32: GatewayAppStoreBundleDefinition] = [:]
+        decoded.reserveCapacity(count)
+        for _ in 0..<count {
+            let key = try reader.readInt32()
+            decoded[key] = try GatewayAppStoreBundleDefinition(reader: &reader)
+        }
+        bundles = decoded
+    }
+}
+
+/// `PacketBaseInGamePurchase` (66) / `PacketInGamePurchaseStoreBundleBase` (5)
+/// / `PacketInGamePurchaseStoreBundles` (internal opcode 1). The base packet
+/// writes an `int SubOpCode` and `int StoreId` before `StoreDefinition`.
+struct GatewayInGamePurchaseStoreBundles: Equatable, Sendable {
+    static let opcode: Int16 = 66
+    static let subOpcode: Int16 = 5
+    static let bundlesOpcode: Int32 = 1
+
+    let storeID: Int32
+    let store: GatewayStoreDefinition
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try GatewayWire.readInt16(&reader)
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        let bundlesOpcode = try reader.readInt32()
+        guard bundlesOpcode == Self.bundlesOpcode else {
+            throw GatewayProtocolError.malformedFrame(
+                "Expected store bundles internal opcode \(Self.bundlesOpcode), found \(bundlesOpcode)"
+            )
+        }
+        storeID = try reader.readInt32()
+        store = try GatewayStoreDefinition(reader: &reader)
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}

@@ -176,8 +176,9 @@ these source changes. The newer source work is documented in
 `sanctuary-audit/17-embedded-lua-and-gameplay-boundary.md`,
 `sanctuary-audit/18-simple-packet-decoders-and-xcode-target.md`,
 `sanctuary-audit/19-starting-zone-options-and-row-consumer.md`,
-`sanctuary-audit/20-lua-command-table-and-name-formatting.md` and
-`sanctuary-audit/21-trade-packet-codecs.md`; none of those notes claims full
+`sanctuary-audit/20-lua-command-table-and-name-formatting.md`,
+`sanctuary-audit/21-trade-packet-codecs.md` and
+`sanctuary-audit/22-store-bundle-codec.md`; none of those notes claims full
 compiled-client or Lua/gameplay parity. Note 18 records an
 Xcode project omission that would have broken a build of the newer source, and
 the subsequent correction of a 25-packet batch: seven packets whose C#
@@ -191,7 +192,11 @@ parsed row list has a recovered consumer. Note 20 corrects `fcn.0097c090` to a
 localized name/template formatter and maps the data-driven Lua command
 registration table, without claiming Lua script semantics. Note 21 adds five
 exact scalar trade decoders and a scalar-only nested `ItemInstance` codec;
-packets with unresolved nested serializers still retain raw bytes.
+packets with unresolved nested serializers still retain raw bytes. Note 22
+decodes 66/5 store bundles through the exact nested `StoreDefinition`,
+`AppStoreBundleDefinition`, `StoreBundleDefinition`, and
+`MarketingBundleDefinition` `Serialize()` field order; other store sub-opcodes
+still retain raw bytes.
 
 Bundled resources now use validated relative components appended directly to
 the trusted `Bundle.main` root; there is no path-string prefix comparison and
