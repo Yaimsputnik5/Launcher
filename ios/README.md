@@ -240,8 +240,9 @@ decodes 47/7 and 47/8 as UI method selectors and arguments without executing
 them, and consolidates the 47 switch so 47/14 remains decoded. Note 33 decodes
 the exact length-prefixed boundaries of 57, 149/1, and 152/3 while retaining their
 payload bytes verbatim; their inner formats remain unresolved. Note 34 records
-why bulk tree commits did not start Actions and which contents-API commit was used
-to request a normal push-triggered build; it does not claim that build succeeded.
+that neither bulk tree commits nor a contents-API control commit produced check
+suites, so a maintainer must trigger the active workflow manually; it does not
+claim that a fresh IPA exists.
 
 Bundled resources now use validated relative components appended directly to
 the trusted `Bundle.main` root; there is no path-string prefix comparison and

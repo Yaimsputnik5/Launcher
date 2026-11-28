@@ -10,17 +10,21 @@ Actions run and no check suite:
 - `ad256f4f64dba98631b01e7e1d8b15e0eb103c86`
 - `2c46b519a6a8858b318a3cb291e99d3cb2a921be`
 
-The workflow at `.github/workflows/ios-build.yml` is active and triggers on
-pushes to `ios-build`; this note is intentionally written through the GitHub
-contents API (`create_or_update_file`) so the commit emits a normal push event.
-Its message does not contain `[skip ci]`.
+A control commit was then written with the single-file GitHub contents API
+(`create_or_update_file`), `cf6c856f43cb90e4ee92ea36d2f98c66e724d017`, and a
+follow-up README commit, `853754d8b45b19e8156f9ad50fba43086500be3f`. Neither
+produced a check suite either. The workflow at
+`.github/workflows/ios-build.yml` is still active and still declares a push
+trigger on `ios-build`, so the absence of runs is a repository-side event
+delivery issue, not a workflow syntax or `[skip ci]` issue in these commits.
 
-Before this trigger, the newest run was `46081101414` for
+Before this verification, the newest run was `46081101414` for
 `c39369d65865feebdbbb60674d208817408495e0`, and the `ios-ipa` release still
 contained the stale unsigned IPA with SHA-256
 `e5a48f13bab8da1daa4c9a5c26475f57855cd2e49176665cf251baed7ec21307`.
-A successful new run must be verified by its head SHA, `unzip -tq`, asset size,
-and SHA-256 before asking the user to retest. This note records the trigger
-mechanism only; it does not itself claim a successful build.
+A maintainer must trigger `Build iOS IPA` manually (or restore push-event
+delivery) before a fresh IPA exists. The new asset must then be verified by its
+head SHA, `unzip -tq`, size, and SHA-256 before asking the user to retest. This
+note records the trigger diagnosis only; it does not claim a successful build.
 
 No account credential was provided, requested, captured, or stored.
