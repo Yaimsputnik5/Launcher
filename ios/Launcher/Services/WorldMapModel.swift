@@ -145,10 +145,9 @@ enum WorldMapLoader {
 
         let poiURL: URL
         do {
-            poiURL = try SafePath.contained(
+            poiURL = try SafePath.bundledResourceURL(
                 base: rootURL,
-                components: ["Resources", "PointOfInterests.json"],
-                resolveSymlinks: false
+                components: ["Resources", "PointOfInterests.json"]
             )
         } catch {
             throw WorldMapError.unsafePath("Resources/PointOfInterests.json")

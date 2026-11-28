@@ -73,11 +73,25 @@ enum SafePath {
         return trimmed
     }
 
-    /// - Parameter resolveSymlinks: Set `false` only for trusted read-only
-    ///   bundle roots. LiveContainer can expose those files through a canonical
-    ///   path that does not share the literal bundle prefix; validated leaves
-    ///   plus lexical containment are sufficient there. Writable roots must keep
-    ///   symlink resolution enabled so an escape symlink cannot redirect I/O.
+    /// Resolves a resource inside a trusted read-only `Bundle.main` directory.
+    ///
+    /// LiveContainer can expose bundle resources through canonical paths that
+    /// do not share the literal bundle prefix, so path-string containment and
+    /// symlink resolution are both inappropriate here. `validatedLeaf` still
+    /// rejects separators, NULs, control characters and dot segments, which is
+    /// sufficient for a caller-supplied relative path under a trusted root.
+    static func bundledResourceURL(base: URL, components: [String]) throws -> URL {
+        var result = base
+        for component in components {
+            result = result.appendingPathComponent(try validatedLeaf(component))
+        }
+        return result
+    }
+
+    /// - Parameter resolveSymlinks: Set `false` only when a caller already knows
+    ///   the root is trusted and read-only. Prefer `bundledResourceURL` for
+    ///   `Bundle.main` resources; writable roots must keep symlink resolution
+    ///   enabled so an escape symlink cannot redirect I/O.
     static func contained(
         base: URL,
         components: [String],
@@ -118,5 +132,4 @@ enum SafePath {
         }
         return path
     }
-
 }

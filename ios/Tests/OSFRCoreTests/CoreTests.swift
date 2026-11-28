@@ -195,6 +195,24 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(url.lastPathComponent, "Npcs.json")
     }
 
+    func testBundledResourceURLUsesDirectAppendAndRejectsTraversal() throws {
+        // LiveContainer's canonical app path must not be compared against the
+        // literal Bundle.main prefix. Validated components are appended directly.
+        let base = URL(
+            fileURLWithPath: "/tmp/opencode/LiveContainer/Applications/dev.opensourcefreerealms.launcher.app/SanctuaryResources",
+            isDirectory: true
+        )
+        let url = try SafePath.bundledResourceURL(base: base, components: ["Npcs.json"])
+        XCTAssertEqual(url.path, base.path + "/Npcs.json")
+
+        XCTAssertThrowsError(
+            try SafePath.bundledResourceURL(base: base, components: ["..", "Npcs.json"])
+        )
+        XCTAssertThrowsError(
+            try SafePath.bundledResourceURL(base: base, components: ["Zones/../Npcs.json"])
+        )
+    }
+
     func testSafePathReadOnlyRootSkipsSymlinkResolution() throws {
         let fm = FileManager.default
         let parent = fm.temporaryDirectory.appendingPathComponent("SafePath-\(UUID().uuidString)", isDirectory: true)

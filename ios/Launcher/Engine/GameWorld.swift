@@ -223,18 +223,16 @@ final class WorldSimulation {
         guard let environment = catalog.zoneEnvironments[zone.name] else {
             throw WorldSimulationError.missingEnvironment(zone.name)
         }
-        navigationURL = try? SafePath.contained(
+        navigationURL = try? SafePath.bundledResourceURL(
             base: resourceRoot,
-            components: ["NavMeshes", "\(zone.name).navmesh"],
-            resolveSymlinks: false
+            components: ["NavMeshes", "\(zone.name).navmesh"]
         )
 
         let poiURL: URL
         do {
-            poiURL = try SafePath.contained(
+            poiURL = try SafePath.bundledResourceURL(
                 base: resourceRoot,
-                components: ["PointOfInterests.json"],
-                resolveSymlinks: false
+                components: ["PointOfInterests.json"]
             )
         } catch {
             throw WorldSimulationError.unsafePath("PointOfInterests.json")
