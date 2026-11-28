@@ -10,6 +10,7 @@
 		000000000000000000000101 = {isa = PBXBuildFile; fileRef = 00000000000000000000009E; };
 		000000000000000000000102 = {isa = PBXBuildFile; fileRef = 00000000000000000000009F; };
 		000000000000000000000103 = {isa = PBXBuildFile; fileRef = 0000000000000000000000A0; };
+		000000000000000000000104 = {isa = PBXBuildFile; fileRef = 0000000000000000000000A1; };
 		0000000000000000000000C8 = {isa = PBXBuildFile; fileRef = 000000000000000000000064; };
 		0000000000000000000000C9 = {isa = PBXBuildFile; fileRef = 000000000000000000000065; };
 		0000000000000000000000CA = {isa = PBXBuildFile; fileRef = 000000000000000000000066; };
@@ -119,6 +120,7 @@
 		00000000000000000000009E = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Services/SanctuaryPacketInventory.swift"; sourceTree = "<group>"; };
 		00000000000000000000009F = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Services/PacketCatalog.swift"; sourceTree = "<group>"; };
 		0000000000000000000000A0 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Services/GatewaySimplePackets.swift"; sourceTree = "<group>"; };
+		0000000000000000000000A1 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Services/WorldAssetCatalog.swift"; sourceTree = "<group>"; };
 		000000000000000000000078 = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		000000000000000000000079 = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		00000000000000000000000C = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Launcher.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -198,6 +200,7 @@
 				00000000000000000000009E,
 				00000000000000000000009F,
 				0000000000000000000000A0,
+				0000000000000000000000A1,
 				000000000000000000000003,
 			);
 			path = Launcher;
@@ -345,6 +348,7 @@
 				000000000000000000000101,
 				000000000000000000000102,
 				000000000000000000000103,
+				000000000000000000000104,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

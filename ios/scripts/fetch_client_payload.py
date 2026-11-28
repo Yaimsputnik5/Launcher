@@ -13,6 +13,8 @@ Environment:
   IOS_CLIENT_WORKERS        concurrent downloads (default 8)
   IOS_CLIENT_LIMIT          download only the first N files (testing)
   IOS_CLIENT_FILTER         download only paths starting with this prefix
+  IOS_CLIENT_LOCAL_DIR      optional full local client tree; files not present
+                            in the remote manifest are staged and indexed too
 """
 
 from __future__ import annotations
@@ -207,6 +209,69 @@ def remote_url(base: str, path: str) -> str:
     return f"{base.rstrip('/')}/{quoted}"
 
 
+def local_extra_files(local_dir: Path, manifest_paths: set[str]) -> list[AssetFile]:
+    """Index local client files absent from the downloadable manifest."""
+
+    reserved = {
+        ".gitkeep",
+        "client-assets-index.json",
+        "clientmanifest.xml",
+    }
+    files: list[AssetFile] = []
+    for source in local_dir.rglob("*"):
+        if source.is_symlink() or not source.is_file():
+            continue
+        relative = source.relative_to(local_dir).as_posix()
+        if relative in reserved or relative in manifest_paths:
+            continue
+        if relative == "Logs" or relative.startswith("Logs/"):
+            continue
+        parts = Path(relative).parts
+        if any(part in ("", ".", "..") or chr(92) in part or ":" in part for part in parts):
+            raise ValueError(f"unsafe local client path: {relative!r}")
+        hasher = XXH64()
+        with source.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                hasher.update(chunk)
+        files.append(AssetFile(relative, source.stat().st_size, hasher.digest()))
+    return sorted(files, key=lambda asset: asset.path)
+
+
+def stage_local_file(asset: AssetFile, source_root: Path, destination_root: Path) -> str:
+    """Copy a verified local file into the staged payload atomically."""
+
+    source = asset.destination(source_root)
+    destination = asset.destination(destination_root)
+    if verify_file(destination, asset):
+        return "cached"
+    if not source.is_file():
+        raise FileNotFoundError(source)
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temp = destination.with_name(
+        f".{destination.name}.{os.getpid()}.{time.time_ns()}.local.part"
+    )
+    hasher = XXH64()
+    copied = 0
+    try:
+        with source.open("rb") as input_handle, temp.open("wb") as output_handle:
+            while True:
+                chunk = input_handle.read(1024 * 1024)
+                if not chunk:
+                    break
+                output_handle.write(chunk)
+                hasher.update(chunk)
+                copied += len(chunk)
+            output_handle.flush()
+            os.fsync(output_handle.fileno())
+        if copied != asset.size or hasher.digest() != asset.hash:
+            raise ValueError(f"local source changed while staging {asset.path}")
+        os.replace(temp, destination)
+        return "staged"
+    finally:
+        temp.unlink(missing_ok=True)
+
+
 def download_one(asset: AssetFile, root: Path, base: str, retries: int = 3) -> str:
     destination = asset.destination(root)
     if verify_file(destination, asset):
@@ -287,6 +352,11 @@ def main(argv: Iterable[str] | None = None) -> int:
     limit_raw = os.environ.get("IOS_CLIENT_LIMIT")
     limit = int(limit_raw) if limit_raw else None
     prefix = os.environ.get("IOS_CLIENT_FILTER", "")
+    local_root_raw = os.environ.get("IOS_CLIENT_LOCAL_DIR")
+    local_root = Path(local_root_raw).expanduser().resolve() if local_root_raw else None
+    if local_root is not None and not local_root.is_dir():
+        print(f"IOS_CLIENT_LOCAL_DIR is not a directory: {local_root}", file=sys.stderr)
+        return 1
 
     root.mkdir(parents=True, exist_ok=True)
     print(f"Fetching {manifest_url}")
@@ -302,13 +372,22 @@ def main(argv: Iterable[str] | None = None) -> int:
         manifest_bytes = response.read()
     (root / "clientmanifest.xml").write_bytes(manifest_bytes)
 
-    assets = parse_manifest(manifest_bytes)
+    all_assets = parse_manifest(manifest_bytes)
+    assets = all_assets
     if prefix:
         assets = [asset for asset in assets if asset.path.startswith(prefix)]
     if limit is not None:
         assets = assets[:limit]
 
-    total_size = sum(asset.size for asset in assets)
+    extras: list[AssetFile] = []
+    if local_root is not None:
+        extras = local_extra_files(local_root, {asset.path for asset in all_assets})
+        print(
+            f"Local source: {len(extras)} supplemental file(s), "
+            f"{sum(asset.size for asset in extras) / 1024 ** 2:.1f} MiB"
+        )
+
+    total_size = sum(asset.size for asset in assets + extras)
     print(f"Manifest: {len(assets)} files, {total_size / 1024 ** 2:.1f} MiB selected")
 
     downloaded = 0
@@ -338,21 +417,39 @@ def main(argv: Iterable[str] | None = None) -> int:
                 failed.append(asset.path)
                 print(f"ERROR {asset.path}: {error}", file=sys.stderr)
 
+    staged_local = 0
+    cached_local = 0
+    for asset in extras:
+        try:
+            result = stage_local_file(asset, local_root, root)
+            if result == "cached":
+                cached_local += 1
+            else:
+                staged_local += 1
+        except Exception as error:  # noqa: BLE001
+            failed.append(asset.path)
+            print(f"ERROR local {asset.path}: {error}", file=sys.stderr)
+
     index = {
         "manifestUrl": manifest_url,
         "baseUrl": base_url,
-        "fileCount": len(assets),
+        "localSource": str(local_root) if local_root is not None else None,
+        "fileCount": len(assets) + len(extras),
         "totalBytes": total_size,
         "files": [
             {"path": asset.path, "size": asset.size, "hash": asset.hash}
-            for asset in assets
+            for asset in assets + extras
         ],
     }
     (root / "client-assets-index.json").write_text(
         json.dumps(index, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
 
-    print(f"Done: {downloaded} downloaded, {cached} cached, {len(failed)} failed")
+    print(
+        f"Done: {downloaded} downloaded, {cached} cached, "
+        f"{staged_local} local staged, {cached_local} local cached, "
+        f"{len(failed)} failed"
+    )
     if failed:
         print("Failed files:", ", ".join(failed[:20]), file=sys.stderr)
         return 1

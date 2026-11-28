@@ -41,6 +41,7 @@ let package = Package(
                 "Services/LoginProtocol.swift",
                 "Services/UdpLibraryTransport.swift",
                 "Services/AssetContainers.swift",
+                "Services/WorldAssetCatalog.swift",
                 "Services/LocalSession.swift",
                 "Services/ClientAssetStore.swift",
                 "Services/SanctuaryResourceStore.swift",

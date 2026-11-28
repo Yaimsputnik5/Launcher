@@ -804,8 +804,9 @@ public enum DDSDecoder {
 
 // MARK: - Loading and container resolution
 
-/// Resolves texture paths through `ClientAssetStore`, `.pack` directories, and
-/// Qt `.rcc` archives, then dispatches to the TGA/DDS/PNG handler.
+/// Resolves texture paths through `ClientAssetStore`, the original client's
+/// manifest/pack index, `.pack` directories, and Qt `.rcc` archives, then
+/// dispatches to the TGA/DDS/PNG handler.
 public struct TextureLoader {
     public enum Format: Equatable, Sendable {
         case tga
@@ -819,15 +820,24 @@ public struct TextureLoader {
 
     private let lookup: Lookup?
     private let rccZlibDecompressor: ((Data) throws -> Data)?
+    private let worldCatalog: WorldAssetCatalog?
 
-    public init(lookup: Lookup? = nil, rccZlibDecompressor: ((Data) throws -> Data)? = nil) {
+    public init(
+        lookup: Lookup? = nil,
+        rccZlibDecompressor: ((Data) throws -> Data)? = nil,
+        worldCatalog: WorldAssetCatalog? = nil
+    ) {
         self.lookup = lookup
         self.rccZlibDecompressor = rccZlibDecompressor
+        self.worldCatalog = worldCatalog
     }
 
-    /// Uses the app's embedded/sandbox asset store for plain paths.
+    /// Uses the app's embedded/sandbox asset store and world asset catalog.
     public init() {
-        self.init(lookup: { ClientAssetStore.shared.data(for: $0) })
+        self.init(
+            lookup: { ClientAssetStore.shared.data(for: $0) },
+            worldCatalog: WorldAssetCatalog.bundledCatalog
+        )
     }
 
     /// Chooses a decoder from the file magic and, for extension-only formats
@@ -889,17 +899,24 @@ public struct TextureLoader {
         }
     }
 
-    /// Resolves `relativePath` through the injected byte lookup. A container
-    /// entry uses `archive#entry` syntax, e.g. `Assets_000.pack#ui.png` or
-    /// `tcg/cards.rcc#template_trick_nature_foil.png`.
+    /// Resolves `relativePath` through the injected byte lookup and world asset
+    /// catalog. A container entry uses `archive#entry` syntax, e.g.
+    /// `Assets_000.pack#ui.png` or `tcg/cards.rcc#template_trick_nature_foil.png`.
+    /// Manifest names such as `img10888699995024875749.dds.z` resolve to the
+    /// CRC-verified pack payload stored under the name without `.z`.
     public func load(relativePath: String) throws -> DecodedImage {
-        guard let lookup else {
-            throw ImageCodecError.resourceNotFound(relativePath)
-        }
         let parts = relativePath.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)
         let archivePath = String(parts[0])
         let entry = parts.count == 2 ? String(parts[1]) : nil
-        guard let data = lookup(archivePath) else {
+        var data = lookup?(archivePath)
+        var resolvedName = archivePath
+        if data == nil, let worldCatalog {
+            data = try worldCatalog.payload(for: archivePath)
+            if resolvedName.hasSuffix(".z") {
+                resolvedName = String(resolvedName.dropLast(2))
+            }
+        }
+        guard let data else {
             throw ImageCodecError.resourceNotFound(relativePath)
         }
         if let entry, !entry.isEmpty {
@@ -908,7 +925,7 @@ public struct TextureLoader {
             }
             return try load(rccData: data, nodePath: entry)
         }
-        return try Self.decode(data: data, name: archivePath)
+        return try Self.decode(data: data, name: resolvedName)
     }
 
     /// Reads one named payload from a `.pack` directory and decodes it.

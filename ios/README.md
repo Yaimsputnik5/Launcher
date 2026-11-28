@@ -28,7 +28,7 @@ In progress toward full parity:
 - A native in-process engine (`OSFREngine`) owns fixed-step advancement, input, an entity registry, an orthographic camera and a layered scene graph. `MetalWorldView` renders engine frames with a Metal pipeline; no Windows executable, Wine, DirectX, or process execution is used.
 - Native TGA/DDS decoders read the original client textures from `.tga`, `.dds`, `.pack` and `.rcc` sources, and the engine asset pipeline caches decoded textures by manifest-relative path.
 - Native Login UDP authentication performs the complete WebAPI → session → character select → character login flow, and a native gateway UDP transport opens the real `CGAPI_527` connection with the server-supplied ticket, GUID and AES-CCM session. Gateway reliable IDs start at zero, matching `UdpReliableChannel.ReliableIncomingId`; earlier builds acknowledged but never delivered `PacketLogin` and timed out during Join World. The documented client hello sends locale through `PacketTunneledClientWorldPacket` and initialization/finished/ready through `PacketTunneledClientPacket`, matching Sanctuary's handler routing. Continuous gameplay/world packets beyond that hello are not yet simulated.
-- Foundation-only protocol, resource, container, image, gateway, world-simulation, local-session and engine layers have Linux XCTest coverage (261 tests, 1 skipped).
+- Foundation-only protocol, resource, container, image, gateway, world-simulation, local-session and engine layers have Linux XCTest coverage (266 tests, 2 skipped without a local client tree).
 
 Not supported on iOS:
 
@@ -58,10 +58,21 @@ Not supported on iOS:
 
    # Original client payload; only do this if you have the right to redistribute it.
    IOS_EMBED_CLIENT=1 ios/build_ipa.sh
+
+   # If a complete local client tree is available, add files that the public
+   # CDN manifest does not serve (AssetsW_000/001.pack, Assets_manifest.txt...).
+   IOS_EMBED_CLIENT=1 \
+     IOS_CLIENT_LOCAL_DIR=/path/to/FreeRealms/Client \
+     ios/build_ipa.sh
    ```
 
-   The iOS GitHub Actions workflow (`Build iOS IPA`) performs both staging steps
-   on a free macOS runner and can publish the result to the `ios-ipa` release.
+   `IOS_CLIENT_LOCAL_DIR` is optional and never downloads or executes the
+   Windows binary. It stages and XXH64-verifies only files absent from the CDN
+   manifest, then records them in `client-assets-index.json`. The public CDN
+   returns 404 for those supplemental files, so CI cannot reconstruct a
+   complete payload from the manifest alone. The iOS GitHub Actions workflow
+   (`Build iOS IPA`) otherwise performs both staging steps on a free macOS
+   runner and can publish the result to the `ios-ipa` release.
 3. Build an unsigned IPA:
 
    ```bash
@@ -192,11 +203,14 @@ artifact and does not include these source changes. The newer source work is doc
 `sanctuary-audit/34-ci-trigger-verification.md`,
 `sanctuary-audit/35-scalar-reply-codec-expansion.md`,
 `sanctuary-audit/36-starting-zone-loader-and-callback.md`,
-`sanctuary-audit/37-full-client-reconstruction-charter.md` and
-`sanctuary-audit/38-ios-parity-gap-ledger.md`; none of those notes claims full
-compiled-client or Lua/gameplay parity. Note 37 defines the evidence rules and
-acceptance conditions for the requested complete port, and note 38 records the
-concrete implementation, asset, build, and device gaps still open. Note 18 records an
+`sanctuary-audit/37-full-client-reconstruction-charter.md`,
+`sanctuary-audit/38-ios-parity-gap-ledger.md` and
+`sanctuary-audit/39-world-asset-pipeline-and-full-client-evidence.md`; none of
+those notes claims full compiled-client or Lua/gameplay parity. Note 37 defines
+the evidence rules and acceptance conditions for the requested complete port,
+note 38 records the concrete implementation, asset, build, and device gaps
+still open, and note 39 records the full-client inventory plus the verified
+world-manifest/pack pipeline. Note 18 records an
 Xcode project omission that would have broken a build of the newer source, and
 the subsequent correction of a 25-packet batch: seven packets whose C#
 `Serialize()` calls nested serializers were removed, and seven exact scalar-only
@@ -288,7 +302,7 @@ Foundation-only logic is verified locally:
 swift test --package-path ios
 ```
 
-The 261 tests (1 skipped) cover XXH64, URL/path safety, manifest v1/v2 and
+The 266 tests (2 skipped without `OSFR_LOCAL_CLIENT_DIR`) cover XXH64, URL/path safety, manifest v1/v2 and
 case-insensitive manifest locales, embedded-payload manifest matching, packet primitives,
 CRC32, RC4, GUID layout, WebAPI login response decoding, login framing/messages,
 gateway AES-CCM, opcode codecs, scalar hitpoints/mana/effect-tag/quest/pet/
@@ -298,7 +312,8 @@ decoders and reliable-ID sequencing, the 352-class
 Sanctuary packet routing catalog (including wire-type overlap and source
 direction hints) and raw-payload preservation, byte/int/short sub-opcode
 routing for mapped fallback, `.pack`/`.rcc`
-parsing, TGA/DDS decoding, Sanctuary resource schemas, zone/collection/quest
+parsing, comma-delimited world-asset manifest indexing and CRC-verified
+manifest-to-pack resolution, TGA/DDS decoding, Sanctuary resource schemas, zone/collection/quest
 simulation, offline account/character persistence, host setting application
 (including live in-world updates and non-default starting-zone spawn), world
 gating, fixed-step engine advancement, input events, camera projection, entity
