@@ -181,8 +181,9 @@ these source changes. The newer source work is documented in
 `sanctuary-audit/22-store-bundle-codec.md`,
 `sanctuary-audit/23-additional-store-catalog-codecs.md`,
 `sanctuary-audit/24-client-starting-zone-loader-rtti.md`,
-`sanctuary-audit/25-additional-commerce-response-codecs.md` and
-`sanctuary-audit/26-broadcast-and-housing-zone-codecs.md`; none of those notes claims full
+`sanctuary-audit/25-additional-commerce-response-codecs.md`,
+`sanctuary-audit/26-broadcast-and-housing-zone-codecs.md` and
+`sanctuary-audit/27-client-starting-zone-loader-call-sites.md`; none of those notes claims full
 compiled-client or Lua/gameplay parity. Note 18 records an
 Xcode project omission that would have broken a build of the newer source, and
 the subsequent correction of a 25-packet batch: seven packets whose C#
@@ -211,7 +212,12 @@ exact decoders for 66/2 preview orders, 66/4 place orders, 66/17 currency codes,
 content responses, and 66/39 item requirement updates. Note 26 adds 77/2 zone
 broadcasts and 127/45 housing zone data with the verified nested
 `PlayerHousingInstanceInfo` layout; all still-unresolved store sub-opcodes
-retain raw bytes.
+retain raw bytes. Note 27 locates the compiled client's `ClientStartingZoneLoader`
+constructor, destructor, `Resources/` row-reader call site, and two virtual slots:
+the reader builds `%sStartingZoneLoad.txt`, skips `#` comments and rows with fewer
+than three `^` separators, while slot 0 walks a per-row count before selecting the
+next entry. The semantic role of those callees and the row-to-header field mapping
+remain unverified.
 
 Bundled resources now use validated relative components appended directly to
 the trusted `Bundle.main` root; there is no path-string prefix comparison and
