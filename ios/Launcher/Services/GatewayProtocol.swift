@@ -2369,6 +2369,7 @@ enum GatewayWorldPacket: Equatable {
     case storeBundleContent(GatewayStoreBundleContentResponse)
     case storeItemRequirements(GatewayStoreItemRequirementsReply)
     case zoneBroadcast(GatewayZoneBroadcast)
+    case housingInstanceList(GatewayHousingInstanceList)
     case housingZoneData(GatewayHousingZoneData)
     case objectiveTargetUpdate(GatewayObjectiveTargetUpdate)
     case objectiveClientClear(GatewayObjectiveClientClear)
@@ -2611,9 +2612,11 @@ enum GatewayWorldCodec {
             default:
                 return Self.mappedOrUnknown(opcode: opcode, data: data)
             }
-        case GatewayHousingZoneData.opcode:
+        case GatewayHousingInstanceList.opcode:
             let sub = try GatewayWire.readInt16(&reader)
             switch sub {
+            case GatewayHousingInstanceList.subOpcode:
+                return .housingInstanceList(try GatewayHousingInstanceList(data: data))
             case GatewayHousingZoneData.subOpcode:
                 return .housingZoneData(try GatewayHousingZoneData(data: data))
             default:
@@ -2839,6 +2842,7 @@ struct GatewayWorldObservation: Equatable, Sendable {
     var storeBundleContentResponses: [GatewayStoreBundleContentResponseItem]?
     var storeItemRequirements: [GatewayStoreItemRequirementUpdate]?
     var lastZoneBroadcast: GatewayZoneBroadcast?
+    var housingInstanceList: GatewayHousingInstanceList?
     var housingZoneData: GatewayHousingZoneData?
     var objectiveTargetUpdate: GatewayObjectiveTargetUpdate?
     var lastClearedObjectiveUnknown: Int32?
@@ -3327,6 +3331,9 @@ struct GatewayWorldObservation: Equatable, Sendable {
         case .zoneBroadcast(let broadcast):
             lastZoneBroadcast = broadcast
             lastEvent = "Zone broadcast · \(broadcast.messageID)"
+        case .housingInstanceList(let list):
+            housingInstanceList = list
+            lastEvent = "Housing instances · \(list.instances.count) · player \(list.playerGUID)"
         case .housingZoneData(let zone):
             housingZoneData = zone
             lastEvent = "Housing zone · fixture \(zone.instanceInfo.fixtureCount)"

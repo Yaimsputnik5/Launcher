@@ -2689,6 +2689,42 @@ struct GatewayPlayerHousingInstanceInfo: Equatable, Sendable {
     }
 }
 
+/// `BaseHousingPacket` (127) / `HousingPacketInstanceList` (39). C# writes an
+/// Int32 count followed by each `PlayerHousingInstanceInfo.Serialize`, then the
+/// player GUID.
+struct GatewayHousingInstanceList: Equatable, Sendable {
+    static let opcode: Int16 = 127
+    static let subOpcode: Int16 = 39
+    private static let maxInstanceCount = 65_536
+
+    let instances: [GatewayPlayerHousingInstanceInfo]
+    let playerGUID: UInt64
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try GatewayWire.readInt16(&reader)
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        let count = try reader.readInt32()
+        guard count >= 0, count <= Self.maxInstanceCount else {
+            throw GatewayProtocolError.invalidCollectionCount("HousingPacketInstanceList.Instances")
+        }
+        var decoded: [GatewayPlayerHousingInstanceInfo] = []
+        decoded.reserveCapacity(Int(count))
+        for _ in 0..<Int(count) {
+            decoded.append(try GatewayPlayerHousingInstanceInfo(reader: &reader))
+        }
+        instances = decoded
+        playerGUID = try reader.readUInt64()
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
 /// `BaseHousingPacket` (127) / `HousingPacketZoneData` (45).
 struct GatewayHousingZoneData: Equatable, Sendable {
     static let opcode: Int16 = 127

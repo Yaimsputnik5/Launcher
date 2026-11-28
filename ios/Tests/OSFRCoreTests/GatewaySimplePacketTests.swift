@@ -1761,4 +1761,60 @@ final class GatewaySimplePacketTests: XCTestCase {
             return XCTFail("Expected raw-preserving mapped fallback, got \(fallback)")
         }
     }
+
+    func testHousingInstanceListUsesVerifiedNestedOrderAndBoundedCount() throws {
+        func writeInstance(_ writer: inout PacketWriter) {
+            writer.writeUInt64(0x1111)
+            writer.writeUInt64(0x2222)
+            writer.writeInt32(500)
+            writer.writeString("Garden")
+            writer.writeString("Owner")
+            writer.writeInt32(6)
+            writer.writeInt32(7)
+            writer.writeInt32(8)
+            writer.writeInt64(1_700_000_001)
+            writer.writeBool(false)
+            writer.writeBool(true)
+            writer.writeBool(false)
+            writer.writeString("desc")
+            writer.writeString("key")
+            writer.writeString("u21")
+            writer.writeFloat(2.25)
+            writer.writeInt32(3)
+            writer.writeBool(true)
+            writer.writeBool(false)
+            writer.writeInt32(9)
+            writer.writeInt64(1_600_000_001)
+        }
+
+        var writer = PacketWriter()
+        GatewayWire.appendInt16(GatewayHousingInstanceList.opcode, to: &writer.data)
+        GatewayWire.appendInt16(GatewayHousingInstanceList.subOpcode, to: &writer.data)
+        writer.writeInt32(1)
+        writeInstance(&writer)
+        writer.writeUInt64(0x3333)
+
+        let packet = try GatewayWorldCodec.decodeAny(writer.data)
+        guard case .housingInstanceList(let list) = packet else {
+            return XCTFail("Expected housing instance list, got \(packet)")
+        }
+        XCTAssertEqual(list.instances.count, 1)
+        XCTAssertEqual(list.instances[0].instanceGUID, 0x2222)
+        XCTAssertEqual(list.instances[0].houseName, "Garden")
+        XCTAssertEqual(list.instances[0].furnitureScore, 8)
+        XCTAssertEqual(list.instances[0].whenCreatedSeconds, 1_600_000_001)
+        XCTAssertEqual(list.playerGUID, 0x3333)
+
+        var observation = GatewayWorldObservation.empty
+        observation.apply(packet)
+        XCTAssertEqual(observation.housingInstanceList?.instances[0].nameID, 500)
+        XCTAssertEqual(observation.housingInstanceList?.playerGUID, 0x3333)
+        XCTAssertNil(observation.housingZoneData)
+
+        var invalid = PacketWriter()
+        GatewayWire.appendInt16(GatewayHousingInstanceList.opcode, to: &invalid.data)
+        GatewayWire.appendInt16(GatewayHousingInstanceList.subOpcode, to: &invalid.data)
+        invalid.writeInt32(-1)
+        XCTAssertThrowsError(try GatewayWorldCodec.decodeAny(invalid.data))
+    }
 }
