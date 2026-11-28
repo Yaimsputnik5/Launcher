@@ -164,9 +164,10 @@ resource path fix begins at `f568a64430e6a36cb1fae22c2d6dd4a0225d84e4`
 the packet catalog work is at `c43ae1efcc31b74389120c535050b6209ab11830`
 (`Map Sanctuary packet catalog and preserve known raw packets`). A fresh IPA has
 not been published for those commits: GitHub reported zero Actions runs and
-zero check runs for them before the 2026-11-28 trigger commit (this commit is
-intentionally not marked `[skip ci]` so the workflow status can be retested).
-A repository maintainer must re-enable Actions for
+zero check runs for them before the 2026-11-28 trigger commits (`fbe1f7e` and
+`4904ad7`, intentionally not marked `[skip ci]` so the workflow status can be
+retested; both still produced zero runs). A repository maintainer must re-enable
+Actions for
 `YaimSputnik5/Launcher`, then re-run the `Build iOS IPA` workflow on `ios-build`.
 The verified release below remains the last built artifact and does not include
 these source changes. The newer source work is documented in
@@ -208,11 +209,11 @@ Foundation-only logic is verified locally:
 swift test --package-path ios
 ```
 
-The 226 tests (1 skipped) cover XXH64, URL/path safety, manifest v1/v2 and
+The 229 tests (1 skipped) cover XXH64, URL/path safety, manifest v1/v2 and
 case-insensitive manifest locales, embedded-payload manifest matching, packet primitives,
 CRC32, RC4, GUID layout, WebAPI login response decoding, login framing/messages,
-gateway AES-CCM, opcode codecs, scalar hitpoints/client-area/MOTD decoders and
-reliable-ID sequencing, the 352-class
+gateway AES-CCM, opcode codecs, scalar hitpoints/mana/effect-tag/quest/
+client-area/MOTD decoders and reliable-ID sequencing, the 352-class
 Sanctuary packet routing catalog (including wire-type overlap and source
 direction hints) and raw-payload preservation, `.pack`/`.rcc`
 parsing, TGA/DDS decoding, Sanctuary resource schemas, zone/collection/quest

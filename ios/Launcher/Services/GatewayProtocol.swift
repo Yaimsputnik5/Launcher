@@ -2294,6 +2294,11 @@ enum GatewayWorldPacket: Equatable {
     case updateLocation(GatewayUpdateLocation)
     /// Decoded from Sanctuary.Packet serializers; never seeded from offline state.
     case hitpoints(GatewayHitpointsUpdate)
+    case mana(GatewayManaUpdate)
+    case removeEffectTag(GatewayEffectTagRemoval)
+    case questComplete(GatewayQuestComplete)
+    case questFailed(GatewayQuestFailed)
+    case completedQuestCount(GatewayCompletedQuestCount)
     case clientArea(GatewayClientAreaUpdate)
     case messageOfTheDay(GatewayMessageOfTheDay)
     /// A packet whose opcode/sub-opcode is known from Sanctuary or the compiled
@@ -2366,6 +2371,22 @@ enum GatewayWorldCodec {
                 return .updateLocation(try GatewayUpdateLocation(data: data))
             case GatewayHitpointsUpdate.subOpcode:
                 return .hitpoints(try GatewayHitpointsUpdate(data: data))
+            case GatewayManaUpdate.subOpcode:
+                return .mana(try GatewayManaUpdate(data: data))
+            case GatewayEffectTagRemoval.subOpcode:
+                return .removeEffectTag(try GatewayEffectTagRemoval(data: data))
+            default:
+                return Self.mappedOrUnknown(opcode: opcode, data: data)
+            }
+        case GatewayQuestComplete.opcode:
+            let sub = try reader.readInt32()
+            switch sub {
+            case GatewayQuestComplete.subOpcode:
+                return .questComplete(try GatewayQuestComplete(data: data))
+            case GatewayQuestFailed.subOpcode:
+                return .questFailed(try GatewayQuestFailed(data: data))
+            case GatewayCompletedQuestCount.subOpcode:
+                return .completedQuestCount(try GatewayCompletedQuestCount(data: data))
             default:
                 return Self.mappedOrUnknown(opcode: opcode, data: data)
             }
@@ -2442,9 +2463,17 @@ struct GatewayWorldObservation: Equatable, Sendable {
     var powerHourEffectTag: Int32?
     var clientSettingsUnknown4: Bool?
     var gameTimeScalar: Float?
-    /// Packet-backed only: set by `ClientUpdatePacketHitpoints`.
+    /// Packet-backed only: set by `ClientUpdatePacketHitpoints` / `ClientUpdatePacketMana`.
     var hitpointsCurrent: Int32?
     var hitpointsMax: Int32?
+    var manaCurrent: Int32?
+    var manaMax: Int32?
+    var showManaOverHead: Bool?
+    var lastRemovedEffectTagID: Int32?
+    /// Quest state is accumulated only from decoded quest packets.
+    var completedQuestIDs: Set<Int32> = []
+    var failedQuestIDs: Set<Int32> = []
+    var completedQuestCount: Int32?
     /// Packet-backed only: set by `PacketSetClientArea` / `PacketMOTD`.
     var activeClientAreaID: Int32?
     var clientAreaEnabled: Bool?
@@ -2695,6 +2724,23 @@ struct GatewayWorldObservation: Equatable, Sendable {
             hitpointsCurrent = hitpoints.current
             hitpointsMax = hitpoints.max
             lastEvent = "Hitpoints · \(hitpoints.current)/\(hitpoints.max)"
+        case .mana(let mana):
+            manaCurrent = mana.current
+            manaMax = mana.max
+            showManaOverHead = mana.showOverHead
+            lastEvent = "Mana · \(mana.current)/\(mana.max) · overhead \(mana.showOverHead)"
+        case .removeEffectTag(let removal):
+            lastRemovedEffectTagID = removal.tagID
+            lastEvent = "Removed effect tag · \(removal.tagID)"
+        case .questComplete(let quest):
+            completedQuestIDs.insert(quest.questID)
+            lastEvent = "Quest complete · \(quest.questID)"
+        case .questFailed(let quest):
+            failedQuestIDs.insert(quest.questID)
+            lastEvent = "Quest failed · \(quest.questID)"
+        case .completedQuestCount(let update):
+            completedQuestCount = update.count
+            lastEvent = "Completed quests · \(update.count)"
         case .clientArea(let area):
             activeClientAreaID = area.areaID
             clientAreaEnabled = area.enabled

@@ -14,6 +14,16 @@ packets. They are now decoded from packet bytes only.
 | `ClientUpdatePacketHitpoints` | `BaseClientUpdatePacket/ClientUpdatePacketHitpoints.cs` | `short 38`, `short 1`, `int CurrentHitpoints`, `int MaxHitpoints` | `GatewayHitpointsUpdate` in `ios/Launcher/Services/GatewaySimplePackets.swift` | `GatewayWorldObservation.hitpointsCurrent`, `.hitpointsMax` |
 | `PacketSetClientArea` | `PacketSetClientArea.cs` | `short 89`, `int AreaId`, `bool Enabled`, `int ElapsedMilliseconds` | `GatewayClientAreaUpdate` | `.activeClientAreaID`, `.clientAreaEnabled`, `.clientAreaElapsedMilliseconds` |
 | `PacketMOTD` | `PacketMOTD.cs` | `short 87`, string `Unknown`, string `Unknown2` (both `Int32` byte count + UTF-8) | `GatewayMessageOfTheDay` | `.messageOfTheDay`, `.messageOfTheDaySecondary` |
+| `ClientUpdatePacketMana` | `BaseClientUpdatePacket/ClientUpdatePacketMana.cs` | `short 38`, `short 13`, `int CurrentMana`, `int MaxMana`, `bool ShowOverHead` | `GatewayManaUpdate` | `.manaCurrent`, `.manaMax`, `.showManaOverHead` |
+| `ClientUpdatePacketRemoveEffectTag` | `BaseClientUpdatePacket/ClientUpdatePacketRemoveEffectTag.cs` | `short 38`, `short 17`, `int TagId` | `GatewayEffectTagRemoval` | `.lastRemovedEffectTagID` |
+| `QuestCompletePacket` | `BaseQuestPacket/QuestCompletePacket.cs` | `short 49`, **int** `4`, `int QuestId` | `GatewayQuestComplete` | `.completedQuestIDs` |
+| `QuestFailedPacket` | `BaseQuestPacket/QuestFailedPacket.cs` | `short 49`, **int** `5`, `int QuestId` | `GatewayQuestFailed` | `.failedQuestIDs` |
+| `CompletedQuestCountUpdatePacket` | `BaseQuestPacket/CompletedQuestCountUpdatePacket.cs` | `short 49`, **int** `12`, `int Count` | `GatewayCompletedQuestCount` | `.completedQuestCount` |
+
+The quest family is the first decoder here whose sub-opcode is a 4-byte `int`
+rather than a 2-byte `short`; its tests assert that exact layout. Hitpoints,
+mana, client area and completed-quest count are also shown in the remote
+`Gateway packet view` only when the corresponding packet has been decoded.
 
 The Swift initializers require an exact opcode/sub-opcode, reject trailing
 bytes, and are dispatched from `GatewayWorldCodec.decodeAny` before the generic
@@ -54,7 +64,7 @@ Local Foundation-only suite after these changes:
 TMPDIR=/tmp/opencode swift test --package-path ios --scratch-path /tmp/opencode/osfr-swift-test-chunks
 ```
 
-Result: 226 tests, 1 skipped, 0 failures. SwiftUI/UIKit/Network/Metal and
+Result: 229 tests, 1 skipped, 0 failures. SwiftUI/UIKit/Network/Metal and
 actual IPA compilation still require macOS GitHub Actions; no local iOS SDK is
 available from this Linux host.
 

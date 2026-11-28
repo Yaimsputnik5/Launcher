@@ -575,6 +575,24 @@ private struct RemoteWorldView: View {
                     Text("\(observation.positionCount) position updates · \(observation.chatCount) chat messages")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
+                    if let current = observation.hitpointsCurrent,
+                       let max = observation.hitpointsMax {
+                        LabeledContent("Hitpoints", value: "\(current)/\(max)")
+                            .font(.caption2)
+                    }
+                    if let current = observation.manaCurrent,
+                       let max = observation.manaMax {
+                        LabeledContent("Mana", value: "\(current)/\(max)")
+                            .font(.caption2)
+                    }
+                    if let area = observation.activeClientAreaID {
+                        LabeledContent("Client area", value: "\(area)")
+                            .font(.caption2)
+                    }
+                    if let count = observation.completedQuestCount {
+                        LabeledContent("Completed quests", value: "\(count)")
+                            .font(.caption2)
+                    }
                     if observation.chatMessages.isEmpty {
                         Text("No server chat received yet.")
                             .font(.caption2)
