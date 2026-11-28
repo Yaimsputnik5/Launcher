@@ -1073,7 +1073,6 @@ final class GatewaySimplePacketTests: XCTestCase {
         XCTAssertEqual(observation.lastClearedObjectiveUnknown, -7)
     }
 
-
     func testAdditionalTradePacketsUseExactCSharpFieldOrder() throws {
         func writeHeader(_ sub: UInt8, to writer: inout PacketWriter) {
             GatewayWire.appendInt16(GatewayTradeCoinCount.opcode, to: &writer.data)
