@@ -2292,6 +2292,10 @@ enum GatewayWorldPacket: Equatable {
     case activeWieldType(GatewayActiveWieldType)
     case beginZoning(GatewayClientBeginZoning)
     case updateLocation(GatewayUpdateLocation)
+    /// Decoded from Sanctuary.Packet serializers; never seeded from offline state.
+    case hitpoints(GatewayHitpointsUpdate)
+    case clientArea(GatewayClientAreaUpdate)
+    case messageOfTheDay(GatewayMessageOfTheDay)
     /// A packet whose opcode/sub-opcode is known from Sanctuary or the compiled
     /// client, but whose field semantics are not decoded yet. The raw payload is
     /// preserved verbatim; no local simulation value is inferred from it.
@@ -2360,9 +2364,15 @@ enum GatewayWorldCodec {
                 return .preloadCharactersDone(try GatewayPreloadCharactersDone(data: data))
             case GatewayUpdateLocation.subOpcode:
                 return .updateLocation(try GatewayUpdateLocation(data: data))
+            case GatewayHitpointsUpdate.subOpcode:
+                return .hitpoints(try GatewayHitpointsUpdate(data: data))
             default:
                 return Self.mappedOrUnknown(opcode: opcode, data: data)
             }
+        case GatewayMessageOfTheDay.opcode:
+            return .messageOfTheDay(try GatewayMessageOfTheDay(data: data))
+        case GatewayClientAreaUpdate.opcode:
+            return .clientArea(try GatewayClientAreaUpdate(data: data))
         case 41:
             let sub = try GatewayWire.readInt16(&reader)
             return sub == GatewayOverworldCombat.subOpcode
@@ -2432,6 +2442,15 @@ struct GatewayWorldObservation: Equatable, Sendable {
     var powerHourEffectTag: Int32?
     var clientSettingsUnknown4: Bool?
     var gameTimeScalar: Float?
+    /// Packet-backed only: set by `ClientUpdatePacketHitpoints`.
+    var hitpointsCurrent: Int32?
+    var hitpointsMax: Int32?
+    /// Packet-backed only: set by `PacketSetClientArea` / `PacketMOTD`.
+    var activeClientAreaID: Int32?
+    var clientAreaEnabled: Bool?
+    var clientAreaElapsedMilliseconds: Int32?
+    var messageOfTheDay: String?
+    var messageOfTheDaySecondary: String?
     var scales: [UInt64: Float] = [:]
     var equipment: [UInt64: [GatewayAttachment]] = [:]
     var temporaryAppearances: [UInt64: Int32] = [:]
@@ -2672,6 +2691,19 @@ struct GatewayWorldObservation: Equatable, Sendable {
                 }
             }
             lastEvent = "Location · seq \(location.teleportSequence) · teleport \(location.teleport)"
+        case .hitpoints(let hitpoints):
+            hitpointsCurrent = hitpoints.current
+            hitpointsMax = hitpoints.max
+            lastEvent = "Hitpoints · \(hitpoints.current)/\(hitpoints.max)"
+        case .clientArea(let area):
+            activeClientAreaID = area.areaID
+            clientAreaEnabled = area.enabled
+            clientAreaElapsedMilliseconds = area.elapsedMilliseconds
+            lastEvent = "Client area · \(area.areaID) · \(area.enabled) · \(area.elapsedMilliseconds)ms"
+        case .messageOfTheDay(let motd):
+            messageOfTheDay = motd.message
+            messageOfTheDaySecondary = motd.secondary
+            lastEvent = "Message of the day · \(motd.message)"
         case .mapped(let opcode, let subOpcode, let names, let payload):
             for name in names {
                 mappedPacketCounts[name, default: 0] += 1

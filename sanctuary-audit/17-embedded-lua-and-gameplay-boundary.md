@@ -19,6 +19,7 @@ Target: `ios/Launcher/Resources/ClientAssets/FreeRealms.exe`, SHA-256
 | `ev_1edb009ff6c622b28b3e423899c92f661b562defb18a212773bf18771b15ab52` | `fcn.00976e90` calls `0xe396a0`, `0xe3b1a0` and `0xe3a820` around the Lua error-log write, then reads client config through `0x769710`. The exact VM calls remain unnamed. |
 | `ev_e09502760e045b9ab1591f31dbf363c49f4fe136d4e1ac950daf5ea5fbee568f` | `fcn.009797a0` copies a caller string into a local buffer and splits it on `':'` and `'.'`, consistent with a Lua command namespace/function path. The command table itself is not reconstructed. |
 | `ev_21d691e641f31a357944b76aafdf5a936d5b871020abd3db9fe8da7bb7a5c5bd` | `Lua Quit() called` has one xref at `0xc17457`, proving at least one exported Lua command reached native client code. |
+| `ev_a7e4597960aedb3ef24e054be7646e9a085fee93440dd9e0c6ef8d2f1c7f92cb`, `ev_4588f720c8e8ee45a3244eedf141edb37a5cde46d403de7d20e8f802b67c0081` | Disassembly of the two field-name getters confirms exact returned strings. `WhatsNewDataSource.virtual_4` returns `LuaCall`, `StringParam1`, `Param1`, `Param2`, `Param3`, `StringParam2`; `NudgeDataSource.virtual_4` returns those plus `TrackingType1`, `TrackingType1Param1`, `TrackingType2`, `TrackingType2Param1`. These are server-provided data fields, not Lua VM entry points. |
 
 ## iOS position
 

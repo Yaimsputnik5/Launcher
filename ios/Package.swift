@@ -57,6 +57,7 @@ let package = Package(
                 "Engine/ClientTerrainPalette.swift",
                 "Engine/OSFREngine.swift",
                 "Services/GatewayProtocol.swift",
+                "Services/GatewaySimplePackets.swift",
                 "Services/ImageCodecs.swift"
             ]
         ),

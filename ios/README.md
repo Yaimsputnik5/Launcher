@@ -171,9 +171,11 @@ A repository maintainer must re-enable Actions for
 The verified release below remains the last built artifact and does not include
 these source changes. The newer source work is documented in
 `sanctuary-audit/15-packet-catalog-and-config-xrefs.md`,
-`sanctuary-audit/16-offline-host-settings-wiring.md` and
-`sanctuary-audit/17-embedded-lua-and-gameplay-boundary.md`; none of those notes
-claims full compiled-client or Lua/gameplay parity.
+`sanctuary-audit/16-offline-host-settings-wiring.md`,
+`sanctuary-audit/17-embedded-lua-and-gameplay-boundary.md` and
+`sanctuary-audit/18-simple-packet-decoders-and-xcode-target.md`; none of those
+notes claims full compiled-client or Lua/gameplay parity. The last note records
+an Xcode project omission that would have broken a build of the newer source.
 
 Bundled resources now use validated relative components appended directly to
 the trusted `Bundle.main` root; there is no path-string prefix comparison and
@@ -206,10 +208,11 @@ Foundation-only logic is verified locally:
 swift test --package-path ios
 ```
 
-The 222 tests (1 skipped) cover XXH64, URL/path safety, manifest v1/v2 and
+The 226 tests (1 skipped) cover XXH64, URL/path safety, manifest v1/v2 and
 case-insensitive manifest locales, embedded-payload manifest matching, packet primitives,
 CRC32, RC4, GUID layout, WebAPI login response decoding, login framing/messages,
-gateway AES-CCM, opcode codecs and reliable-ID sequencing, the 352-class
+gateway AES-CCM, opcode codecs, scalar hitpoints/client-area/MOTD decoders and
+reliable-ID sequencing, the 352-class
 Sanctuary packet routing catalog (including wire-type overlap and source
 direction hints) and raw-payload preservation, `.pack`/`.rcc`
 parsing, TGA/DDS decoding, Sanctuary resource schemas, zone/collection/quest
