@@ -175,7 +175,8 @@ these source changes. The newer source work is documented in
 `sanctuary-audit/16-offline-host-settings-wiring.md`,
 `sanctuary-audit/17-embedded-lua-and-gameplay-boundary.md`,
 `sanctuary-audit/18-simple-packet-decoders-and-xcode-target.md` and
-`sanctuary-audit/19-starting-zone-options-and-row-consumer.md`; none of those
+`sanctuary-audit/19-starting-zone-options-and-row-consumer.md` and
+`sanctuary-audit/20-lua-command-table-and-name-formatting.md`; none of those
 notes claims full compiled-client or Lua/gameplay parity. Note 18 records an
 Xcode project omission that would have broken a build of the newer source, and
 the subsequent correction of a 25-packet batch: seven packets whose C#
