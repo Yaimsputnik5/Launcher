@@ -173,6 +173,11 @@ batch: 246 tests, 1 skipped, 0 failures. SwiftUI/UIKit/Network/Metal and actual
 IPA compilation still require macOS GitHub Actions; no local iOS SDK is
 available from this Linux host.
 
+At the time of this publication the authoritative `ios-build` head was
+`1219010c98cdc435cc402bc2d6180fb7f3148c3f`, with zero Actions runs or check
+runs recorded for it. This line is also an intentional Actions trigger probe
+after repository workflow access is restored.
+
 ## Still open
 
 - The remaining 352-class catalog is routing/layout metadata, not 352 decoded
