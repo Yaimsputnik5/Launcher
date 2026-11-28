@@ -36,6 +36,8 @@ let package = Package(
                 "Services/LaunchLog.swift",
                 "Services/DownloadResume.swift",
                 "Services/ProtocolPrimitives.swift",
+                "Services/PacketCatalog.swift",
+                "Services/SanctuaryPacketInventory.swift",
                 "Services/LoginProtocol.swift",
                 "Services/UdpLibraryTransport.swift",
                 "Services/AssetContainers.swift",

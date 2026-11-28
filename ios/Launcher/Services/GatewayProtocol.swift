@@ -2292,6 +2292,10 @@ enum GatewayWorldPacket: Equatable {
     case activeWieldType(GatewayActiveWieldType)
     case beginZoning(GatewayClientBeginZoning)
     case updateLocation(GatewayUpdateLocation)
+    /// A packet whose opcode/sub-opcode is known from Sanctuary or the compiled
+    /// client, but whose field semantics are not decoded yet. The raw payload is
+    /// preserved verbatim; no local simulation value is inferred from it.
+    case mapped(Int16, Int16?, [String], Data)
     case unknown(Int16, Data)
 }
 
@@ -2306,7 +2310,7 @@ enum GatewayWorldCodec {
             let sub = try GatewayWire.readInt16(&reader)
             return sub == GatewayChatMessage.subOpcode
                 ? .chat(try GatewayChatMessage(data: data))
-                : .unknown(opcode, data)
+                : Self.mappedOrUnknown(opcode: opcode, data: data)
         case GatewayEntityAddition.opcode:
             let sub = try GatewayWire.readInt16(&reader)
             switch sub {
@@ -2333,7 +2337,7 @@ enum GatewayWorldCodec {
             case GatewayActiveWieldType.subOpcode:
                 return .activeWieldType(try GatewayActiveWieldType(data: data))
             default:
-                return .unknown(opcode, data)
+                return Self.mappedOrUnknown(opcode: opcode, data: data)
             }
         case GatewaySendSelf.opcode:
             return .sendSelf(try GatewaySendSelf(data: data))
@@ -2357,16 +2361,36 @@ enum GatewayWorldCodec {
             case GatewayUpdateLocation.subOpcode:
                 return .updateLocation(try GatewayUpdateLocation(data: data))
             default:
-                return .unknown(opcode, data)
+                return Self.mappedOrUnknown(opcode: opcode, data: data)
             }
         case 41:
             let sub = try GatewayWire.readInt16(&reader)
             return sub == GatewayOverworldCombat.subOpcode
                 ? .overworldCombat(try GatewayOverworldCombat(data: data))
-                : .unknown(opcode, data)
+                : Self.mappedOrUnknown(opcode: opcode, data: data)
         default:
+            return Self.mappedOrUnknown(opcode: opcode, data: data)
+        }
+    }
+
+    /// Preserve a known opcode/sub-opcode as raw data instead of discarding it.
+    /// Top-level opcodes are checked first so payload bytes are never mistaken
+    /// for a sub-opcode when the family has no sub-opcodes.
+    private static func mappedOrUnknown(opcode: Int16, data: Data) -> GatewayWorldPacket {
+        let topLevel = PacketCatalog.names(opcode: opcode, subOpcode: nil)
+        let hasSubclasses = PacketCatalog.classNames.keys.contains {
+            $0.opcode == opcode && $0.subOpcode != nil
+        }
+        if !topLevel.isEmpty && !hasSubclasses {
+            return .mapped(opcode, nil, topLevel, data)
+        }
+        var reader = PacketReader(Data(data))
+        guard let ignoredOpcode = try? GatewayWire.readInt16(&reader), ignoredOpcode == opcode,
+              let sub = try? GatewayWire.readInt16(&reader) else {
             return .unknown(opcode, data)
         }
+        let names = PacketCatalog.names(opcode: opcode, subOpcode: sub)
+        return names.isEmpty ? .unknown(opcode, data) : .mapped(opcode, sub, names, data)
     }
 }
 
@@ -2423,6 +2447,11 @@ struct GatewayWorldObservation: Equatable, Sendable {
     var preloadCharactersDone = false
     var zoneDataComplete = false
     var lastEvent: String?
+    /// Counts of packets whose routing is known from Sanctuary/RTTI but whose
+    /// fields are not decoded. These are packet-backed only.
+    var mappedPacketCounts: [String: Int] = [:]
+    /// Last raw payload retained for a mapped packet, for diagnostics only.
+    var lastMappedPayload: Data?
 
     private var nextChatID: UInt64 = 1
 
@@ -2643,6 +2672,13 @@ struct GatewayWorldObservation: Equatable, Sendable {
                 }
             }
             lastEvent = "Location · seq \(location.teleportSequence) · teleport \(location.teleport)"
+        case .mapped(let opcode, let subOpcode, let names, let payload):
+            for name in names {
+                mappedPacketCounts[name, default: 0] += 1
+            }
+            lastMappedPayload = payload
+            let route = subOpcode.map { "\(opcode)/\($0)" } ?? "\(opcode)"
+            lastEvent = "Mapped world packet \(route) · \(names.joined(separator: ", "))"
         case .unknown(let opcode, _):
             lastEvent = "Unparsed world opcode \(opcode)"
         }
