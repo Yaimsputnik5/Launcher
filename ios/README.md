@@ -182,8 +182,9 @@ these source changes. The newer source work is documented in
 `sanctuary-audit/23-additional-store-catalog-codecs.md`,
 `sanctuary-audit/24-client-starting-zone-loader-rtti.md`,
 `sanctuary-audit/25-additional-commerce-response-codecs.md`,
-`sanctuary-audit/26-broadcast-and-housing-zone-codecs.md` and
-`sanctuary-audit/27-client-starting-zone-loader-call-sites.md`; none of those notes claims full
+`sanctuary-audit/26-broadcast-and-housing-zone-codecs.md`,
+`sanctuary-audit/27-client-starting-zone-loader-call-sites.md` and
+`sanctuary-audit/28-starting-zone-lua-dispatch.md`; none of those notes claims full
 compiled-client or Lua/gameplay parity. Note 18 records an
 Xcode project omission that would have broken a build of the newer source, and
 the subsequent correction of a 25-packet batch: seven packets whose C#
@@ -205,8 +206,9 @@ decoders for 66/6 category groups, 66/7 category tree, 66/9 bundle groups,
 66/11 wallet info, 66/23 subscription products, and 66/40 sale display from
 their verified `Serialize()` order, including the conditional subscription
 list. Note 24 verifies `ClientStartingZoneLoader` RTTI inheritance from
-`StatusHandler<DelayedAssetLoader>` and its exact two-slot virtual table, while
-leaving the runtime dispatch site and row consumer unresolved. Note 25 adds
+`StatusHandler<DelayedAssetLoader>` and its exact two-slot virtual table; notes
+27 and 28 later locate the construction/parse/dispatch call sites and a
+Lua-facing callee without claiming full field or script semantics. Note 25 adds
 exact decoders for 66/2 preview orders, 66/4 place orders, 66/17 currency codes,
 66/19 state codes, 66/21 country codes, 66/26 account info, 66/28 bundle
 content responses, and 66/39 item requirement updates. Note 26 adds 77/2 zone
@@ -216,8 +218,10 @@ retain raw bytes. Note 27 locates the compiled client's `ClientStartingZoneLoade
 constructor, destructor, `Resources/` row-reader call site, and two virtual slots:
 the reader builds `%sStartingZoneLoad.txt`, skips `#` comments and rows with fewer
 than three `^` separators, while slot 0 walks a per-row count before selecting the
-next entry. The semantic role of those callees and the row-to-header field mapping
-remain unverified.
+next entry. Note 28 resolves slot 0's first callee as a Lua-facing loader/registrar
+by its `LuaErrors.log` literal, typed-value pusher, and 160-byte record loop; the
+parsed boolean at row+4 is inferred to be `IS_BACKGROUND_LOAD`, but callback
+semantics and the full row-to-header mapping remain unverified.
 
 Bundled resources now use validated relative components appended directly to
 the trusted `Bundle.main` root; there is no path-string prefix comparison and
