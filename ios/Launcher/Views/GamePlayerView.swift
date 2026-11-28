@@ -608,6 +608,24 @@ private struct RemoteWorldView: View {
                         LabeledContent("Trade sessions", value: "\(observation.tradeCoinCounts.count)")
                             .font(.caption2)
                     }
+                    if !observation.friendPresence.isEmpty {
+                        LabeledContent("Friends online", value: "\(observation.friendPresence.count)")
+                            .font(.caption2)
+                    }
+                    if let mount = observation.mountStates.first {
+                        LabeledContent(
+                            "Mount",
+                            value: "\(mount.value.riderGUID) → \(mount.value.mountGUID)"
+                        )
+                        .font(.caption2)
+                    }
+                    if !observation.questObjectiveProgress.isEmpty {
+                        LabeledContent(
+                            "Quest objectives",
+                            value: "\(observation.questObjectiveProgress.count)"
+                        )
+                        .font(.caption2)
+                    }
                     if observation.chatMessages.isEmpty {
                         Text("No server chat received yet.")
                             .font(.caption2)

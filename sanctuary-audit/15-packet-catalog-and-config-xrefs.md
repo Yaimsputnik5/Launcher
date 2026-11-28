@@ -116,6 +116,16 @@ call.
 | `ev_c9ff45abcafbe7b9494a03cd4cff8369ea4054494a69c5c736451c60ce8b2f94` | `fcn.009046e0` has three xrefs (`0x90e8f2` in `fcn.0090e8a0`, `0x938396` in `fcn.00936d00`, `0x93d42c` in `fcn.0093d180`). It builds the `HUD:SetIsInStartingZone` command, sets variant type `5`, stores the incoming boolean at the variant payload byte, and calls the 759-xref command parser `fcn.009797a0`. The earlier "switch dispatch" observation is therefore a command construction path, not an unrelated UI feature. |
 | `ev_e350e8063d91c8df18d33d7d64f071dcfedda28cbbd9f7f42ca90a4b44fde2ee` | `fcn.0097c090` is now disassembled: it constructs an object at `[this+0x20]`, checks a virtual flag at vtable slot `0xcc`, optionally calls slot `0xd0` with the spawn argument, otherwise iterates an argument array through `fcn.0097b960` and calls `fcn.0097bca0` with two arguments. The result is a spawn builder, but the meaning of `arg_4h`/`arg_8h` and the transform remain unnamed. |
 | `ev_e576f20572779178be29eff2d1502621ef6faf33c6c02098e941db2f3deadce3` | The `%sStartingZoneLoad.txt` parser continues past row acceptance: it allocates an object via `fcn.009cdbe0`, splits the row into 0x400-byte fields, constructs strings at object offsets `+0x08` and `+0x18`, and passes the remaining tail to `fcn.00726440`. This confirms at least three `^`-delimited fields are copied into a typed row object; their names are still missing. |
+| `ev_45d99719f1323601f6a350579dba9e0326c23186a80743728b524dd8dd1ba89c` | The row loop at `0x9cdd80` reads a `0x8000`-byte row, skips rows whose first byte is `'#'`, counts row bytes until NUL and requires at least 3, allocates a row object with `fcn.009cdbe0`, then uses `fcn.007065d0` and two `fcn.006fb560` calls with delimiter `'^'` and `0x400`-byte fields. The first field is copied into the object at `+0x08` via `fcn.00402ce0`; the second into `+0x18`; the remaining tail goes to `fcn.00726440` with `object+0x04`. |
+| `ev_ee5de12820bfa7ff184ac273ed9f11a8ff3567fea09f240a789ad6708bc25b43` | The same loop advances to the next row via `fcn.00fbe130`, ends the row list at `0x9cde63`, and destructs the row buffer with `fcn.00fbdae0`; `0x9cde7e` then performs a reference-count release. This is a concrete row-allocation/lifecycle path, not just a string xref. |
+| `ev_821e8f49a30afce572f893e35c13a00ada2003345091968dafb5c763c0001d6d` | `fcn.009cdbe0` calls a virtual allocator at vtable slot `+0x08`, stores the caller's collection pointer at `object+0x2c`, clears `object+0x28`, links the object into a doubly linked list through `collection+0x04`/`+0x08`, and increments a count at `collection+0x0c`. It is a generic list-node constructor; the field names still come from the resource file header, not from binary symbols. |
+
+The embedded `StartingZoneLoad.txt` header explicitly names the columns
+`LOAD_ORDER^ASSET_LIST^CALLBACK^IS_BACKGROUND_LOAD`. The disassembly above
+independently confirms that the first two `^` fields become strings on a row
+object and that a third parser handles the remaining tail. The binary does not
+expose those field names as symbols, so the names remain a resource-schema
+mapping rather than a recovered C++ identifier list.
 
 The packet catalog was also extended with metadata-backed routes that preserve
 the `byte` (login) vs `short` (gateway) wire type and the source direction hint
@@ -124,9 +134,11 @@ runtime direction; it is not used to fabricate or discard live packets.
 
 ## Still unresolved
 
-1. `0x8a9010`, the `0x9cdcd0` row schema, `fcn.0097c090` spawn transform and the
-   Lua dispatch targets are not decompiled to semantics; only their string
-   xrefs, call sites and (where shown) dispatch payloads are verified here.
+1. `0x8a9010`, the `fcn.0097c090` spawn transform and the Lua dispatch targets
+   are not decompiled to semantics; only their string xrefs, call sites and
+   (where shown) dispatch payloads are verified here. The `0x9cdcd0` row loop is
+   now mapped structurally to the resource file's four named columns, but the
+   tail parser `fcn.00726440` still lacks recovered field semantics.
 2. The 352-class packet inventory is a routing/layout catalog. Field codecs for
    most packets, direction-specific handling and server-side behavior are not
    implemented in Swift.

@@ -2304,6 +2304,18 @@ enum GatewayWorldPacket: Equatable {
     case tradeCoinCount(GatewayTradeCoinCount)
     case tradeMessage(GatewayTradeMessage)
     case membership(GatewayMembershipInfo)
+    case lookAtTarget(GatewayLookAtTarget)
+    case expectedSpeed(GatewayExpectedSpeed)
+    case thoughtBubble(GatewayThoughtBubble)
+    case collidable(GatewayCollidableUpdate)
+    case friendOnline(GatewayFriendOnline)
+    case mountState(GatewayMountState)
+    case dismount(GatewayDismount)
+    case questObjectiveActivated(GatewayQuestObjectiveActivated)
+    case questObjectiveUpdate(GatewayQuestObjectiveUpdate)
+    case questObjectiveComplete(GatewayQuestObjectiveComplete)
+    case questObjectiveFailed(GatewayQuestObjectiveFailed)
+    case petTrickNotification(GatewayPetTrickNotification)
     case clientArea(GatewayClientAreaUpdate)
     case messageOfTheDay(GatewayMessageOfTheDay)
     /// A packet whose opcode/sub-opcode is known from Sanctuary or the compiled
@@ -2350,6 +2362,14 @@ enum GatewayWorldCodec {
                 return .slotCompositeEffectOverride(try GatewaySlotCompositeEffectOverride(data: data))
             case GatewayActiveWieldType.subOpcode:
                 return .activeWieldType(try GatewayActiveWieldType(data: data))
+            case GatewayLookAtTarget.subOpcode:
+                return .lookAtTarget(try GatewayLookAtTarget(data: data))
+            case GatewayExpectedSpeed.subOpcode:
+                return .expectedSpeed(try GatewayExpectedSpeed(data: data))
+            case GatewayThoughtBubble.subOpcode:
+                return .thoughtBubble(try GatewayThoughtBubble(data: data))
+            case GatewayCollidableUpdate.subOpcode:
+                return .collidable(try GatewayCollidableUpdate(data: data))
             default:
                 return Self.mappedOrUnknown(opcode: opcode, data: data)
             }
@@ -2392,6 +2412,14 @@ enum GatewayWorldCodec {
                 return .questFailed(try GatewayQuestFailed(data: data))
             case GatewayCompletedQuestCount.subOpcode:
                 return .completedQuestCount(try GatewayCompletedQuestCount(data: data))
+            case GatewayQuestObjectiveActivated.subOpcode:
+                return .questObjectiveActivated(try GatewayQuestObjectiveActivated(data: data))
+            case GatewayQuestObjectiveUpdate.subOpcode:
+                return .questObjectiveUpdate(try GatewayQuestObjectiveUpdate(data: data))
+            case GatewayQuestObjectiveComplete.subOpcode:
+                return .questObjectiveComplete(try GatewayQuestObjectiveComplete(data: data))
+            case GatewayQuestObjectiveFailed.subOpcode:
+                return .questObjectiveFailed(try GatewayQuestObjectiveFailed(data: data))
             default:
                 return Self.mappedOrUnknown(opcode: opcode, data: data)
             }
@@ -2402,6 +2430,8 @@ enum GatewayWorldCodec {
                 return .petStatus(try GatewayPetStatus(data: data))
             case GatewayPetActive.subOpcode:
                 return .petActive(try GatewayPetActive(data: data))
+            case GatewayPetTrickNotification.subOpcode:
+                return .petTrickNotification(try GatewayPetTrickNotification(data: data))
             default:
                 return Self.mappedOrUnknown(opcode: opcode, data: data)
             }
@@ -2412,6 +2442,21 @@ enum GatewayWorldCodec {
                 return .tradeCoinCount(try GatewayTradeCoinCount(data: data))
             case GatewayTradeMessage.subOpcode:
                 return .tradeMessage(try GatewayTradeMessage(data: data))
+            default:
+                return Self.mappedOrUnknown(opcode: opcode, data: data)
+            }
+        case GatewayFriendOnline.opcode:
+            let sub = try reader.readUInt8()
+            return sub == GatewayFriendOnline.subOpcode
+                ? .friendOnline(try GatewayFriendOnline(data: data))
+                : Self.mappedOrUnknown(opcode: opcode, data: data)
+        case GatewayMountState.opcode:
+            let sub = try reader.readUInt8()
+            switch sub {
+            case GatewayMountState.subOpcode:
+                return .mountState(try GatewayMountState(data: data))
+            case GatewayDismount.subOpcode:
+                return .dismount(try GatewayDismount(data: data))
             default:
                 return Self.mappedOrUnknown(opcode: opcode, data: data)
             }
@@ -2474,6 +2519,16 @@ struct GatewayWorldObservation: Equatable, Sendable {
         let receivedAt: Date
     }
 
+    struct QuestObjectiveKey: Hashable, Sendable {
+        let questID: Int32
+        let objectiveID: Int32
+    }
+
+    struct FriendPresence: Equatable, Sendable {
+        let name: String
+        let isLocal: Bool
+    }
+
     var positions: [UInt64: Position] = [:]
     /// Names are only populated by decoded spawn or self packets. Position-only
     /// updates must never fabricate a name.
@@ -2506,6 +2561,19 @@ struct GatewayWorldObservation: Equatable, Sendable {
     var tradeCoinCounts: [Int32: GatewayTradeCoinCount] = [:]
     var lastTradeMessage: GatewayTradeMessage?
     var membershipInfo: GatewayMembershipInfo?
+    /// Player state below is accumulated only from decoded player-update packets.
+    var lookTargets: [UInt64: UInt64] = [:]
+    var expectedSpeeds: [UInt64: Float] = [:]
+    var thoughtBubbles: [UInt64: GatewayThoughtBubble] = [:]
+    var collidableByGUID: [UInt64: Bool] = [:]
+    var friendPresence: [UInt64: FriendPresence] = [:]
+    var mountStates: [UInt64: GatewayMountState] = [:]
+    var lastDismount: GatewayDismount?
+    var questObjectiveRequirements: [QuestObjectiveKey: Int32] = [:]
+    var questObjectiveProgress: [QuestObjectiveKey: GatewayQuestObjectiveUpdate] = [:]
+    var completedQuestObjectiveIDs: Set<QuestObjectiveKey> = []
+    var failedQuestObjectiveIDs: Set<QuestObjectiveKey> = []
+    var lastPetTrickNotification: GatewayPetTrickNotification?
     /// Packet-backed only: set by `PacketSetClientArea` / `PacketMOTD`.
     var activeClientAreaID: Int32?
     var clientAreaEnabled: Bool?
@@ -2788,6 +2856,51 @@ struct GatewayWorldObservation: Equatable, Sendable {
         case .membership(let info):
             membershipInfo = info
             lastEvent = "Membership · member \(info.isMember) · referee \(info.isReferee)"
+        case .lookAtTarget(let update):
+            lookTargets[update.guid] = update.targetGUID
+            lastEvent = "Look at · \(update.guid) → \(update.targetGUID)"
+        case .expectedSpeed(let update):
+            expectedSpeeds[update.guid] = update.expectedSpeed
+            lastEvent = "Expected speed · \(update.guid) · \(update.expectedSpeed)"
+        case .thoughtBubble(let bubble):
+            if bubble.clear {
+                thoughtBubbles.removeValue(forKey: bubble.guid)
+            } else {
+                thoughtBubbles[bubble.guid] = bubble
+            }
+            lastEvent = "Thought bubble · \(bubble.guid) · icon \(bubble.iconID)"
+        case .collidable(let update):
+            collidableByGUID[update.guid] = update.collidable
+            lastEvent = "Collidable · \(update.guid) · \(update.collidable)"
+        case .friendOnline(let friend):
+            friendPresence[friend.guid] = FriendPresence(name: friend.name, isLocal: friend.isLocal)
+            lastEvent = "Friend online · \(friend.name) · \(friend.guid)"
+        case .mountState(let mount):
+            mountStates[mount.riderGUID] = mount
+            lastEvent = "Mount · \(mount.riderGUID) → \(mount.mountGUID) · seat \(mount.seat)"
+        case .dismount(let dismount):
+            lastDismount = dismount
+            mountStates.removeValue(forKey: dismount.riderGUID)
+            lastEvent = "Dismount · \(dismount.riderGUID)"
+        case .questObjectiveActivated(let update):
+            let key = QuestObjectiveKey(questID: update.questID, objectiveID: update.objectiveID)
+            questObjectiveRequirements[key] = update.requiredCount
+            lastEvent = "Quest objective active · \(update.questID)/\(update.objectiveID)"
+        case .questObjectiveUpdate(let update):
+            let key = QuestObjectiveKey(questID: update.questID, objectiveID: update.objectiveID)
+            questObjectiveProgress[key] = update
+            lastEvent = "Quest objective · \(update.questID)/\(update.objectiveID) · \(update.currentCount)"
+        case .questObjectiveComplete(let update):
+            let key = QuestObjectiveKey(questID: update.questID, objectiveID: update.objectiveID)
+            completedQuestObjectiveIDs.insert(key)
+            lastEvent = "Quest objective complete · \(update.questID)/\(update.objectiveID)"
+        case .questObjectiveFailed(let update):
+            let key = QuestObjectiveKey(questID: update.questID, objectiveID: update.objectiveID)
+            failedQuestObjectiveIDs.insert(key)
+            lastEvent = "Quest objective failed · \(update.questID)/\(update.objectiveID)"
+        case .petTrickNotification(let notification):
+            lastPetTrickNotification = notification
+            lastEvent = "Pet trick · \(notification.petID) · \(notification.trickID)"
         case .clientArea(let area):
             activeClientAreaID = area.areaID
             clientAreaEnabled = area.enabled

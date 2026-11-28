@@ -5,8 +5,8 @@ Neither is a 1:1 completeness claim.
 
 ## 1. Scalar server-to-client packets
 
-Eleven small `Sanctuary.Packet` classes had exact `Serialize()` layouts in the
-compiled C# source but were still falling through the Swift codec as raw
+Twenty-five small `Sanctuary.Packet` classes had exact `Serialize()` layouts in
+the compiled C# source but were still falling through the Swift codec as raw
 packets. They are now decoded from packet bytes only.
 
 | Packet | Source | Wire layout from C# | Swift decoder | Observation fields |
@@ -24,12 +24,27 @@ packets. They are now decoded from packet bytes only.
 | `TradeUpdateCoinCountPacket` | `BaseTradePacket/TradeUpdateCoinCountPacket.cs` | `short 59`, **byte** `11`, `int SessionId`, `int Revision`, `bool IsMine`, `int OfferedCoins` | `GatewayTradeCoinCount` | `.tradeCoinCounts` |
 | `TradeMessagePacket` | `BaseTradePacket/TradeMessagePacket.cs` | `short 59`, **byte** `15`, byte `PartnerDisconnected`, byte `Completed`, byte `MessageCode` | `GatewayTradeMessage` | `.lastTradeMessage` |
 | `PacketMembershipSubscriptionInfo` | `PacketMembershipSubscriptionInfo.cs` | `short 189`, `bool IsMember`, `bool IsReferee` | `GatewayMembershipInfo` | `.membershipInfo` |
+| `PlayerUpdatePacketSetLookAt` | `BasePlayerUpdatePacket/PlayerUpdatePacketSetLookAt.cs` | `short 35`, `short 17`, `ulong Guid`, `ulong TargetGuid` | `GatewayLookAtTarget` | `.lookTargets` |
+| `PlayerUpdatePacketExpectedSpeed` | `BasePlayerUpdatePacket/PlayerUpdatePacketExpectedSpeed.cs` | `short 35`, `short 23`, `ulong Guid`, `float ExpectedSpeed` | `GatewayExpectedSpeed` | `.expectedSpeeds` |
+| `PlayerUpdatePacketThoughtBubble` | `BasePlayerUpdatePacket/PlayerUpdatePacketThoughtBubble.cs` | `short 35`, `short 27`, `ulong Guid`, `int IconId`, `int DurationSeconds`, `bool Clear` | `GatewayThoughtBubble` | `.thoughtBubbles` |
+| `PlayerUpdatePacketSetCollidable` | `BasePlayerUpdatePacket/PlayerUpdatePacketSetCollidable.cs` | `short 35`, `short 50`, `ulong Guid`, `bool Collidable` | `GatewayCollidableUpdate` | `.collidableByGUID` |
+| `FriendOnlinePacket` | `BaseFriendPacket/FriendOnlinePacket.cs` | `short 74`, **byte** `2`, string `Name`, `ulong Guid`, `bool IsLocal` | `GatewayFriendOnline` | `.friendPresence` |
+| `PacketMountResponse` | `MountBasePacket/PacketMountResponse.cs` | `short 168`, **byte** `2`, `ulong RiderGuid`, `ulong MountGuid`, `int Seat`, `int QueuePosition`, `int Unknown`, `int CompositeEffectId`, `float NameVerticalOffset` | `GatewayMountState` | `.mountStates` |
+| `PacketDismountResponse` | `MountBasePacket/PacketDismountResponse.cs` | `short 168`, **byte** `4`, `ulong RiderGuid`, `int CompositeEffectId` | `GatewayDismount` | `.lastDismount`, clears `.mountStates` |
+| `QuestObjectiveActivatedPacket` | `BaseQuestPacket/QuestObjectiveActivatedPacket.cs` | `short 49`, **int** `8`, `int QuestId`, `int ObjectiveId`, `int RequiredCount`, `bool Unknown2` | `GatewayQuestObjectiveActivated` | `.questObjectiveRequirements` |
+| `QuestObjectiveUpdatePacket` | `BaseQuestPacket/QuestObjectiveUpdatePacket.cs` | `short 49`, **int** `9`, `int QuestId`, `int ObjectiveId`, `int CurrentCount`, `float CompletedPercentage`, `bool Silent`, `int Unknown6` | `GatewayQuestObjectiveUpdate` | `.questObjectiveProgress` |
+| `QuestObjectiveCompletePacket` | `BaseQuestPacket/QuestObjectiveCompletePacket.cs` | `short 49`, **int** `10`, `int QuestId`, `int ObjectiveId`, `float Percent`, `int CompositeEffectId`, `bool Silent` | `GatewayQuestObjectiveComplete` | `.completedQuestObjectiveIDs` |
+| `QuestObjectiveFailedPacket` | `BaseQuestPacket/QuestObjectiveFailedPacket.cs` | `short 49`, **int** `11`, `int QuestId`, `int ObjectiveId` | `GatewayQuestObjectiveFailed` | `.failedQuestObjectiveIDs` |
+| `PetTrickNotifyPacket` | `PetBasePacket/PetTrickNotifyPacket.cs` | `short 53`, **byte** `15`, five `int` fields (`PetId`, `NotificationType`, `TrickId`, `NameId`, `Unknown5`) | `GatewayPetTrickNotification` | `.lastPetTrickNotification` |
 
-The quest family uses a 4-byte `int` sub-opcode, while `PetBasePacket` and
-`BaseTradePacket` use one-byte sub-opcodes; the tests assert both layouts
-explicitly. Hitpoints, mana, client area, completed-quest count, pet and
-membership state are shown in the remote `Gateway packet view` only when the
-corresponding packet has been decoded.
+The quest family uses a 4-byte `int` sub-opcode, while `PetBasePacket`,
+`BaseTradePacket`, `BaseFriendPacket` and `MountBasePacket` use one-byte
+sub-opcodes; `BasePlayerUpdatePacket` uses a 2-byte `short`. The tests assert
+all four layouts explicitly. Hitpoints, mana, client area, completed-quest
+count, pet, trade, membership, friend, mount and quest-objective state are shown
+in the remote `Gateway packet view` only when the corresponding packet has been
+decoded. Fields named `Unknown`/`Unknown2`/`Unknown5`/`Unknown6` in the C#
+source are kept verbatim rather than assigned invented meanings.
 
 The Swift initializers require an exact opcode/sub-opcode, reject trailing
 bytes, and are dispatched from `GatewayWorldCodec.decodeAny` before the generic
@@ -70,7 +85,7 @@ Local Foundation-only suite after these changes:
 TMPDIR=/tmp/opencode swift test --package-path ios --scratch-path /tmp/opencode/osfr-swift-test-chunks
 ```
 
-Result: 232 tests, 1 skipped, 0 failures. SwiftUI/UIKit/Network/Metal and
+Result: 238 tests, 1 skipped, 0 failures. SwiftUI/UIKit/Network/Metal and
 actual IPA compilation still require macOS GitHub Actions; no local iOS SDK is
 available from this Linux host.
 

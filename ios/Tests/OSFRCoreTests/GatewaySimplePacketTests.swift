@@ -271,4 +271,265 @@ final class GatewaySimplePacketTests: XCTestCase {
         XCTAssertEqual(observation.membershipInfo?.isReferee, false)
         XCTAssertNil(observation.lastPetStatus)
     }
+
+    func testPlayerUpdateDecodersUseShortSubOpcodes() throws {
+        func packet(
+            _ opcode: Int16,
+            _ subOpcode: Int16,
+            _ body: (inout PacketWriter) -> Void
+        ) throws -> GatewayWorldPacket {
+            var writer = PacketWriter()
+            GatewayWire.appendInt16(opcode, to: &writer.data)
+            GatewayWire.appendInt16(subOpcode, to: &writer.data)
+            body(&writer)
+            return try GatewayWorldCodec.decodeAny(writer.data)
+        }
+
+        let look = try packet(
+            GatewayLookAtTarget.opcode,
+            GatewayLookAtTarget.subOpcode
+        ) { writer in
+            writer.writeUInt64(0x1111_2222_3333_4444)
+            writer.writeUInt64(0xAAAA_BBBB_CCCC_DDDD)
+        }
+        guard case .lookAtTarget(let lookAt) = look else {
+            return XCTFail("Expected look-at target, got \(look)")
+        }
+        XCTAssertEqual(lookAt.guid, 0x1111_2222_3333_4444)
+        XCTAssertEqual(lookAt.targetGUID, 0xAAAA_BBBB_CCCC_DDDD)
+
+        let speed = try packet(
+            GatewayExpectedSpeed.opcode,
+            GatewayExpectedSpeed.subOpcode
+        ) { writer in
+            writer.writeUInt64(0x1111_2222_3333_4444)
+            writer.writeFloat(6.25)
+        }
+        guard case .expectedSpeed(let expected) = speed else {
+            return XCTFail("Expected expected speed, got \(speed)")
+        }
+        XCTAssertEqual(expected.expectedSpeed, 6.25)
+
+        let bubble = try packet(
+            GatewayThoughtBubble.opcode,
+            GatewayThoughtBubble.subOpcode
+        ) { writer in
+            writer.writeUInt64(0x1111_2222_3333_4444)
+            writer.writeInt32(7)
+            writer.writeInt32(12)
+            writer.writeBool(false)
+        }
+        guard case .thoughtBubble(let thought) = bubble else {
+            return XCTFail("Expected thought bubble, got \(bubble)")
+        }
+        XCTAssertEqual(thought.iconID, 7)
+        XCTAssertEqual(thought.durationSeconds, 12)
+        XCTAssertFalse(thought.clear)
+
+        let collidable = try packet(
+            GatewayCollidableUpdate.opcode,
+            GatewayCollidableUpdate.subOpcode
+        ) { writer in
+            writer.writeUInt64(0x1111_2222_3333_4444)
+            writer.writeBool(true)
+        }
+        guard case .collidable(let update) = collidable else {
+            return XCTFail("Expected collidable update, got \(collidable)")
+        }
+        XCTAssertTrue(update.collidable)
+
+        var observation = GatewayWorldObservation.empty
+        for packet in [look, speed, bubble, collidable] {
+            observation.apply(packet)
+        }
+        XCTAssertEqual(
+            observation.lookTargets[0x1111_2222_3333_4444],
+            0xAAAA_BBBB_CCCC_DDDD
+        )
+        XCTAssertEqual(observation.expectedSpeeds[0x1111_2222_3333_4444], 6.25)
+        XCTAssertEqual(observation.thoughtBubbles[0x1111_2222_3333_4444]?.iconID, 7)
+        XCTAssertEqual(observation.collidableByGUID[0x1111_2222_3333_4444], true)
+        XCTAssertNil(observation.mountStates[0x1111_2222_3333_4444])
+    }
+
+    func testThoughtBubbleClearRemovesPacketBackedState() throws {
+        var writer = PacketWriter()
+        GatewayWire.appendInt16(GatewayThoughtBubble.opcode, to: &writer.data)
+        GatewayWire.appendInt16(GatewayThoughtBubble.subOpcode, to: &writer.data)
+        writer.writeUInt64(99)
+        writer.writeInt32(0)
+        writer.writeInt32(0)
+        writer.writeBool(true)
+        let packet = try GatewayWorldCodec.decodeAny(writer.data)
+
+        var observation = GatewayWorldObservation.empty
+        observation.apply(packet)
+        XCTAssertTrue(observation.thoughtBubbles.isEmpty)
+        XCTAssertEqual(observation.lastEvent, "Thought bubble · 99 · icon 0")
+    }
+
+    func testFriendOnlineUsesByteSubOpcodeAndLengthPrefixedName() throws {
+        var writer = PacketWriter()
+        GatewayWire.appendInt16(GatewayFriendOnline.opcode, to: &writer.data)
+        writer.writeUInt8(GatewayFriendOnline.subOpcode)
+        writer.writeString("Astra")
+        writer.writeUInt64(0x0123_4567_89AB_CDEF)
+        writer.writeBool(false)
+
+        let packet = try GatewayWorldCodec.decodeAny(writer.data)
+        guard case .friendOnline(let friend) = packet else {
+            return XCTFail("Expected friend online, got \(packet)")
+        }
+        XCTAssertEqual(friend.name, "Astra")
+        XCTAssertEqual(friend.guid, 0x0123_4567_89AB_CDEF)
+        XCTAssertFalse(friend.isLocal)
+
+        var observation = GatewayWorldObservation.empty
+        observation.apply(packet)
+        XCTAssertEqual(observation.friendPresence[friend.guid]?.name, "Astra")
+        XCTAssertEqual(observation.friendPresence[friend.guid]?.isLocal, false)
+        XCTAssertNil(observation.lastPetTrickNotification)
+    }
+
+    func testMountDecodersUseByteSubOpcodes() throws {
+        var mountWriter = PacketWriter()
+        GatewayWire.appendInt16(GatewayMountState.opcode, to: &mountWriter.data)
+        mountWriter.writeUInt8(GatewayMountState.subOpcode)
+        mountWriter.writeUInt64(101)
+        mountWriter.writeUInt64(202)
+        mountWriter.writeInt32(3)
+        mountWriter.writeInt32(2)
+        mountWriter.writeInt32(77)
+        mountWriter.writeInt32(9012)
+        mountWriter.writeFloat(0.375)
+
+        let mountPacket = try GatewayWorldCodec.decodeAny(mountWriter.data)
+        guard case .mountState(let mount) = mountPacket else {
+            return XCTFail("Expected mount state, got \(mountPacket)")
+        }
+        XCTAssertEqual(mount.riderGUID, 101)
+        XCTAssertEqual(mount.mountGUID, 202)
+        XCTAssertEqual(mount.seat, 3)
+        XCTAssertEqual(mount.queuePosition, 2)
+        XCTAssertEqual(mount.unknown, 77)
+        XCTAssertEqual(mount.compositeEffectID, 9012)
+        XCTAssertEqual(mount.nameVerticalOffset, 0.375)
+
+        var dismountWriter = PacketWriter()
+        GatewayWire.appendInt16(GatewayDismount.opcode, to: &dismountWriter.data)
+        dismountWriter.writeUInt8(GatewayDismount.subOpcode)
+        dismountWriter.writeUInt64(101)
+        dismountWriter.writeInt32(9012)
+        let dismountPacket = try GatewayWorldCodec.decodeAny(dismountWriter.data)
+        guard case .dismount(let dismount) = dismountPacket else {
+            return XCTFail("Expected dismount, got \(dismountPacket)")
+        }
+        XCTAssertEqual(dismount.riderGUID, 101)
+        XCTAssertEqual(dismount.compositeEffectID, 9012)
+
+        var observation = GatewayWorldObservation.empty
+        observation.apply(mountPacket)
+        XCTAssertEqual(observation.mountStates[101]?.mountGUID, 202)
+        observation.apply(dismountPacket)
+        XCTAssertNil(observation.mountStates[101])
+        XCTAssertEqual(observation.lastDismount?.compositeEffectID, 9012)
+    }
+
+    func testAdditionalQuestObjectiveDecodersUseIntSubOpcodes() throws {
+        func questPacket(_ sub: Int32, _ body: (inout PacketWriter) -> Void) throws -> GatewayWorldPacket {
+            var writer = PacketWriter()
+            GatewayWire.appendInt16(GatewayQuestObjectiveActivated.opcode, to: &writer.data)
+            writer.writeInt32(sub)
+            body(&writer)
+            return try GatewayWorldCodec.decodeAny(writer.data)
+        }
+
+        let activated = try questPacket(GatewayQuestObjectiveActivated.subOpcode) { writer in
+            writer.writeInt32(1201)
+            writer.writeInt32(3)
+            writer.writeInt32(10)
+            writer.writeBool(false)
+        }
+        guard case .questObjectiveActivated(let update) = activated else {
+            return XCTFail("Expected objective activation, got \(activated)")
+        }
+        XCTAssertEqual(update.requiredCount, 10)
+
+        let progress = try questPacket(GatewayQuestObjectiveUpdate.subOpcode) { writer in
+            writer.writeInt32(1201)
+            writer.writeInt32(3)
+            writer.writeInt32(6)
+            writer.writeFloat(0.6)
+            writer.writeBool(true)
+            writer.writeInt32(51)
+        }
+        guard case .questObjectiveUpdate(let update) = progress else {
+            return XCTFail("Expected objective update, got \(progress)")
+        }
+        XCTAssertEqual(update.currentCount, 6)
+        XCTAssertEqual(update.completedPercentage, 0.6)
+        XCTAssertTrue(update.silent)
+        XCTAssertEqual(update.unknown6, 51)
+
+        let complete = try questPacket(GatewayQuestObjectiveComplete.subOpcode) { writer in
+            writer.writeInt32(1201)
+            writer.writeInt32(3)
+            writer.writeFloat(1)
+            writer.writeInt32(8123)
+            writer.writeBool(false)
+        }
+        guard case .questObjectiveComplete(let update) = complete else {
+            return XCTFail("Expected objective completion, got \(complete)")
+        }
+        XCTAssertEqual(update.compositeEffectID, 8123)
+
+        let failed = try questPacket(GatewayQuestObjectiveFailed.subOpcode) { writer in
+            writer.writeInt32(1202)
+            writer.writeInt32(4)
+        }
+        guard case .questObjectiveFailed(let update) = failed else {
+            return XCTFail("Expected objective failure, got \(failed)")
+        }
+        XCTAssertEqual(update.objectiveID, 4)
+
+        var observation = GatewayWorldObservation.empty
+        for packet in [activated, progress, complete, failed] {
+            observation.apply(packet)
+        }
+        let key = GatewayWorldObservation.QuestObjectiveKey(questID: 1201, objectiveID: 3)
+        XCTAssertEqual(observation.questObjectiveRequirements[key], 10)
+        XCTAssertEqual(observation.questObjectiveProgress[key]?.currentCount, 6)
+        XCTAssertTrue(observation.completedQuestObjectiveIDs.contains(key))
+        XCTAssertTrue(
+            observation.failedQuestObjectiveIDs.contains(
+                GatewayWorldObservation.QuestObjectiveKey(questID: 1202, objectiveID: 4)
+            )
+        )
+        XCTAssertNil(observation.manaCurrent)
+    }
+
+    func testPetTrickNotificationUsesByteSubOpcode() throws {
+        var writer = PacketWriter()
+        GatewayWire.appendInt16(GatewayPetTrickNotification.opcode, to: &writer.data)
+        writer.writeUInt8(GatewayPetTrickNotification.subOpcode)
+        writer.writeInt32(77)
+        writer.writeInt32(2)
+        writer.writeInt32(515)
+        writer.writeInt32(9200)
+        writer.writeInt32(0)
+
+        let packet = try GatewayWorldCodec.decodeAny(writer.data)
+        guard case .petTrickNotification(let notification) = packet else {
+            return XCTFail("Expected pet trick notification, got \(packet)")
+        }
+        XCTAssertEqual(notification.petID, 77)
+        XCTAssertEqual(notification.notificationType, 2)
+        XCTAssertEqual(notification.trickID, 515)
+        XCTAssertEqual(notification.nameID, 9200)
+
+        var observation = GatewayWorldObservation.empty
+        observation.apply(packet)
+        XCTAssertEqual(observation.lastPetTrickNotification?.trickID, 515)
+        XCTAssertNil(observation.membershipInfo)
+    }
 }
