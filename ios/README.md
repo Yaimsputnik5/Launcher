@@ -177,8 +177,9 @@ these source changes. The newer source work is documented in
 `sanctuary-audit/18-simple-packet-decoders-and-xcode-target.md`,
 `sanctuary-audit/19-starting-zone-options-and-row-consumer.md`,
 `sanctuary-audit/20-lua-command-table-and-name-formatting.md`,
-`sanctuary-audit/21-trade-packet-codecs.md` and
-`sanctuary-audit/22-store-bundle-codec.md`; none of those notes claims full
+`sanctuary-audit/21-trade-packet-codecs.md`,
+`sanctuary-audit/22-store-bundle-codec.md` and
+`sanctuary-audit/23-additional-store-catalog-codecs.md`; none of those notes claims full
 compiled-client or Lua/gameplay parity. Note 18 records an
 Xcode project omission that would have broken a build of the newer source, and
 the subsequent correction of a 25-packet batch: seven packets whose C#
@@ -195,8 +196,11 @@ exact scalar trade decoders and a scalar-only nested `ItemInstance` codec;
 packets with unresolved nested serializers still retain raw bytes. Note 22
 decodes 66/5 store bundles through the exact nested `StoreDefinition`,
 `AppStoreBundleDefinition`, `StoreBundleDefinition`, and
-`MarketingBundleDefinition` `Serialize()` field order; other store sub-opcodes
-still retain raw bytes.
+`MarketingBundleDefinition` `Serialize()` field order. Note 23 adds exact
+decoders for 66/6 category groups, 66/7 category tree, 66/9 bundle groups,
+66/11 wallet info, 66/23 subscription products, and 66/40 sale display from
+their verified `Serialize()` order, including the conditional subscription
+list; all remaining store sub-opcodes still retain raw bytes.
 
 Bundled resources now use validated relative components appended directly to
 the trusted `Bundle.main` root; there is no path-string prefix comparison and

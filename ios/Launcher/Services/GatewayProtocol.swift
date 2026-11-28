@@ -2351,6 +2351,12 @@ enum GatewayWorldPacket: Equatable {
     case inGamePurchasePaymentSources(GatewayInGamePurchasePaymentSources)
     case inGamePurchaseMarketplace(GatewayInGamePurchaseMarketplace)
     case inGamePurchaseStoreBundles(GatewayInGamePurchaseStoreBundles)
+    case storeCategoryGroups(GatewayStoreCategoryGroupsPacket)
+    case storeCategories(GatewayStoreCategoriesPacket)
+    case storeBundleGroups(GatewayStoreBundleGroupsPacket)
+    case storeWalletInfo(GatewayStoreWalletInfoResponse)
+    case subscriptionProducts(GatewaySubscriptionProductsResponse)
+    case saleDisplayUpdate(GatewaySaleDisplayUpdate)
     case objectiveTargetUpdate(GatewayObjectiveTargetUpdate)
     case objectiveClientClear(GatewayObjectiveClientClear)
     case clientArea(GatewayClientAreaUpdate)
@@ -2587,6 +2593,18 @@ enum GatewayWorldCodec {
                 return .inGamePurchaseMarketplace(try GatewayInGamePurchaseMarketplace(data: data))
             case GatewayInGamePurchaseStoreBundles.subOpcode:
                 return .inGamePurchaseStoreBundles(try GatewayInGamePurchaseStoreBundles(data: data))
+            case GatewayStoreCategoryGroupsPacket.subOpcode:
+                return .storeCategoryGroups(try GatewayStoreCategoryGroupsPacket(data: data))
+            case GatewayStoreCategoriesPacket.subOpcode:
+                return .storeCategories(try GatewayStoreCategoriesPacket(data: data))
+            case GatewayStoreBundleGroupsPacket.subOpcode:
+                return .storeBundleGroups(try GatewayStoreBundleGroupsPacket(data: data))
+            case GatewayStoreWalletInfoResponse.subOpcode:
+                return .storeWalletInfo(try GatewayStoreWalletInfoResponse(data: data))
+            case GatewaySubscriptionProductsResponse.subOpcode:
+                return .subscriptionProducts(try GatewaySubscriptionProductsResponse(data: data))
+            case GatewaySaleDisplayUpdate.subOpcode:
+                return .saleDisplayUpdate(try GatewaySaleDisplayUpdate(data: data))
             default:
                 return Self.mappedOrUnknown(opcode: opcode, data: data)
             }
@@ -2752,6 +2770,12 @@ struct GatewayWorldObservation: Equatable, Sendable {
     var inGamePurchasePaymentSources: GatewayInGamePurchasePaymentSources?
     var inGamePurchaseMarketplaceEnabled: Bool?
     var inGamePurchaseStoreBundles: GatewayInGamePurchaseStoreBundles?
+    var storeCategoryGroups: [Int32: GatewayStoreCategoryGroupDefinition]?
+    var storeCategoryTree: GatewayStoreCategoryTree?
+    var storeBundleGroups: [Int32: GatewayStoreBundleGroupDefinition]?
+    var storeWalletInfo: GatewayStoreWalletInfo?
+    var subscriptionProducts: GatewaySubscriptionProductsResponse?
+    var saleDisplays: [GatewaySaleDisplayInfo]?
     var objectiveTargetUpdate: GatewayObjectiveTargetUpdate?
     var lastClearedObjectiveUnknown: Int32?
     /// Packet-backed only: set by `PacketSetClientArea` / `PacketMOTD`.
@@ -3185,6 +3209,24 @@ struct GatewayWorldObservation: Equatable, Sendable {
         case .inGamePurchaseStoreBundles(let bundles):
             inGamePurchaseStoreBundles = bundles
             lastEvent = "Store bundles · store \(bundles.storeID) · \(bundles.store.bundles.count) bundles"
+        case .storeCategoryGroups(let groups):
+            storeCategoryGroups = groups.groups
+            lastEvent = "Store category groups · \(groups.groups.count)"
+        case .storeCategories(let categories):
+            storeCategoryTree = categories.tree
+            lastEvent = "Store categories · \(categories.tree.categories.count)"
+        case .storeBundleGroups(let groups):
+            storeBundleGroups = groups.groups
+            lastEvent = "Store bundle groups · \(groups.groups.count)"
+        case .storeWalletInfo(let wallet):
+            storeWalletInfo = wallet.wallet
+            lastEvent = "Wallet · error \(wallet.errorCode) · \(wallet.wallet.stationCash) station cash"
+        case .subscriptionProducts(let products):
+            subscriptionProducts = products
+            lastEvent = "Subscriptions · error \(products.errorCode) · \(products.membershipSKUs.count) SKUs"
+        case .saleDisplayUpdate(let update):
+            saleDisplays = update.sales
+            lastEvent = "Sale display · \(update.sales.count) entries"
         case .objectiveTargetUpdate(let update):
             objectiveTargetUpdate = update
             lastEvent = "Objective target · active \(update.active)"

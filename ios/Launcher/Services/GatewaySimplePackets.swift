@@ -1862,3 +1862,348 @@ struct GatewayInGamePurchaseStoreBundles: Equatable, Sendable {
         guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
     }
 }
+
+// MARK: - Store categories, groups, wallet, and subscriptions (66)
+
+/// `StoreBundleCategoryGroupDefinition.Serialize`.
+struct GatewayStoreCategoryGroupDefinition: Equatable, Sendable {
+    let id: Int32
+    let categoryIDs: [Int32]
+
+    init(reader: inout PacketReader) throws {
+        id = try reader.readInt32()
+        let count = try GatewayStoreCodec.readCount(&reader, "category group IDs")
+        var decoded: [Int32] = []
+        decoded.reserveCapacity(count)
+        for _ in 0..<count {
+            decoded.append(try reader.readInt32())
+        }
+        categoryIDs = decoded
+    }
+}
+
+/// `PacketInGamePurchaseStoreBundleCategoryGroups` (66/6).
+struct GatewayStoreCategoryGroupsPacket: Equatable, Sendable {
+    static let opcode: Int16 = 66
+    static let subOpcode: Int16 = 6
+
+    let groups: [Int32: GatewayStoreCategoryGroupDefinition]
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try GatewayWire.readInt16(&reader)
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        let count = try GatewayStoreCodec.readCount(&reader, "store category groups")
+        var decoded: [Int32: GatewayStoreCategoryGroupDefinition] = [:]
+        decoded.reserveCapacity(count)
+        for _ in 0..<count {
+            let key = try reader.readInt32()
+            decoded[key] = try GatewayStoreCategoryGroupDefinition(reader: &reader)
+        }
+        groups = decoded
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `StoreBundleCategoryDefinition.Serialize`.
+struct GatewayStoreCategoryDefinition: Equatable, Sendable {
+    let id: Int32
+    let nameID: Int32
+    let image: GatewayStoreImageData
+
+    init(reader: inout PacketReader) throws {
+        id = try reader.readInt32()
+        nameID = try reader.readInt32()
+        image = try GatewayStoreImageData(reader: &reader)
+    }
+}
+
+/// `StoreBundleCategoryNode.Serialize`, including its inherited base fields.
+struct GatewayStoreCategoryNode: Equatable, Sendable {
+    let category: GatewayStoreCategoryDefinition
+    let parentID: Int32
+    let count: Int32
+    let displayOrder: Int32
+
+    init(reader: inout PacketReader) throws {
+        category = try GatewayStoreCategoryDefinition(reader: &reader)
+        parentID = try reader.readInt32()
+        count = try reader.readInt32()
+        displayOrder = try reader.readInt32()
+    }
+}
+
+/// `StoreBundleCategoryTree.Serialize`.
+struct GatewayStoreCategoryTree: Equatable, Sendable {
+    let categories: [Int32: GatewayStoreCategoryNode]
+    let sorted: Bool
+
+    init(reader: inout PacketReader) throws {
+        let count = try GatewayStoreCodec.readCount(&reader, "store category tree")
+        var decoded: [Int32: GatewayStoreCategoryNode] = [:]
+        decoded.reserveCapacity(count)
+        for _ in 0..<count {
+            let key = try reader.readInt32()
+            decoded[key] = try GatewayStoreCategoryNode(reader: &reader)
+        }
+        categories = decoded
+        sorted = try reader.readBool()
+    }
+}
+
+/// `PacketInGamePurchaseStoreBundleCategories` (66/7).
+struct GatewayStoreCategoriesPacket: Equatable, Sendable {
+    static let opcode: Int16 = 66
+    static let subOpcode: Int16 = 7
+
+    let tree: GatewayStoreCategoryTree
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try GatewayWire.readInt16(&reader)
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        tree = try GatewayStoreCategoryTree(reader: &reader)
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `StoreBundleGroupDefinition.Entry.Serialize`.
+struct GatewayStoreGroupEntry: Equatable, Sendable {
+    let storeBundleID: Int32
+    let displayOrder: Int32
+
+    init(reader: inout PacketReader) throws {
+        storeBundleID = try reader.readInt32()
+        displayOrder = try reader.readInt32()
+    }
+}
+
+/// `StoreBundleGroupDefinition.Serialize`. The write order of `IsExclusive`
+/// and `Status` differs from their declaration order in C#, so the decoder
+/// follows `Serialize()`.
+struct GatewayStoreBundleGroupDefinition: Equatable, Sendable {
+    let id: Int32
+    let nameID: Int32
+    let descriptionID: Int32
+    let image: GatewayStoreImageData
+    let isExclusive: Bool
+    let status: Int32
+    let entries: [Int32: GatewayStoreGroupEntry]
+
+    init(reader: inout PacketReader) throws {
+        id = try reader.readInt32()
+        nameID = try reader.readInt32()
+        descriptionID = try reader.readInt32()
+        image = try GatewayStoreImageData(reader: &reader)
+        isExclusive = try reader.readBool()
+        status = try reader.readInt32()
+        let count = try GatewayStoreCodec.readCount(&reader, "store bundle group entries")
+        var decoded: [Int32: GatewayStoreGroupEntry] = [:]
+        decoded.reserveCapacity(count)
+        for _ in 0..<count {
+            let key = try reader.readInt32()
+            decoded[key] = try GatewayStoreGroupEntry(reader: &reader)
+        }
+        entries = decoded
+    }
+}
+
+/// `PacketInGamePurchaseStoreBundleGroups` (66/9).
+struct GatewayStoreBundleGroupsPacket: Equatable, Sendable {
+    static let opcode: Int16 = 66
+    static let subOpcode: Int16 = 9
+
+    let groups: [Int32: GatewayStoreBundleGroupDefinition]
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try GatewayWire.readInt16(&reader)
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        let count = try GatewayStoreCodec.readCount(&reader, "store bundle groups")
+        var decoded: [Int32: GatewayStoreBundleGroupDefinition] = [:]
+        decoded.reserveCapacity(count)
+        for _ in 0..<count {
+            let key = try reader.readInt32()
+            decoded[key] = try GatewayStoreBundleGroupDefinition(reader: &reader)
+        }
+        groups = decoded
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `WalletInfo.Serialize`. C# writes both strings with a maximum length of 8,
+/// but the wire representation remains an int32 byte count followed by bytes.
+struct GatewayStoreWalletInfo: Equatable, Sendable {
+    let unknown: Bool
+    let stationCash: Int32
+    let creditCardID: Int32
+    let currencyCode: String
+    let unknown5: String
+    let international: Bool
+
+    init(reader: inout PacketReader) throws {
+        unknown = try reader.readBool()
+        stationCash = try reader.readInt32()
+        creditCardID = try reader.readInt32()
+        currencyCode = try reader.readString()
+        unknown5 = try reader.readString()
+        international = try reader.readBool()
+    }
+}
+
+/// `PacketInGamePurchaseWalletInfoResponse` (66/11).
+struct GatewayStoreWalletInfoResponse: Equatable, Sendable {
+    static let opcode: Int16 = 66
+    static let subOpcode: Int16 = 11
+
+    let errorCode: Int32
+    let wallet: GatewayStoreWalletInfo
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try GatewayWire.readInt16(&reader)
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        errorCode = try reader.readInt32()
+        wallet = try GatewayStoreWalletInfo(reader: &reader)
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `MembershipSkuData.Serialize`.
+struct GatewayMembershipSKU: Equatable, Sendable {
+    let sku: String
+    let name: String
+    let description: String
+    let previewLegalText: String
+    let marketingDescription: String
+    let productLegalText: String
+    let priceLocalCurrency: Int32
+    let priceStationCash: Int32
+    let unknown9: Int32
+    let isVatTaxable: Bool
+
+    init(reader: inout PacketReader) throws {
+        sku = try reader.readString()
+        name = try reader.readString()
+        description = try reader.readString()
+        previewLegalText = try reader.readString()
+        marketingDescription = try reader.readString()
+        productLegalText = try reader.readString()
+        priceLocalCurrency = try reader.readInt32()
+        priceStationCash = try reader.readInt32()
+        unknown9 = try reader.readInt32()
+        isVatTaxable = try reader.readBool()
+    }
+}
+
+/// `PacketInGamePurchaseSubscriptionProductsResponse` (66/23). C# writes the
+/// SKU list only when `ErrorCode == 1`; other error codes leave no list bytes.
+struct GatewaySubscriptionProductsResponse: Equatable, Sendable {
+    static let opcode: Int16 = 66
+    static let subOpcode: Int16 = 23
+
+    let errorCode: Int32
+    let locale: String
+    let membershipSKUs: [GatewayMembershipSKU]
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try GatewayWire.readInt16(&reader)
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        errorCode = try reader.readInt32()
+        locale = try reader.readString()
+        if errorCode == 1 {
+            let count = try GatewayStoreCodec.readCount(&reader, "membership SKUs")
+            var decoded: [GatewayMembershipSKU] = []
+            decoded.reserveCapacity(count)
+            for _ in 0..<count {
+                decoded.append(try GatewayMembershipSKU(reader: &reader))
+            }
+            membershipSKUs = decoded
+        } else {
+            membershipSKUs = []
+        }
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `SaleDisplayInfo.Serialize`.
+struct GatewaySaleDisplayInfo: Equatable, Sendable {
+    let id: Int32
+    let iconID: Int32
+    let tintID: Int32
+    let titleID: Int32
+    let bodyID: Int32
+    let secondsLeft: Int32
+    let unknown: Int32
+    let isMembership: Bool
+
+    init(reader: inout PacketReader) throws {
+        id = try reader.readInt32()
+        iconID = try reader.readInt32()
+        tintID = try reader.readInt32()
+        titleID = try reader.readInt32()
+        bodyID = try reader.readInt32()
+        secondsLeft = try reader.readInt32()
+        unknown = try reader.readInt32()
+        isMembership = try reader.readBool()
+    }
+}
+
+/// `InGamePurchaseUpdateSaleDisplay` (66/40).
+struct GatewaySaleDisplayUpdate: Equatable, Sendable {
+    static let opcode: Int16 = 66
+    static let subOpcode: Int16 = 40
+
+    let sales: [GatewaySaleDisplayInfo]
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try GatewayWire.readInt16(&reader)
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        let count = try GatewayStoreCodec.readCount(&reader, "sale displays")
+        var decoded: [GatewaySaleDisplayInfo] = []
+        decoded.reserveCapacity(count)
+        for _ in 0..<count {
+            decoded.append(try GatewaySaleDisplayInfo(reader: &reader))
+        }
+        sales = decoded
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}

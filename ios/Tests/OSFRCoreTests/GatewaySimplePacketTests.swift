@@ -1284,4 +1284,167 @@ final class GatewaySimplePacketTests: XCTestCase {
         badCount.writeInt32(-1)
         XCTAssertThrowsError(try GatewayWorldCodec.decodeAny(badCount.data))
     }
+
+    func testAdditionalStorePacketsUseExactCSharpFieldOrder() throws {
+        func writeHeader(_ sub: Int16, to writer: inout PacketWriter) {
+            GatewayWire.appendInt16(66, to: &writer.data)
+            GatewayWire.appendInt16(sub, to: &writer.data)
+        }
+
+        var groupsWriter = PacketWriter()
+        writeHeader(6, to: &groupsWriter)
+        groupsWriter.writeInt32(1)
+        groupsWriter.writeInt32(5)
+        groupsWriter.writeInt32(5)
+        groupsWriter.writeInt32(2)
+        groupsWriter.writeInt32(11)
+        groupsWriter.writeInt32(12)
+        let groupsPacket = try GatewayWorldCodec.decodeAny(groupsWriter.data)
+        guard case .storeCategoryGroups(let groups) = groupsPacket else {
+            return XCTFail("Expected store category groups, got \(groupsPacket)")
+        }
+        XCTAssertEqual(groups.groups[5]?.categoryIDs, [11, 12])
+
+        var categoriesWriter = PacketWriter()
+        writeHeader(7, to: &categoriesWriter)
+        categoriesWriter.writeInt32(1)
+        categoriesWriter.writeInt32(20)
+        categoriesWriter.writeInt32(20)
+        categoriesWriter.writeInt32(700)
+        categoriesWriter.writeString("Category.dds")
+        categoriesWriter.writeString("FFFFFFFF")
+        categoriesWriter.writeInt32(3)
+        categoriesWriter.writeInt32(4)
+        categoriesWriter.writeInt32(5)
+        categoriesWriter.writeBool(true)
+        let categoriesPacket = try GatewayWorldCodec.decodeAny(categoriesWriter.data)
+        guard case .storeCategories(let categories) = categoriesPacket else {
+            return XCTFail("Expected store categories, got \(categoriesPacket)")
+        }
+        XCTAssertTrue(categories.tree.sorted)
+        let categoryNode = try XCTUnwrap(categories.tree.categories[20])
+        XCTAssertEqual(categoryNode.category.image.image, "Category.dds")
+        XCTAssertEqual(categoryNode.parentID, 3)
+        XCTAssertEqual(categoryNode.count, 4)
+        XCTAssertEqual(categoryNode.displayOrder, 5)
+
+        var bundleGroupsWriter = PacketWriter()
+        writeHeader(9, to: &bundleGroupsWriter)
+        bundleGroupsWriter.writeInt32(1)
+        bundleGroupsWriter.writeInt32(30)
+        bundleGroupsWriter.writeInt32(30)
+        bundleGroupsWriter.writeInt32(800)
+        bundleGroupsWriter.writeInt32(801)
+        bundleGroupsWriter.writeString("")
+        bundleGroupsWriter.writeString("")
+        bundleGroupsWriter.writeBool(true)
+        bundleGroupsWriter.writeInt32(2)
+        bundleGroupsWriter.writeInt32(1)
+        bundleGroupsWriter.writeInt32(900)
+        bundleGroupsWriter.writeInt32(900)
+        bundleGroupsWriter.writeInt32(7)
+        let bundleGroupsPacket = try GatewayWorldCodec.decodeAny(bundleGroupsWriter.data)
+        guard case .storeBundleGroups(let bundleGroups) = bundleGroupsPacket else {
+            return XCTFail("Expected store bundle groups, got \(bundleGroupsPacket)")
+        }
+        XCTAssertTrue(bundleGroups.groups[30]?.isExclusive == true)
+        XCTAssertEqual(bundleGroups.groups[30]?.status, 2)
+        XCTAssertEqual(bundleGroups.groups[30]?.entries[900]?.displayOrder, 7)
+
+        var walletWriter = PacketWriter()
+        writeHeader(11, to: &walletWriter)
+        walletWriter.writeInt32(0)
+        walletWriter.writeBool(false)
+        walletWriter.writeInt32(12_345)
+        walletWriter.writeInt32(4)
+        walletWriter.writeString("USD")
+        walletWriter.writeString("")
+        walletWriter.writeBool(true)
+        let walletPacket = try GatewayWorldCodec.decodeAny(walletWriter.data)
+        guard case .storeWalletInfo(let wallet) = walletPacket else {
+            return XCTFail("Expected store wallet info, got \(walletPacket)")
+        }
+        XCTAssertEqual(wallet.errorCode, 0)
+        XCTAssertEqual(wallet.wallet.stationCash, 12_345)
+        XCTAssertEqual(wallet.wallet.currencyCode, "USD")
+        XCTAssertTrue(wallet.wallet.international)
+
+        var subscriptionsWriter = PacketWriter()
+        writeHeader(23, to: &subscriptionsWriter)
+        subscriptionsWriter.writeInt32(1)
+        subscriptionsWriter.writeString("en_US")
+        subscriptionsWriter.writeInt32(1)
+        subscriptionsWriter.writeString("premium")
+        subscriptionsWriter.writeString("Premium")
+        subscriptionsWriter.writeString("Premium description")
+        subscriptionsWriter.writeString("Preview legal")
+        subscriptionsWriter.writeString("Marketing legal")
+        subscriptionsWriter.writeString("Product legal")
+        subscriptionsWriter.writeInt32(999)
+        subscriptionsWriter.writeInt32(499)
+        subscriptionsWriter.writeInt32(42)
+        subscriptionsWriter.writeBool(true)
+        let subscriptionsPacket = try GatewayWorldCodec.decodeAny(subscriptionsWriter.data)
+        guard case .subscriptionProducts(let subscriptions) = subscriptionsPacket else {
+            return XCTFail("Expected subscription products, got \(subscriptionsPacket)")
+        }
+        XCTAssertEqual(subscriptions.locale, "en_US")
+        XCTAssertEqual(subscriptions.membershipSKUs.first?.sku, "premium")
+        XCTAssertEqual(subscriptions.membershipSKUs.first?.priceStationCash, 499)
+        XCTAssertTrue(subscriptions.membershipSKUs.first?.isVatTaxable == true)
+
+        var errorSubscriptionsWriter = PacketWriter()
+        writeHeader(23, to: &errorSubscriptionsWriter)
+        errorSubscriptionsWriter.writeInt32(2)
+        errorSubscriptionsWriter.writeString("en_US")
+        let errorSubscriptionsPacket = try GatewayWorldCodec.decodeAny(errorSubscriptionsWriter.data)
+        guard case .subscriptionProducts(let errorSubscriptions) = errorSubscriptionsPacket else {
+            return XCTFail("Expected subscription products error, got \(errorSubscriptionsPacket)")
+        }
+        XCTAssertTrue(errorSubscriptions.membershipSKUs.isEmpty)
+
+        var salesWriter = PacketWriter()
+        writeHeader(40, to: &salesWriter)
+        salesWriter.writeInt32(1)
+        salesWriter.writeInt32(1001)
+        salesWriter.writeInt32(1002)
+        salesWriter.writeInt32(1003)
+        salesWriter.writeInt32(1004)
+        salesWriter.writeInt32(1005)
+        salesWriter.writeInt32(600)
+        salesWriter.writeInt32(7)
+        salesWriter.writeBool(true)
+        let salesPacket = try GatewayWorldCodec.decodeAny(salesWriter.data)
+        guard case .saleDisplayUpdate(let sales) = salesPacket else {
+            return XCTFail("Expected sale display update, got \(salesPacket)")
+        }
+        XCTAssertEqual(sales.sales.first?.id, 1001)
+        XCTAssertEqual(sales.sales.first?.secondsLeft, 600)
+        XCTAssertTrue(sales.sales.first?.isMembership == true)
+
+        var observation = GatewayWorldObservation.empty
+        for packet in [
+            groupsPacket,
+            categoriesPacket,
+            bundleGroupsPacket,
+            walletPacket,
+            subscriptionsPacket,
+            salesPacket
+        ] {
+            observation.apply(packet)
+        }
+        XCTAssertEqual(observation.storeCategoryGroups?[5]?.categoryIDs, [11, 12])
+        let observedCategoryNode = try XCTUnwrap(observation.storeCategoryTree?.categories[20])
+        XCTAssertEqual(observedCategoryNode.category.nameID, 700)
+        XCTAssertEqual(observation.storeBundleGroups?[30]?.entries[900]?.storeBundleID, 900)
+        XCTAssertEqual(observation.storeWalletInfo?.stationCash, 12_345)
+        XCTAssertEqual(observation.subscriptionProducts?.membershipSKUs.count, 1)
+        XCTAssertEqual(observation.saleDisplays?.first?.unknown, 7)
+        XCTAssertTrue(observation.positions.isEmpty)
+
+        var badCount = PacketWriter()
+        writeHeader(40, to: &badCount)
+        badCount.writeInt32(-1)
+        XCTAssertThrowsError(try GatewayWorldCodec.decodeAny(badCount.data))
+    }
 }
