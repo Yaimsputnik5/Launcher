@@ -139,6 +139,77 @@ struct GatewayExecuteScriptStringParams: Equatable, Sendable {
     }
 }
 
+/// `PacketPointOfInterestDefinitionReply` (57). C# writes a single
+/// length-prefixed payload byte array; the bytes remain undecoded raw data.
+struct GatewayPOIDefinitionReply: Equatable, Sendable {
+    static let opcode: Int16 = 57
+
+    let payload: Data
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        payload = try reader.readData()
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `BaseInspectPacket` (149) / `StartInspectPacket` (1). The payload follows
+/// the GUID and boolean and is preserved verbatim; no inspect content is parsed.
+struct GatewayStartInspect: Equatable, Sendable {
+    static let opcode: Int16 = 149
+    static let subOpcode: UInt8 = 1
+
+    let guid: UInt64
+    let showPedestal: Bool
+    let payload: Data
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try reader.readUInt8()
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedInternalOpcode(expected: Self.subOpcode, actual: sub)
+        }
+        guid = try reader.readUInt64()
+        showPedestal = try reader.readBool()
+        payload = try reader.readData()
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
+/// `BasePlayerTitlePacket` (152) / `PlayerTitleUpdateAllPacket` (3). The C#
+/// payload is not interpreted here; its bytes are retained as received.
+struct GatewayPlayerTitleUpdateAll: Equatable, Sendable {
+    static let opcode: Int16 = 152
+    static let subOpcode: Int32 = 3
+
+    let payload: Data
+
+    init(data: Data) throws {
+        var reader = PacketReader(Data(data))
+        let opcode = try GatewayWire.readInt16(&reader)
+        guard opcode == Self.opcode else {
+            throw GatewayProtocolError.unexpectedOpcode(expected: Self.opcode, actual: opcode)
+        }
+        let sub = try reader.readInt32()
+        guard sub == Self.subOpcode else {
+            throw GatewayProtocolError.unexpectedOpcode(
+                expected: Int16(Self.subOpcode),
+                actual: Int16(truncatingIfNeeded: sub)
+            )
+        }
+        payload = try reader.readData()
+        guard reader.isAtEnd else { throw GatewayProtocolError.trailingBytes(reader.remaining) }
+    }
+}
+
 /// `BaseClientUpdatePacket` (38) / `ClientUpdatePacketMana` (13).
 struct GatewayManaUpdate: Equatable, Sendable {
     static let opcode: Int16 = 38

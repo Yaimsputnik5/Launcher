@@ -2369,6 +2369,9 @@ enum GatewayWorldPacket: Equatable {
     case storeBundleContent(GatewayStoreBundleContentResponse)
     case storeItemRequirements(GatewayStoreItemRequirementsReply)
     case zoneBroadcast(GatewayZoneBroadcast)
+    case poiDefinitionReply(GatewayPOIDefinitionReply)
+    case startInspect(GatewayStartInspect)
+    case playerTitleUpdateAll(GatewayPlayerTitleUpdateAll)
     case executeScript(GatewayExecuteScript)
     case executeScriptStringParams(GatewayExecuteScriptStringParams)
     case housingInstanceList(GatewayHousingInstanceList)
@@ -2500,6 +2503,24 @@ enum GatewayWorldCodec {
                 return .itemUpdate(try GatewayItemUpdate(data: data))
             case GatewayImmediateActivationCheck.subOpcode:
                 return .immediateActivationCheck(try GatewayImmediateActivationCheck(data: data))
+            default:
+                return Self.mappedOrUnknown(opcode: opcode, data: data)
+            }
+        case GatewayPOIDefinitionReply.opcode:
+            return .poiDefinitionReply(try GatewayPOIDefinitionReply(data: data))
+        case GatewayStartInspect.opcode:
+            let sub = try reader.readUInt8()
+            switch sub {
+            case GatewayStartInspect.subOpcode:
+                return .startInspect(try GatewayStartInspect(data: data))
+            default:
+                return Self.mappedOrUnknown(opcode: opcode, data: data)
+            }
+        case GatewayPlayerTitleUpdateAll.opcode:
+            let sub = try reader.readInt32()
+            switch sub {
+            case GatewayPlayerTitleUpdateAll.subOpcode:
+                return .playerTitleUpdateAll(try GatewayPlayerTitleUpdateAll(data: data))
             default:
                 return Self.mappedOrUnknown(opcode: opcode, data: data)
             }
@@ -2848,6 +2869,9 @@ struct GatewayWorldObservation: Equatable, Sendable {
     var storeBundleContentResponses: [GatewayStoreBundleContentResponseItem]?
     var storeItemRequirements: [GatewayStoreItemRequirementUpdate]?
     var lastZoneBroadcast: GatewayZoneBroadcast?
+    var lastPOIDefinitionReply: GatewayPOIDefinitionReply?
+    var lastStartInspect: GatewayStartInspect?
+    var lastPlayerTitleUpdateAll: GatewayPlayerTitleUpdateAll?
     var lastExecuteScript: GatewayExecuteScript?
     var lastExecuteScriptStringParams: GatewayExecuteScriptStringParams?
     var housingInstanceList: GatewayHousingInstanceList?
@@ -3339,6 +3363,15 @@ struct GatewayWorldObservation: Equatable, Sendable {
         case .zoneBroadcast(let broadcast):
             lastZoneBroadcast = broadcast
             lastEvent = "Zone broadcast · \(broadcast.messageID)"
+        case .poiDefinitionReply(let reply):
+            lastPOIDefinitionReply = reply
+            lastEvent = "POI definitions · \(reply.payload.count) raw bytes"
+        case .startInspect(let inspect):
+            lastStartInspect = inspect
+            lastEvent = "Inspect · \(inspect.guid) · \(inspect.payload.count) raw bytes"
+        case .playerTitleUpdateAll(let titles):
+            lastPlayerTitleUpdateAll = titles
+            lastEvent = "Title payload · \(titles.payload.count) raw bytes"
         case .executeScript(let script):
             lastExecuteScript = script
             lastEvent = "UI method · \(script.script) · \(script.parameters.count) int args"

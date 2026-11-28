@@ -1864,4 +1864,51 @@ final class GatewaySimplePacketTests: XCTestCase {
         invalid.writeInt32(-1)
         XCTAssertThrowsError(try GatewayWorldCodec.decodeAny(invalid.data))
     }
+
+    func testRawPayloadPacketsKeepPayloadBytesWithoutInterpretingThem() throws {
+        let poiBytes = Data([0x01, 0x02, 0x03])
+        var poiWriter = PacketWriter()
+        GatewayWire.appendInt16(GatewayPOIDefinitionReply.opcode, to: &poiWriter.data)
+        poiWriter.writeData(poiBytes)
+        let poiPacket = try GatewayWorldCodec.decodeAny(poiWriter.data)
+        guard case .poiDefinitionReply(let reply) = poiPacket else {
+            return XCTFail("Expected POI definition reply, got \(poiPacket)")
+        }
+        XCTAssertEqual(reply.payload, poiBytes)
+
+        let inspectBytes = Data([0xAA, 0xBB])
+        var inspectWriter = PacketWriter()
+        GatewayWire.appendInt16(GatewayStartInspect.opcode, to: &inspectWriter.data)
+        inspectWriter.writeUInt8(GatewayStartInspect.subOpcode)
+        inspectWriter.writeUInt64(0x4455)
+        inspectWriter.writeBool(true)
+        inspectWriter.writeData(inspectBytes)
+        let inspectPacket = try GatewayWorldCodec.decodeAny(inspectWriter.data)
+        guard case .startInspect(let inspect) = inspectPacket else {
+            return XCTFail("Expected start inspect, got \(inspectPacket)")
+        }
+        XCTAssertEqual(inspect.guid, 0x4455)
+        XCTAssertTrue(inspect.showPedestal)
+        XCTAssertEqual(inspect.payload, inspectBytes)
+
+        let titleBytes = Data([0x10, 0x20])
+        var titleWriter = PacketWriter()
+        GatewayWire.appendInt16(GatewayPlayerTitleUpdateAll.opcode, to: &titleWriter.data)
+        titleWriter.writeInt32(GatewayPlayerTitleUpdateAll.subOpcode)
+        titleWriter.writeData(titleBytes)
+        let titlePacket = try GatewayWorldCodec.decodeAny(titleWriter.data)
+        guard case .playerTitleUpdateAll(let titles) = titlePacket else {
+            return XCTFail("Expected title update, got \(titlePacket)")
+        }
+        XCTAssertEqual(titles.payload, titleBytes)
+
+        var observation = GatewayWorldObservation.empty
+        for packet in [poiPacket, inspectPacket, titlePacket] {
+            observation.apply(packet)
+        }
+        XCTAssertEqual(observation.lastPOIDefinitionReply?.payload, poiBytes)
+        XCTAssertEqual(observation.lastStartInspect?.payload, inspectBytes)
+        XCTAssertEqual(observation.lastPlayerTitleUpdateAll?.payload, titleBytes)
+        XCTAssertNil(observation.lastExecuteScript)
+    }
 }
